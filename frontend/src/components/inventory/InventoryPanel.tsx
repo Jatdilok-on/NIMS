@@ -70,6 +70,12 @@ const STATUS_LED_STATIC_CLASS: Record<DeviceStatus, string> = {
   UNKNOWN: 'nims-led-core nims-led-unknown',
 };
 
+function isDeviceAgentLive(dev: Device): boolean {
+  if (typeof dev.agentLive === 'boolean') return dev.agentLive;
+  if (!dev.lastPingAt) return false;
+  return Date.now() - new Date(dev.lastPingAt).getTime() <= 3 * 60 * 1000;
+}
+
 function DeviceStatusPill({
   status,
   live = false,
@@ -679,7 +685,7 @@ export function InventoryPanel({
                     <td className="px-4 py-2.5">
                       <DeviceStatusPill
                         status={dev.status}
-                        live={Boolean(dev.agentLive)}
+                        live={isDeviceAgentLive(dev)}
                         canEdit={canEdit}
                         onChange={(nextStatus) => handleQuickStatusChange(dev, nextStatus)}
                       />
@@ -751,7 +757,7 @@ export function InventoryPanel({
                   {CATEGORY_LABELS[dev.category]} • {dev.model || 'Unknown model'}
                 </div>
               </div>
-              <DeviceStatusPill status={dev.status} live={Boolean(dev.agentLive)} />
+              <DeviceStatusPill status={dev.status} live={isDeviceAgentLive(dev)} />
             </div>
             <div className="grid grid-cols-2 gap-1 text-xs text-slate-600 dark:text-slate-400">
               <div>IP: <span className="font-mono">{dev.managementIp || '-'}</span></div>
@@ -831,7 +837,7 @@ export function InventoryPanel({
                     {selectedDevice.site?.siteCode} • {CATEGORY_LABELS[selectedDevice.category]}
                   </p>
                 </div>
-                <DeviceStatusPill status={selectedDevice.status} live={Boolean(selectedDevice.agentLive)} />
+                <DeviceStatusPill status={selectedDevice.status} live={isDeviceAgentLive(selectedDevice)} />
               </div>
               <div className="flex items-center gap-2">
                 {canEdit && (
