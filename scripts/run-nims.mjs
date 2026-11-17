@@ -69,7 +69,8 @@ function runSync(cmd, args, cwd, extraEnv = {}) {
 
 function startConcurrent(envVars, mode) {
   const backendArgs = mode === 'start' ? ['run', 'start'] : ['run', 'dev'];
-  const frontendArgs = mode === 'start' ? ['run', 'start'] : ['run', 'dev'];
+  const frontendPort = envVars.FRONTEND_PORT || process.env.FRONTEND_PORT || '3000';
+  const frontendHost = envVars.FRONTEND_HOST || process.env.FRONTEND_HOST || '';
 
   const sharedEnv = {
     ...process.env,
@@ -85,16 +86,43 @@ function startConcurrent(envVars, mode) {
     env: sharedEnv,
   });
 
-  console.log('[NIMS] Starting Frontend on http://localhost:3000 ...');
-  const frontend = spawn(npmCmd, frontendArgs, {
-    cwd: FRONTEND_DIR,
-    stdio: 'inherit',
-    shell: process.platform === 'win32',
-    env: {
-      ...sharedEnv,
-      INTERNAL_API_URL: sharedEnv.INTERNAL_API_URL || `http://127.0.0.1:${sharedEnv.PORT || '4000'}/api`,
-    },
-  });
+  const nextBin = path.join(FRONTEND_DIR, 'node_modules', 'next', 'dist', 'bin', 'next');
+  const useCustomFrontendBind =
+    fs.existsSync(nextBin) && (frontendPort !== '3000' || Boolean(frontendHost));
+
+  console.log(
+    `[NIMS] Starting Frontend on http://${frontendHost || 'localhost'}:${frontendPort} ...`,
+  );
+  const frontend = useCustomFrontendBind
+    ? spawn(
+        process.execPath,
+        [
+          nextBin,
+          mode === 'start' ? 'start' : 'dev',
+          '-p',
+          String(frontendPort),
+          ...(frontendHost ? ['-H', String(frontendHost)] : []),
+        ],
+        {
+          cwd: FRONTEND_DIR,
+          stdio: 'inherit',
+          env: {
+            ...sharedEnv,
+            INTERNAL_API_URL:
+              sharedEnv.INTERNAL_API_URL || `http://127.0.0.1:${sharedEnv.PORT || '4000'}/api`,
+          },
+        },
+      )
+    : spawn(npmCmd, mode === 'start' ? ['run', 'start'] : ['run', 'dev'], {
+        cwd: FRONTEND_DIR,
+        stdio: 'inherit',
+        shell: process.platform === 'win32',
+        env: {
+          ...sharedEnv,
+          INTERNAL_API_URL:
+            sharedEnv.INTERNAL_API_URL || `http://127.0.0.1:${sharedEnv.PORT || '4000'}/api`,
+        },
+      });
 
   let shuttingDown = false;
   const shutdown = (signal) => {
