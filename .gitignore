@@ -1,0 +1,34 @@
+# Dependencies
+node_modules/
+*/node_modules/
+
+# Build outputs & Next.js artifacts
+backend/dist/
+frontend/.next/
+frontend/out/
+*.tsbuildinfo
+
+# Environment files & secrets (KEEP .env.example!)
+.env
+.env.*
+!.env.example
+backend/.env
+backend/.env.*
+frontend/.env
+frontend/.env.*
+
+# Runtime user data, uploads & DB backups
+backend/data/
+uploads/
+backups/
+
+# Generated patch & release archives
+*.zip
+*.tar.gz
+
+# Logs & OS temp files
+logs/
+*.log
+*.tmp*
+.DS_Store
+Thumbs.db

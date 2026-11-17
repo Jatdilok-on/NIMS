@@ -1,0 +1,195 @@
+@import "tailwindcss";
+@import "@xyflow/react/dist/style.css";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+:root,
+[data-theme="light"] {
+  --nims-primary: #0f2942;
+  --nims-primary-hover: #173a5e;
+  --nims-secondary: #2563eb;
+  --nims-sidebar: #0b192c;
+  --nims-sidebar-border: rgba(56, 189, 248, 0.14);
+  --nims-bg: #eef3f9;
+  --nims-surface: #ffffff;
+  --nims-glass: rgba(255, 255, 255, 0.82);
+  --nims-border: #dce4f0;
+  --nims-text: #0f172a;
+  --nims-muted: #64748b;
+  --nims-glow: rgba(37, 99, 235, 0.22);
+  --nims-grid: rgba(15, 41, 66, 0.045);
+}
+
+.dark,
+[data-theme="dark"] {
+  --nims-primary: #1e3a5f;
+  --nims-primary-hover: #284b7a;
+  --nims-secondary: #3b82f6;
+  --nims-sidebar: #070d1a;
+  --nims-sidebar-border: rgba(59, 130, 246, 0.18);
+  --nims-bg: #080e1c;
+  --nims-surface: #0f172a;
+  --nims-glass: rgba(15, 23, 42, 0.78);
+  --nims-border: #1e293b;
+  --nims-text: #f1f5f9;
+  --nims-muted: #94a3b8;
+  --nims-glow: rgba(59, 130, 246, 0.32);
+  --nims-grid: rgba(59, 130, 246, 0.06);
+}
+
+[data-theme="midnight"] {
+  --nims-primary: #0e3a5c;
+  --nims-primary-hover: #155280;
+  --nims-secondary: #06b6d4;
+  --nims-sidebar: #040a16;
+  --nims-sidebar-border: rgba(6, 182, 212, 0.24);
+  --nims-bg: #040b18;
+  --nims-surface: #0a162b;
+  --nims-glass: rgba(10, 22, 43, 0.78);
+  --nims-border: #132a4f;
+  --nims-text: #e0f2fe;
+  --nims-muted: #7dd3fc;
+  --nims-glow: rgba(6, 182, 212, 0.36);
+  --nims-grid: rgba(6, 182, 212, 0.075);
+}
+
+[data-theme="emerald"] {
+  --nims-primary: #064e3b;
+  --nims-primary-hover: #065f46;
+  --nims-secondary: #10b981;
+  --nims-sidebar: #052e23;
+  --nims-sidebar-border: rgba(16, 185, 129, 0.22);
+  --nims-bg: #eefbf5;
+  --nims-surface: #ffffff;
+  --nims-glass: rgba(255, 255, 255, 0.82);
+  --nims-border: #cdeee0;
+  --nims-text: #06281e;
+  --nims-muted: #4b7063;
+  --nims-glow: rgba(16, 185, 129, 0.24);
+  --nims-grid: rgba(6, 78, 59, 0.045);
+}
+
+[data-theme="indigo"] {
+  --nims-primary: #1e1b4b;
+  --nims-primary-hover: #312e81;
+  --nims-secondary: #6366f1;
+  --nims-sidebar: #131136;
+  --nims-sidebar-border: rgba(99, 102, 241, 0.24);
+  --nims-bg: #f3f4ff;
+  --nims-surface: #ffffff;
+  --nims-glass: rgba(255, 255, 255, 0.82);
+  --nims-border: #dce0fa;
+  --nims-text: #1e1b4b;
+  --nims-muted: #636692;
+  --nims-glow: rgba(99, 102, 241, 0.24);
+  --nims-grid: rgba(49, 46, 129, 0.045);
+}
+
+[data-theme="nord"] {
+  --nims-primary: #2e3440;
+  --nims-primary-hover: #3b4252;
+  --nims-secondary: #38bdf8;
+  --nims-sidebar: #161b25;
+  --nims-sidebar-border: rgba(56, 189, 248, 0.18);
+  --nims-bg: #1c222e;
+  --nims-surface: #242b39;
+  --nims-glass: rgba(36, 43, 57, 0.82);
+  --nims-border: #323c4e;
+  --nims-text: #eceff4;
+  --nims-muted: #9aa7bd;
+  --nims-glow: rgba(56, 189, 248, 0.28);
+  --nims-grid: rgba(56, 189, 248, 0.055);
+}
+
+body {
+  background-color: var(--nims-bg);
+  color: var(--nims-text);
+  font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  transition: background-color 150ms ease, color 150ms ease;
+}
+
+/* High-tech NOC Engineering Grid Backdrop */
+.nims-cyber-bg {
+  background-image:
+    radial-gradient(circle at 85% 0%, var(--nims-glow) 0%, transparent 42%),
+    radial-gradient(circle at 10% 90%, var(--nims-glow) 0%, transparent 38%),
+    linear-gradient(to right, var(--nims-grid) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--nims-grid) 1px, transparent 1px);
+  background-size: 100% 100%, 100% 100%, 28px 28px, 28px 28px;
+}
+
+.nims-glass-header {
+  background-color: var(--nims-glass);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+}
+
+.nims-card {
+  background-color: var(--nims-surface);
+  border: 1px solid var(--nims-border);
+  box-shadow: 0 4px 20px -8px rgba(2, 6, 23, 0.12);
+  transition: transform 180ms cubic-bezier(0.22, 1, 0.36, 1), border-color 180ms ease, box-shadow 180ms ease;
+}
+
+.nims-card:hover {
+  border-color: color-mix(in srgb, var(--nims-secondary) 45%, var(--nims-border));
+  box-shadow: 0 10px 28px -10px var(--nims-glow);
+}
+
+.nims-icon-orb {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 0.75rem;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.25), 0 4px 12px -3px var(--nims-glow);
+}
+
+@keyframes nims-radar-pulse {
+  0% {
+    transform: scale(0.95);
+    opacity: 0.75;
+  }
+  70% {
+    transform: scale(1.9);
+    opacity: 0;
+  }
+  100% {
+    transform: scale(1.9);
+    opacity: 0;
+  }
+}
+
+.nims-pulse-ring::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 9999px;
+  background-color: currentColor;
+  animation: nims-radar-pulse 2.2s cubic-bezier(0.22, 1, 0.36, 1) infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .nims-pulse-ring::after {
+    animation: none;
+  }
+  .nims-card {
+    transition: none;
+  }
+}
+
+/* Custom subtle scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(100, 116, 139, 0.35);
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(100, 116, 139, 0.6);
+}

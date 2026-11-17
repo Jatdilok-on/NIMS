@@ -1,0 +1,18 @@
+{
+  "name": "nims",
+  "version": "1.0.0",
+  "private": true,
+  "description": "NIMS - Network Infrastructure Management System (Direct Node.js + MongoDB Runner)",
+  "author": "AUTOMOTIONWORKS",
+  "license": "SEE LICENSE IN LICENSE",
+  "scripts": {
+    "install:all": "node scripts/run-nims.mjs install",
+    "mongo:init-rs": "node scripts/run-nims.mjs init-rs",
+    "setup:db": "node scripts/run-nims.mjs setup-db",
+    "dev": "node scripts/run-nims.mjs dev",
+    "build": "node scripts/run-nims.mjs build",
+    "start": "node scripts/run-nims.mjs start",
+    "fast": "node scripts/run-nims.mjs fast",
+    "test": "npm --prefix backend test"
+  }
+}

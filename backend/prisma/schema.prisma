@@ -1,0 +1,766 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mongodb"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================================================
+// ENUMS
+// ============================================================================
+
+enum RoleCode {
+  SUPER_ADMIN
+  SITE_ADMIN
+  NETWORK_ENGINEER
+  VIEWER
+  IP_VIEWER
+}
+
+enum DeviceCategory {
+  SWITCH
+  ACCESS_POINT
+  AP_CLIENT
+  WLC
+  SERVER
+  PLC
+  ESXI
+  VM
+  NAS
+  UPS
+  IP_CAM
+  PC
+  NVR
+  TV
+  PRINTER
+  BARCODE
+}
+
+enum DeviceStatus {
+  ONLINE
+  OFFLINE
+  MAINTENANCE
+  UNKNOWN
+}
+
+enum IpAllocationStatus {
+  AVAILABLE
+  ALLOCATED
+  RESERVED
+  GATEWAY
+  DHCP
+}
+
+enum LoginType {
+  SSH
+  HTTPS
+  HTTP
+  WINBOX
+  RDP
+  VPN
+  CONSOLE
+  WEB_GUI
+  OTHER
+}
+
+enum DiagramKind {
+  EDITOR
+  UPLOADED
+}
+
+enum DiagramFileFormat {
+  JSON
+  PNG
+  JPG
+  SVG
+  PDF
+  DRAWIO
+  XML
+  VSDX
+}
+
+enum DocumentCategory {
+  NETWORK_DESIGN
+  NETWORK_DIAGRAM
+  CONFIGURATION_BACKUP
+  IP_ADDRESS_PLAN
+  PROJECT_SPECIFICATION
+  INSTALLATION_REPORT
+  MAINTENANCE_REPORT
+  USER_MANUAL
+  VENDOR_DOCUMENTS
+  OTHER
+}
+
+enum MaintenanceType {
+  PREVENTIVE
+  CORRECTIVE
+  FIRMWARE_UPGRADE
+  HARDWARE_REPLACEMENT
+  INSPECTION
+  EMERGENCY
+}
+
+enum MaintenanceStatus {
+  SCHEDULED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+enum AuditResult {
+  SUCCESS
+  DENIED
+  FAILURE
+}
+
+enum BackupType {
+  MANUAL
+  SCHEDULED
+}
+
+enum BackupSchedule {
+  NONE
+  DAILY
+  WEEKLY
+  MONTHLY
+}
+
+enum BackupStatus {
+  RUNNING
+  COMPLETED
+  FAILED
+  RESTORED
+}
+
+// ============================================================================
+// 1. IDENTITY, RBAC & SESSIONS
+// ============================================================================
+
+model Role {
+  id          String   @id @default(auto()) @map("_id") @db.ObjectId
+  code        RoleCode @unique
+  name        String
+  description String?
+  isSystem    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  users           User[]
+  rolePermissions RolePermission[]
+
+  @@map("roles")
+}
+
+model Permission {
+  id          String   @id @default(auto()) @map("_id") @db.ObjectId
+  code        String   @unique
+  module      String
+  action      String
+  description String?
+  createdAt   DateTime @default(now())
+
+  rolePermissions RolePermission[]
+
+  @@map("permissions")
+}
+
+model RolePermission {
+  id           String @id @default(auto()) @map("_id") @db.ObjectId
+  roleId       String @db.ObjectId
+  permissionId String @db.ObjectId
+
+  role       Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@unique([roleId, permissionId])
+  @@map("role_permissions")
+}
+
+model User {
+  id           String    @id @default(auto()) @map("_id") @db.ObjectId
+  username     String    @unique
+  email        String    @unique
+  fullName     String
+  passwordHash String
+  roleId             String    @db.ObjectId
+  isActive           Boolean   @default(true)
+  mustChangePassword Boolean   @default(false)
+  lastLoginAt        DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  role               Role                 @relation(fields: [roleId], references: [id])
+  sitePermissions    UserSitePermission[]
+  sessions           Session[]
+  auditLogs          AuditLog[]
+  uploadedDocuments  Document[]           @relation("DocumentUploader")
+  documentVersions   DocumentVersion[]    @relation("DocumentVersionUploader")
+  createdDiagrams    Diagram[]            @relation("DiagramCreator")
+  diagramVersions    DiagramVersion[]     @relation("DiagramVersionCreator")
+  createdCredentials Credential[]         @relation("CredentialCreator")
+  maintenanceRecords MaintenanceRecord[]  @relation("MaintenanceEngineer")
+  backupJobs         BackupJob[]          @relation("BackupInitiator")
+
+  @@index([roleId])
+  @@index([isActive])
+  @@map("users")
+}
+
+model Session {
+  id        String    @id @default(auto()) @map("_id") @db.ObjectId
+  userId    String    @db.ObjectId
+  tokenHash String    @unique
+  ipAddress String?
+  userAgent String?
+  expiresAt DateTime
+  revokedAt DateTime?
+  createdAt DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@map("sessions")
+}
+
+model UserSitePermission {
+  id                 String   @id @default(auto()) @map("_id") @db.ObjectId
+  userId             String   @db.ObjectId
+  siteId             String   @db.ObjectId
+  canViewInventory   Boolean  @default(true)
+  canEditInventory   Boolean  @default(false)
+  canViewDiagram     Boolean  @default(true)
+  canEditDiagram     Boolean  @default(false)
+  canViewIpam        Boolean  @default(true)
+  canEditIpam        Boolean  @default(false)
+  canViewDocuments   Boolean  @default(true)
+  canEditDocuments   Boolean  @default(false)
+  canDeleteDocuments Boolean  @default(false)
+  canViewCredentials Boolean  @default(false)
+  canEditCredentials Boolean  @default(false)
+  canViewMaintenance Boolean  @default(true)
+  canEditMaintenance Boolean  @default(false)
+  canManageSite      Boolean  @default(false)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  site Site @relation(fields: [siteId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, siteId])
+  @@index([siteId])
+  @@map("user_site_permissions")
+}
+
+// ============================================================================
+// 2. SITES, PROJECTS & MAINTENANCE
+// ============================================================================
+
+model Site {
+  id                  String   @id @default(auto()) @map("_id") @db.ObjectId
+  siteCode            String   @unique
+  siteName            String
+  customerName        String?
+  location            String?
+  googleMapUrl        String?
+  address             String?
+  description         String?
+  contactPerson       String?
+  responsibleEngineer String?
+  storageQuotaMb      Int      @default(10240)
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  userPermissions    UserSitePermission[]
+  devices            Device[]
+  vlans              Vlan[]
+  subnets            Subnet[]
+  ipAddresses        IpAddress[]
+  credentials        Credential[]
+  diagrams           Diagram[]
+  documents          Document[]
+  projects           Project[]
+  maintenanceRecords MaintenanceRecord[]
+  auditLogs          AuditLog[]
+
+  @@index([siteName])
+  @@map("sites")
+}
+
+model Project {
+  id          String    @id @default(auto()) @map("_id") @db.ObjectId
+  siteId      String    @db.ObjectId
+  name        String
+  code        String?
+  description String?
+  startDate   DateTime?
+  endDate     DateTime?
+  status      String    @default("ACTIVE")
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  site      Site       @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  documents Document[]
+
+  @@index([siteId])
+  @@map("projects")
+}
+
+model MaintenanceRecord {
+  id              String            @id @default(auto()) @map("_id") @db.ObjectId
+  siteId          String            @db.ObjectId
+  deviceId        String?           @db.ObjectId
+  title           String
+  maintenanceType MaintenanceType   @default(PREVENTIVE)
+  status          MaintenanceStatus @default(COMPLETED)
+  performedAt     DateTime          @default(now())
+  nextScheduledAt DateTime?
+  engineerName    String?
+  engineerUserId  String?           @db.ObjectId
+  summary         String
+  findings        String?
+  actionsTaken    String?
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+
+  site         Site    @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  device       Device? @relation(fields: [deviceId], references: [id], onDelete: SetNull)
+  engineerUser User?   @relation("MaintenanceEngineer", fields: [engineerUserId], references: [id], onDelete: SetNull)
+
+  @@index([siteId, performedAt])
+  @@index([deviceId])
+  @@map("maintenance_records")
+}
+
+// ============================================================================
+// 3. DEVICE INVENTORY (SUPERTYPE + SUBTYPES)
+// ============================================================================
+
+model DeviceType {
+  id          String         @id @default(auto()) @map("_id") @db.ObjectId
+  code        DeviceCategory @unique
+  name        String
+  description String?
+  createdAt   DateTime       @default(now())
+
+  devices Device[]
+
+  @@map("device_types")
+}
+
+model Device {
+  id                String         @id @default(auto()) @map("_id") @db.ObjectId
+  siteId            String         @db.ObjectId
+  deviceTypeId      String         @db.ObjectId
+  category          DeviceCategory
+  itemNo            Int?
+  name              String
+  model             String?
+  vendor            String?
+  macAddress        String?
+  serialNumber      String?
+  managementIp      String?
+  vlan              String?
+  location          String?
+  status            DeviceStatus   @default(UNKNOWN)
+  responsiblePerson String?
+  remark            String?
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+
+  site               Site                @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  deviceType         DeviceType          @relation(fields: [deviceTypeId], references: [id])
+  switchDetail       SwitchDetail?
+  accessPointDetail  AccessPointDetail?
+  apClientDetail     ApClientDetail?
+  controllerDetail   ControllerDetail?
+  serverDetail       ServerDetail?
+  ipAddresses        IpAddress[]
+  credentials        Credential[]
+  maintenanceRecords MaintenanceRecord[]
+  auditLogs          AuditLog[]
+
+  @@index([siteId, category])
+  @@index([siteId, managementIp])
+  @@index([siteId, macAddress])
+  @@index([serialNumber])
+  @@index([name])
+  @@index([status])
+  @@index([createdAt])
+  @@map("devices")
+}
+
+model SwitchDetail {
+  id                 String    @id @default(auto()) @map("_id") @db.ObjectId
+  deviceId           String    @unique @db.ObjectId
+  managementVlan     String?
+  rack               String?
+  floor              String?
+  portCount          Int?
+  firmwareVersion    String?
+  maintainer         String?
+  installationDate   DateTime?
+  warrantyExpiration DateTime?
+
+  device Device @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+
+  @@map("switches")
+}
+
+model AccessPointDetail {
+  id                   String  @id @default(auto()) @map("_id") @db.ObjectId
+  deviceId             String  @unique @db.ObjectId
+  ssid                 String?
+  channel              String?
+  frequency            String?
+  floor                String?
+  installationPosition String?
+  controller           String?
+
+  device Device @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+
+  @@map("access_points")
+}
+
+model ApClientDetail {
+  id              String  @id @default(auto()) @map("_id") @db.ObjectId
+  deviceId        String  @unique @db.ObjectId
+  connectedAp     String?
+  wirelessMode    String?
+  ssid            String?
+  frequency       String?
+  connectedDevice String?
+
+  device Device @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+
+  @@map("ap_clients")
+}
+
+model ControllerDetail {
+  id                String  @id @default(auto()) @map("_id") @db.ObjectId
+  deviceId          String  @unique @db.ObjectId
+  controllerVersion String?
+  managedApCount    Int?
+
+  device Device @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+
+  @@map("controllers")
+}
+
+model ServerDetail {
+  id                 String    @id @default(auto()) @map("_id") @db.ObjectId
+  deviceId           String    @unique @db.ObjectId
+  hostname           String?
+  manufacturer       String?
+  productionIp       String?
+  operatingSystem    String?
+  cpu                String?
+  ram                String?
+  storage            String?
+  hypervisor         String?
+  serviceApplication String?
+  rack               String?
+  maintenanceDate    DateTime?
+
+  device Device @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+
+  @@map("servers")
+}
+
+// ============================================================================
+// 4. IP ADDRESS MANAGEMENT (IPAM)
+// ============================================================================
+
+model Vlan {
+  id          String   @id @default(auto()) @map("_id") @db.ObjectId
+  siteId      String   @db.ObjectId
+  vlanId      Int
+  name        String
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  site    Site     @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  subnets Subnet[]
+
+  @@unique([siteId, vlanId])
+  @@index([siteId])
+  @@map("vlans")
+}
+
+model Subnet {
+  id               String   @id @default(auto()) @map("_id") @db.ObjectId
+  siteId           String   @db.ObjectId
+  vlanDbId         String?  @db.ObjectId
+  vlanNumber       Int?
+  cidr             String
+  networkAddress   String
+  subnetMask       String
+  broadcastAddress String
+  gateway          String?
+  dns1             String?
+  dns2             String?
+  dhcpServer       String?
+  ipRangeStart     String
+  ipRangeEnd       String
+  totalHosts       Int
+  description      String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  site        Site        @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  vlan        Vlan?       @relation(fields: [vlanDbId], references: [id], onDelete: SetNull)
+  ipAddresses IpAddress[]
+
+  @@unique([siteId, cidr])
+  @@index([siteId, vlanNumber])
+  @@map("subnets")
+}
+
+model IpAddress {
+  id          String             @id @default(auto()) @map("_id") @db.ObjectId
+  siteId      String             @db.ObjectId
+  subnetId    String             @db.ObjectId
+  ipAddress   String
+  status      IpAllocationStatus @default(ALLOCATED)
+  hostname    String?
+  macAddress  String?
+  deviceId    String?            @db.ObjectId
+  description String?
+  assignedAt  DateTime           @default(now())
+  updatedAt   DateTime           @updatedAt
+
+  site   Site    @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  subnet Subnet  @relation(fields: [subnetId], references: [id], onDelete: Cascade)
+  device Device? @relation(fields: [deviceId], references: [id], onDelete: SetNull)
+
+  @@unique([subnetId, ipAddress])
+  @@index([siteId, ipAddress])
+  @@index([deviceId])
+  @@map("ip_addresses")
+}
+
+// ============================================================================
+// 5. ACCESS MANAGEMENT / ENCRYPTED CREDENTIALS VAULT
+// ============================================================================
+
+model Credential {
+  id                String    @id @default(auto()) @map("_id") @db.ObjectId
+  siteId            String    @db.ObjectId
+  deviceId          String?   @db.ObjectId
+  deviceName        String
+  deviceModel       String?
+  managementIp      String?
+  loginType         LoginType @default(SSH)
+  usernameEncrypted String
+  passwordEncrypted String
+  accessMethod      String?
+  port              Int?
+  url               String?
+  remark            String?
+  passwordUpdatedAt DateTime  @default(now())
+  passwordExpiresAt DateTime?
+  createdById       String?   @db.ObjectId
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  site         Site                @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  device       Device?             @relation(fields: [deviceId], references: [id], onDelete: SetNull)
+  createdBy    User?               @relation("CredentialCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  instructions AccessInstruction[]
+
+  @@index([siteId])
+  @@index([deviceId])
+  @@map("credentials")
+}
+
+model AccessInstruction {
+  id           String   @id @default(auto()) @map("_id") @db.ObjectId
+  credentialId String   @db.ObjectId
+  title        String
+  howToConnect String
+  steps        Json
+  notes        String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  credential Credential @relation(fields: [credentialId], references: [id], onDelete: Cascade)
+
+  @@index([credentialId])
+  @@map("access_instructions")
+}
+
+// ============================================================================
+// 6. NETWORK DIAGRAMS & VERSIONING
+// ============================================================================
+
+model Diagram {
+  id             String            @id @default(auto()) @map("_id") @db.ObjectId
+  siteId         String            @db.ObjectId
+  title          String
+  description    String?
+  kind           DiagramKind       @default(EDITOR)
+  fileFormat     DiagramFileFormat @default(JSON)
+  currentVersion Int               @default(1)
+  canvasData     Json?
+  filePath       String?
+  previewSvgPath String?
+  mimeType       String?
+  fileSize       Int?
+  createdById    String?           @db.ObjectId
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+
+  site      Site             @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  createdBy User?            @relation("DiagramCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  versions  DiagramVersion[]
+
+  @@index([siteId])
+  @@map("diagrams")
+}
+
+model DiagramVersion {
+  id          String            @id @default(auto()) @map("_id") @db.ObjectId
+  diagramId   String            @db.ObjectId
+  version     Int
+  fileFormat  DiagramFileFormat
+  canvasData  Json?
+  filePath    String?
+  changeNote  String?
+  createdById String?           @db.ObjectId
+  createdAt   DateTime          @default(now())
+
+  diagram   Diagram @relation(fields: [diagramId], references: [id], onDelete: Cascade)
+  createdBy User?   @relation("DiagramVersionCreator", fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@unique([diagramId, version])
+  @@index([diagramId])
+  @@map("diagram_versions")
+}
+
+// ============================================================================
+// 7. PROJECT DOCUMENTS & VERSIONING
+// ============================================================================
+
+model Document {
+  id                String           @id @default(auto()) @map("_id") @db.ObjectId
+  siteId            String           @db.ObjectId
+  projectId         String?          @db.ObjectId
+  documentName      String
+  documentType      String
+  category          DocumentCategory @default(OTHER)
+  projectName       String?
+  description       String?
+  currentVersion    String           @default("1.0")
+  versionNumber     Int              @default(1)
+  filePath          String
+  originalFileName  String
+  mimeType          String
+  fileSize          Int
+  uploadedById      String?          @db.ObjectId
+  responsiblePerson String?
+  remark            String?
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+
+  site       Site              @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  project    Project?          @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  uploadedBy User?             @relation("DocumentUploader", fields: [uploadedById], references: [id], onDelete: SetNull)
+  versions   DocumentVersion[]
+
+  @@index([siteId, category])
+  @@index([documentName])
+  @@map("documents")
+}
+
+model DocumentVersion {
+  id               String   @id @default(auto()) @map("_id") @db.ObjectId
+  documentId       String   @db.ObjectId
+  versionNumber    Int
+  versionLabel     String
+  filePath         String
+  originalFileName String
+  mimeType         String
+  fileSize         Int
+  changeNote       String?
+  uploadedById     String?  @db.ObjectId
+  createdAt        DateTime @default(now())
+
+  document   Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  uploadedBy User?    @relation("DocumentVersionUploader", fields: [uploadedById], references: [id], onDelete: SetNull)
+
+  @@unique([documentId, versionNumber])
+  @@index([documentId])
+  @@map("document_versions")
+}
+
+// ============================================================================
+// 8. AUDIT LOGS, BACKUPS & SYSTEM SETTINGS
+// ============================================================================
+
+model AuditLog {
+  id         String      @id @default(auto()) @map("_id") @db.ObjectId
+  userId     String?     @db.ObjectId
+  username   String
+  action     String
+  module     String
+  siteId     String?     @db.ObjectId
+  siteCode   String?
+  deviceId   String?     @db.ObjectId
+  deviceName String?
+  sourceIp   String?
+  userAgent  String?
+  result     AuditResult @default(SUCCESS)
+  details    Json?
+  createdAt  DateTime    @default(now())
+
+  user   User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
+  site   Site?   @relation(fields: [siteId], references: [id], onDelete: SetNull)
+  device Device? @relation(fields: [deviceId], references: [id], onDelete: SetNull)
+
+  @@index([createdAt])
+  @@index([userId])
+  @@index([siteId])
+  @@index([action])
+  @@map("audit_logs")
+}
+
+model BackupJob {
+  id            String       @id @default(auto()) @map("_id") @db.ObjectId
+  type          BackupType   @default(MANUAL)
+  status        BackupStatus @default(RUNNING)
+  fileName      String
+  filePath      String
+  fileSize      Int          @default(0)
+  checksum      String?
+  includesDb    Boolean      @default(true)
+  includesFiles Boolean      @default(true)
+  initiatedById String?      @db.ObjectId
+  notes         String?
+  startedAt     DateTime     @default(now())
+  completedAt   DateTime?
+
+  initiatedBy User? @relation("BackupInitiator", fields: [initiatedById], references: [id], onDelete: SetNull)
+
+  @@index([startedAt])
+  @@map("backup_jobs")
+}
+
+model SystemSetting {
+  id                   String         @id @default(auto()) @map("_id") @db.ObjectId
+  key                  String         @unique @default("default")
+  organizationName     String         @default("NIMS Enterprise")
+  logoPath             String?
+  defaultTheme         String         @default("light")
+  storageLocation      String         @default("./data/storage")
+  backupLocation       String         @default("./data/backups")
+  backupSchedule       BackupSchedule @default(DAILY)
+  backupRetentionCount Int            @default(14)
+  auditRetentionDays   Int            @default(365)
+  updatedAt            DateTime       @updatedAt
+
+  @@map("system_settings")
+}
