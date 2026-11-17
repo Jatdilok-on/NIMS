@@ -163,7 +163,6 @@ router.get('/runtime/targets', authenticateAgent, async (req, res, next) => {
       prisma.device.findMany({
         where: {
           siteId: agent.siteId,
-          monitorEnabled: true,
           managementIp: { not: null },
         },
         select: {
@@ -172,6 +171,7 @@ router.get('/runtime/targets', authenticateAgent, async (req, res, next) => {
           category: true,
           managementIp: true,
           status: true,
+          monitorEnabled: true,
         },
         orderBy: { name: 'asc' },
       }),
@@ -188,7 +188,7 @@ router.get('/runtime/targets', authenticateAgent, async (req, res, next) => {
     ]);
 
     const targets = devices
-      .filter((d) => isAgentTargetIpValid(d.managementIp))
+      .filter((d) => d.monitorEnabled !== false && isAgentTargetIpValid(d.managementIp))
       .map((d) => ({
         id: d.id,
         name: d.name,
@@ -258,7 +258,7 @@ router.post('/runtime/report', authenticateAgent, async (req, res, next) => {
 
     for (const r of body.results) {
       const dev = deviceMap.get(r.deviceId);
-      if (!dev || !dev.monitorEnabled) {
+      if (!dev || dev.monitorEnabled === false) {
         ignoredCount++;
         continue;
       }
