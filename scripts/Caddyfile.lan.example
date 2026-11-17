@@ -1,0 +1,10 @@
+# Optional Internal LAN HTTPS Reverse Proxy for NIMS using Caddy
+# Download Caddy (single binary) and run:
+#   caddy run --config scripts\Caddyfile.lan.example
+# Replace 191.20.110.191 with your NIMS Server IP or internal DNS name (e.g. nims.amw.local).
+# Then re-run: powershell -File scripts\harden-windows-lan.ps1 -ServerHost 191.20.110.191 -UseHttps
+
+https://191.20.110.191 {
+  tls internal
+  reverse_proxy 127.0.0.1:3000
+}
