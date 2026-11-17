@@ -9,6 +9,7 @@ import {
   QueuedUploadItem,
   stripFileExtension,
 } from '@/components/common/FileDropzone';
+import { ConfirmActionModal } from '@/components/common/ConfirmActionModal';
 import { Device, DiagramItem, Site } from '@/lib/types';
 import {
   DiagramViewer,
@@ -34,6 +35,9 @@ export function DiagramsPanel({
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [editingInfoDiagram, setEditingInfoDiagram] = useState<DiagramItem | null>(null);
   const [newVersionDiagram, setNewVersionDiagram] = useState<DiagramItem | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<DiagramItem | null>(null);
+  const [deletingDiagram, setDeletingDiagram] = useState(false);
+  const [deleteDiagramError, setDeleteDiagramError] = useState<string | null>(null);
 
   useEffect(() => {
     apiFetch<{ sites: Site[] }>('/sites')
@@ -61,10 +65,24 @@ export function DiagramsPanel({
     setMode(targetMode);
   };
 
-  const handleDelete = async (d: DiagramItem) => {
-    if (!confirm(`Delete diagram "${d.title}"?`)) return;
-    await apiFetch(`/diagrams/${d.id}`, { method: 'DELETE' });
-    loadDiagrams();
+  const handleDelete = (d: DiagramItem) => {
+    setDeleteDiagramError(null);
+    setDeleteTarget(d);
+  };
+
+  const confirmDelete = async () => {
+    if (!deleteTarget) return;
+    setDeletingDiagram(true);
+    setDeleteDiagramError(null);
+    try {
+      await apiFetch(`/diagrams/${deleteTarget.id}`, { method: 'DELETE' });
+      setDeleteTarget(null);
+      loadDiagrams();
+    } catch (err) {
+      setDeleteDiagramError(err instanceof ApiError ? err.message : 'Failed to delete diagram');
+    } finally {
+      setDeletingDiagram(false);
+    }
   };
 
   if (mode === 'VIEW' && activeDiagram) {
@@ -331,6 +349,29 @@ export function DiagramsPanel({
             loadDiagrams();
             openDiagram(targetId, 'VIEW');
           }}
+        />
+      )}
+
+      {deleteTarget && (
+        <ConfirmActionModal
+          title="Delete Network Diagram"
+          subtitle="Permanent diagram & version removal"
+          itemName={deleteTarget.title}
+          badgeText={deleteTarget.fileFormat}
+          details={[
+            ...(deleteTarget.site
+              ? [{ label: 'Site', value: `${deleteTarget.site.siteCode} — ${deleteTarget.site.siteName}` }]
+              : []),
+            { label: 'Version', value: `v${deleteTarget.currentVersion}` },
+          ]}
+          message={`Are you sure you want to delete diagram "${deleteTarget.title}"?`}
+          variant="danger"
+          loading={deletingDiagram}
+          error={deleteDiagramError}
+          onCancel={() => {
+            if (!deletingDiagram) setDeleteTarget(null);
+          }}
+          onConfirm={confirmDelete}
         />
       )}
     </div>

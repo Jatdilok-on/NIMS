@@ -11,6 +11,7 @@ import {
   Settings as SettingsIcon,
   Upload,
 } from 'lucide-react';
+import { ConfirmActionModal } from '@/components/common/ConfirmActionModal';
 import { apiFetch, ApiError, formatBytes } from '@/lib/api';
 import { useI18n } from '@/lib/i18n';
 import { NIMS_THEMES, ThemeId } from '@/lib/themes';
@@ -62,6 +63,13 @@ export default function SettingsAndBackupPage() {
   const [saving, setSaving] = useState(false);
   const [runningBackup, setRunningBackup] = useState(false);
   const [msg, setMsg] = useState('');
+  const [restoreConfirm, setRestoreConfirm] = useState<
+    | { kind: 'job'; job: BackupJob }
+    | { kind: 'file'; file: File }
+    | null
+  >(null);
+  const [restoring, setRestoring] = useState(false);
+  const [restoreError, setRestoreError] = useState<string | null>(null);
 
   const loadAll = useCallback(async () => {
     const [sRes, bRes, iRes] = await Promise.all([
@@ -108,34 +116,39 @@ export default function SettingsAndBackupPage() {
     }
   };
 
-  const handleRestore = async (job: BackupJob) => {
-    if (
-      !confirm(
-        `Restore database and files from "${job.fileName}"? Existing data will be replaced by the snapshot.`,
-      )
-    )
-      return;
-    try {
-      await apiFetch(`/backups/${job.id}/restore`, { method: 'POST' });
-      alert('System restored successfully.');
-      loadAll();
-    } catch (err) {
-      alert(err instanceof ApiError ? err.message : 'Restore failed');
-    }
+  const handleRestore = (job: BackupJob) => {
+    setRestoreError(null);
+    setRestoreConfirm({ kind: 'job', job });
   };
 
-  const handleUploadRestore = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleUploadRestore = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
+    e.target.value = '';
     if (!file) return;
-    if (!confirm(`Upload and restore system from "${file.name}"?`)) return;
-    const fd = new FormData();
-    fd.append('file', file);
+    setRestoreError(null);
+    setRestoreConfirm({ kind: 'file', file });
+  };
+
+  const confirmRestore = async () => {
+    if (!restoreConfirm) return;
+    setRestoring(true);
+    setRestoreError(null);
     try {
-      await apiFetch('/backups/upload-restore', { method: 'POST', body: fd });
-      alert('Backup uploaded and restored.');
+      if (restoreConfirm.kind === 'job') {
+        await apiFetch(`/backups/${restoreConfirm.job.id}/restore`, { method: 'POST' });
+        setMsg('System restored successfully.');
+      } else {
+        const fd = new FormData();
+        fd.append('file', restoreConfirm.file);
+        await apiFetch('/backups/upload-restore', { method: 'POST', body: fd });
+        setMsg('Backup uploaded and restored.');
+      }
+      setRestoreConfirm(null);
       loadAll();
     } catch (err) {
-      alert(err instanceof ApiError ? err.message : 'Restore failed');
+      setRestoreError(err instanceof ApiError ? err.message : 'Restore failed');
+    } finally {
+      setRestoring(false);
     }
   };
 
@@ -411,6 +424,38 @@ export default function SettingsAndBackupPage() {
           </table>
         </div>
       </div>
+
+      {restoreConfirm && (
+        <ConfirmActionModal
+          title={restoreConfirm.kind === 'job' ? 'Restore System Backup' : 'Upload & Restore Backup'}
+          subtitle="Database & files snapshot restore"
+          itemName={
+            restoreConfirm.kind === 'job'
+              ? restoreConfirm.job.fileName
+              : restoreConfirm.file.name
+          }
+          badgeText={restoreConfirm.kind === 'job' ? restoreConfirm.job.type : 'UPLOAD'}
+          details={
+            restoreConfirm.kind === 'job'
+              ? [{ label: 'Size', value: formatBytes(restoreConfirm.job.fileSize) }]
+              : [{ label: 'Size', value: formatBytes(restoreConfirm.file.size) }]
+          }
+          message={
+            restoreConfirm.kind === 'job'
+              ? 'Existing database records and uploaded files will be replaced by this backup snapshot.'
+              : 'Upload this backup archive and replace the current system database and files?'
+          }
+          variant="warning"
+          confirmLabel="Restore"
+          loadingLabel="Restoring..."
+          loading={restoring}
+          error={restoreError}
+          onCancel={() => {
+            if (!restoring) setRestoreConfirm(null);
+          }}
+          onConfirm={confirmRestore}
+        />
+      )}
     </div>
   );
 }

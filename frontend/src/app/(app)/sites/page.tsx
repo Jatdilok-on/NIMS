@@ -27,6 +27,7 @@ import {
   TechSiteNodeIcon,
   TechTopologyIcon,
 } from '@/components/icons/TechIcons';
+import { ConfirmActionModal } from '@/components/common/ConfirmActionModal';
 import { ImportSitesModal } from '@/components/sites/ImportSitesModal';
 import { apiFetch, ApiError, getSiteGoogleMapUrl } from '@/lib/api';
 import { useAuth } from '@/lib/auth-context';
@@ -104,19 +105,27 @@ export default function SitesPage() {
   const canDeleteSite = (siteId: string) =>
     isSuperAdmin || (user?.roleCode === 'SITE_ADMIN' && canManageSite(siteId));
 
-  const handleDeleteSite = async (site: Site) => {
-    if (
-      !confirm(
-        `Delete site "${site.siteCode} — ${site.siteName}"?\nAll devices, diagrams, IP subnets, credentials, and documents inside this site will also be deleted.`,
-      )
-    ) {
-      return;
-    }
+  const [deleteTarget, setDeleteTarget] = useState<Site | null>(null);
+  const [deletingSite, setDeletingSite] = useState(false);
+  const [deleteSiteError, setDeleteSiteError] = useState<string | null>(null);
+
+  const handleDeleteSite = (site: Site) => {
+    setDeleteSiteError(null);
+    setDeleteTarget(site);
+  };
+
+  const confirmDeleteSite = async () => {
+    if (!deleteTarget) return;
+    setDeletingSite(true);
+    setDeleteSiteError(null);
     try {
-      await apiFetch(`/sites/${site.id}`, { method: 'DELETE' });
+      await apiFetch(`/sites/${deleteTarget.id}`, { method: 'DELETE' });
+      setDeleteTarget(null);
       loadSites();
     } catch (err) {
-      alert(err instanceof ApiError ? err.message : 'Failed to delete site');
+      setDeleteSiteError(err instanceof ApiError ? err.message : 'Failed to delete site');
+    } finally {
+      setDeletingSite(false);
     }
   };
 
@@ -365,6 +374,36 @@ export default function SitesPage() {
             setShowImport(false);
             loadSites();
           }}
+        />
+      )}
+
+      {deleteTarget && (
+        <ConfirmActionModal
+          title="Delete Site"
+          subtitle="Permanent site removal"
+          itemName={`${deleteTarget.siteCode} — ${deleteTarget.siteName}`}
+          badgeText={deleteTarget.customerName || undefined}
+          details={[
+            ...(deleteTarget.location
+              ? [{ label: 'Location', value: deleteTarget.location }]
+              : []),
+            ...(deleteTarget._count
+              ? [
+                  {
+                    label: 'Contents',
+                    value: `${deleteTarget._count.devices} devices • ${deleteTarget._count.diagrams} diagrams • ${deleteTarget._count.documents} docs`,
+                  },
+                ]
+              : []),
+          ]}
+          message="All devices, diagrams, IP subnets, credentials, and documents inside this site will also be deleted."
+          variant="danger"
+          loading={deletingSite}
+          error={deleteSiteError}
+          onCancel={() => {
+            if (!deletingSite) setDeleteTarget(null);
+          }}
+          onConfirm={confirmDeleteSite}
         />
       )}
     </div>

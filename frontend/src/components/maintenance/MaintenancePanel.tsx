@@ -2,6 +2,7 @@
 
 import React, { useCallback, useEffect, useState } from 'react';
 import { Plus, Trash2, Wrench, X } from 'lucide-react';
+import { ConfirmActionModal } from '@/components/common/ConfirmActionModal';
 import { apiFetch, ApiError } from '@/lib/api';
 
 interface MaintenanceItem {
@@ -27,6 +28,9 @@ export function MaintenancePanel({
 }) {
   const [records, setRecords] = useState<MaintenanceItem[]>([]);
   const [showModal, setShowModal] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<MaintenanceItem | null>(null);
+  const [deletingRecord, setDeletingRecord] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   const loadRecords = useCallback(async () => {
     const res = await apiFetch<{ records: MaintenanceItem[] }>(`/maintenance?siteId=${siteId}`);
@@ -37,10 +41,24 @@ export function MaintenancePanel({
     loadRecords().catch(() => {});
   }, [loadRecords]);
 
-  const handleDelete = async (id: string) => {
-    if (!confirm('Delete this maintenance record?')) return;
-    await apiFetch(`/maintenance/${id}`, { method: 'DELETE' });
-    loadRecords();
+  const handleDelete = (item: MaintenanceItem) => {
+    setDeleteError(null);
+    setDeleteTarget(item);
+  };
+
+  const confirmDelete = async () => {
+    if (!deleteTarget) return;
+    setDeletingRecord(true);
+    setDeleteError(null);
+    try {
+      await apiFetch(`/maintenance/${deleteTarget.id}`, { method: 'DELETE' });
+      setDeleteTarget(null);
+      loadRecords();
+    } catch (err) {
+      setDeleteError(err instanceof ApiError ? err.message : 'Failed to delete maintenance record');
+    } finally {
+      setDeletingRecord(false);
+    }
   };
 
   return (
@@ -94,7 +112,7 @@ export function MaintenancePanel({
               </div>
               {canEdit && (
                 <button
-                  onClick={() => handleDelete(r.id)}
+                  onClick={() => handleDelete(r)}
                   className="p-1.5 rounded hover:bg-red-50 text-red-600 cursor-pointer"
                 >
                   <Trash2 className="h-4 w-4" />
@@ -113,6 +131,31 @@ export function MaintenancePanel({
             setShowModal(false);
             loadRecords();
           }}
+        />
+      )}
+
+      {deleteTarget && (
+        <ConfirmActionModal
+          title="Delete Maintenance Record"
+          subtitle="Permanent record removal"
+          itemName={deleteTarget.title}
+          badgeText={deleteTarget.maintenanceType}
+          details={[
+            ...(deleteTarget.device
+              ? [{ label: 'Device', value: deleteTarget.device.name }]
+              : []),
+            ...(deleteTarget.engineerName
+              ? [{ label: 'Engineer', value: deleteTarget.engineerName }]
+              : []),
+          ]}
+          message="Are you sure you want to delete this maintenance record?"
+          variant="danger"
+          loading={deletingRecord}
+          error={deleteError}
+          onCancel={() => {
+            if (!deletingRecord) setDeleteTarget(null);
+          }}
+          onConfirm={confirmDelete}
         />
       )}
     </div>

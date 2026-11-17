@@ -14,6 +14,7 @@ import {
   X,
 } from 'lucide-react';
 import { apiFetch, apiUploadWithProgress, ApiError, formatBytes } from '@/lib/api';
+import { ConfirmActionModal } from '@/components/common/ConfirmActionModal';
 import {
   FileDropzone,
   MultiFileQueue,
@@ -53,6 +54,9 @@ export function DocumentsPanel({
   const [previewDoc, setPreviewDoc] = useState<DocumentItem | null>(null);
   const [replaceDoc, setReplaceDoc] = useState<DocumentItem | null>(null);
   const [versionDoc, setVersionDoc] = useState<DocumentItem | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<DocumentItem | null>(null);
+  const [deletingDoc, setDeletingDoc] = useState(false);
+  const [deleteDocError, setDeleteDocError] = useState<string | null>(null);
 
   useEffect(() => {
     apiFetch<{ sites: Site[] }>('/sites')
@@ -73,13 +77,23 @@ export function DocumentsPanel({
     loadDocuments().catch(() => {});
   }, [loadDocuments]);
 
-  const handleDelete = async (doc: DocumentItem) => {
-    if (!confirm(`Delete document "${doc.documentName}" and all versions?`)) return;
+  const handleDelete = (doc: DocumentItem) => {
+    setDeleteDocError(null);
+    setDeleteTarget(doc);
+  };
+
+  const confirmDelete = async () => {
+    if (!deleteTarget) return;
+    setDeletingDoc(true);
+    setDeleteDocError(null);
     try {
-      await apiFetch(`/documents/${doc.id}`, { method: 'DELETE' });
+      await apiFetch(`/documents/${deleteTarget.id}`, { method: 'DELETE' });
+      setDeleteTarget(null);
       loadDocuments();
     } catch (err) {
-      alert(err instanceof ApiError ? err.message : 'Delete failed');
+      setDeleteDocError(err instanceof ApiError ? err.message : 'Delete failed');
+    } finally {
+      setDeletingDoc(false);
     }
   };
 
@@ -324,6 +338,29 @@ export function DocumentsPanel({
             setReplaceDoc(null);
             loadDocuments();
           }}
+        />
+      )}
+
+      {deleteTarget && (
+        <ConfirmActionModal
+          title="Delete Document"
+          subtitle="Permanent document & version history removal"
+          itemName={deleteTarget.documentName}
+          badgeText={deleteTarget.category}
+          details={[
+            ...(deleteTarget.site
+              ? [{ label: 'Site', value: `${deleteTarget.site.siteCode} — ${deleteTarget.site.siteName}` }]
+              : []),
+            { label: 'Version', value: `v${deleteTarget.currentVersion}` },
+          ]}
+          message={`Delete document "${deleteTarget.documentName}" and all uploaded versions?`}
+          variant="danger"
+          loading={deletingDoc}
+          error={deleteDocError}
+          onCancel={() => {
+            if (!deletingDoc) setDeleteTarget(null);
+          }}
+          onConfirm={confirmDelete}
         />
       )}
     </div>

@@ -3,6 +3,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { AlertCircle, ExternalLink, Layers, Pencil, Plus, RefreshCw, Search, Trash2, X } from 'lucide-react';
+import { ConfirmActionModal } from '@/components/common/ConfirmActionModal';
 import { DeviceCategoryTechIcon, TechIpamIcon } from '@/components/icons/TechIcons';
 import { apiFetch, ApiError } from '@/lib/api';
 import { useI18n } from '@/lib/i18n';
@@ -88,6 +89,9 @@ export function IpamPanel({
   const [selectedIpCell, setSelectedIpCell] = useState<IpGridCell | null>(null);
   const [showAddSubnet, setShowAddSubnet] = useState(false);
   const [editingSubnet, setEditingSubnet] = useState<Subnet | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<Subnet | null>(null);
+  const [deletingSubnet, setDeletingSubnet] = useState(false);
+  const [deleteSubnetError, setDeleteSubnetError] = useState<string | null>(null);
   const [addSubnetPreset, setAddSubnetPreset] = useState<{
     siteId?: string;
     cidr?: string;
@@ -188,11 +192,25 @@ export function IpamPanel({
     }
   };
 
-  const handleDeleteSubnet = async (sub: Subnet) => {
-    if (!confirm(`Delete subnet ${sub.cidr}?`)) return;
-    await apiFetch(`/ipam/subnets/${sub.id}`, { method: 'DELETE' });
-    if (selectedSubnet?.id === sub.id) setSelectedSubnet(null);
-    loadSubnets();
+  const handleDeleteSubnet = (sub: Subnet) => {
+    setDeleteSubnetError(null);
+    setDeleteTarget(sub);
+  };
+
+  const confirmDeleteSubnet = async () => {
+    if (!deleteTarget) return;
+    setDeletingSubnet(true);
+    setDeleteSubnetError(null);
+    try {
+      await apiFetch(`/ipam/subnets/${deleteTarget.id}`, { method: 'DELETE' });
+      if (selectedSubnet?.id === deleteTarget.id) setSelectedSubnet(null);
+      setDeleteTarget(null);
+      loadSubnets();
+    } catch (err) {
+      setDeleteSubnetError(err instanceof ApiError ? err.message : 'Failed to delete subnet');
+    } finally {
+      setDeletingSubnet(false);
+    }
   };
 
   const handleLookup = async (e: React.FormEvent) => {
@@ -705,6 +723,31 @@ export function IpamPanel({
               openSubnetGrid(selectedSubnet, currentBlockPrefix || undefined).catch(() => {});
             }
           }}
+        />
+      )}
+
+      {deleteTarget && (
+        <ConfirmActionModal
+          title="Delete Subnet"
+          subtitle="Permanent IP subnet removal"
+          itemName={deleteTarget.cidr}
+          badgeText={deleteTarget.vlanNumber != null ? `VLAN ${deleteTarget.vlanNumber}` : undefined}
+          details={[
+            ...(deleteTarget.site
+              ? [{ label: 'Site', value: `${deleteTarget.site.siteCode} — ${deleteTarget.site.siteName}` }]
+              : []),
+            ...(deleteTarget.gateway
+              ? [{ label: 'Gateway', value: deleteTarget.gateway }]
+              : []),
+          ]}
+          message={`Are you sure you want to delete subnet ${deleteTarget.cidr} and all of its IP allocations?`}
+          variant="danger"
+          loading={deletingSubnet}
+          error={deleteSubnetError}
+          onCancel={() => {
+            if (!deletingSubnet) setDeleteTarget(null);
+          }}
+          onConfirm={confirmDeleteSubnet}
         />
       )}
     </div>

@@ -22,6 +22,7 @@ import {
   X,
 } from 'lucide-react';
 import { apiFetch, apiUploadWithProgress, ApiError } from '@/lib/api';
+import { ConfirmActionModal } from '@/components/common/ConfirmActionModal';
 import { FileDropzone } from '@/components/common/FileDropzone';
 import { useAuth } from '@/lib/auth-context';
 import { RoleCode, Site, SitePermission } from '@/lib/types';
@@ -59,6 +60,9 @@ export default function UsersPage() {
   const [showCreate, setShowCreate] = useState(false);
   const [showImport, setShowImport] = useState(false);
   const [editingUser, setEditingUser] = useState<ManagedUser | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<ManagedUser | null>(null);
+  const [deletingUser, setDeletingUser] = useState(false);
+  const [deleteUserError, setDeleteUserError] = useState<string | null>(null);
   const [permModalState, setPermModalState] = useState<{
     mode: 'SINGLE' | 'BULK';
     users: ManagedUser[];
@@ -130,13 +134,23 @@ export default function UsersPage() {
     }
   };
 
-  const handleDelete = async (u: ManagedUser) => {
-    if (!confirm(`Delete user "${u.username}"?`)) return;
+  const handleDelete = (u: ManagedUser) => {
+    setDeleteUserError(null);
+    setDeleteTarget(u);
+  };
+
+  const confirmDelete = async () => {
+    if (!deleteTarget) return;
+    setDeletingUser(true);
+    setDeleteUserError(null);
     try {
-      await apiFetch(`/users/${u.id}`, { method: 'DELETE' });
+      await apiFetch(`/users/${deleteTarget.id}`, { method: 'DELETE' });
+      setDeleteTarget(null);
       loadData();
     } catch (err) {
-      alert(err instanceof ApiError ? err.message : 'Delete failed');
+      setDeleteUserError(err instanceof ApiError ? err.message : 'Delete failed');
+    } finally {
+      setDeletingUser(false);
     }
   };
 
@@ -459,6 +473,29 @@ export default function UsersPage() {
           </table>
         </div>
       </div>
+
+      {deleteTarget && (
+        <ConfirmActionModal
+          title="Delete User"
+          subtitle="Permanent account removal"
+          itemName={deleteTarget.fullName || deleteTarget.username}
+          badgeText={deleteTarget.role?.name}
+          details={[
+            { label: 'Username', value: deleteTarget.username },
+            ...(deleteTarget.email
+              ? [{ label: 'Email', value: deleteTarget.email }]
+              : []),
+          ]}
+          message={`Are you sure you want to delete user "${deleteTarget.username}"? This action cannot be undone.`}
+          variant="danger"
+          loading={deletingUser}
+          error={deleteUserError}
+          onCancel={() => {
+            if (!deletingUser) setDeleteTarget(null);
+          }}
+          onConfirm={confirmDelete}
+        />
+      )}
 
       {showCreate && (
         <CreateUserModal

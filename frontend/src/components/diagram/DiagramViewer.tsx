@@ -20,6 +20,7 @@ import {
   ZoomOut,
 } from 'lucide-react';
 import { apiFetch, apiUploadWithProgress, ApiError } from '@/lib/api';
+import { ConfirmActionModal } from '@/components/common/ConfirmActionModal';
 import { FileDropzone } from '@/components/common/FileDropzone';
 import { DiagramItem } from '@/lib/types';
 
@@ -58,6 +59,9 @@ export function DiagramViewer({
   const [previewVersion, setPreviewVersion] = useState<number | null>(null);
   const [showEditInfoModal, setShowEditInfoModal] = useState(false);
   const [showNewVersionModal, setShowNewVersionModal] = useState(false);
+  const [restoreVersionTarget, setRestoreVersionTarget] = useState<number | null>(null);
+  const [restoringVersion, setRestoringVersion] = useState(false);
+  const [restoreVersionError, setRestoreVersionError] = useState<string | null>(null);
 
   const viewingVersionObj =
     previewVersion !== null
@@ -150,14 +154,26 @@ export function DiagramViewer({
 
   const handlePointerUp = () => setDragging(false);
 
-  const handleRestoreVersion = async (version: number) => {
-    if (!confirm(`Restore diagram to version ${version}?`)) return;
+  const handleRestoreVersion = (version: number) => {
+    setRestoreVersionError(null);
+    setRestoreVersionTarget(version);
+  };
+
+  const confirmRestoreVersion = async () => {
+    if (restoreVersionTarget === null) return;
+    setRestoringVersion(true);
+    setRestoreVersionError(null);
     try {
-      await apiFetch(`/diagrams/${diagram.id}/restore/${version}`, { method: 'POST' });
+      await apiFetch(`/diagrams/${diagram.id}/restore/${restoreVersionTarget}`, {
+        method: 'POST',
+      });
+      setRestoreVersionTarget(null);
       setShowVersions(false);
       onRestored();
     } catch (err) {
-      alert(err instanceof ApiError ? err.message : 'Restore failed');
+      setRestoreVersionError(err instanceof ApiError ? err.message : 'Restore failed');
+    } finally {
+      setRestoringVersion(false);
     }
   };
 
@@ -527,6 +543,29 @@ export function DiagramViewer({
             setPreviewVersion(null);
             onRestored();
           }}
+        />
+      )}
+
+      {restoreVersionTarget !== null && (
+        <ConfirmActionModal
+          title="Restore Diagram Version"
+          subtitle="Create restored version from history"
+          itemName={diagram.title}
+          badgeText={`v${restoreVersionTarget}`}
+          details={[
+            { label: 'Target Version', value: `v${restoreVersionTarget}` },
+            { label: 'Current Version', value: `v${diagram.currentVersion}` },
+          ]}
+          message={`Restore diagram "${diagram.title}" to version ${restoreVersionTarget}?`}
+          variant="warning"
+          confirmLabel="Restore"
+          loadingLabel="Restoring..."
+          loading={restoringVersion}
+          error={restoreVersionError}
+          onCancel={() => {
+            if (!restoringVersion) setRestoreVersionTarget(null);
+          }}
+          onConfirm={confirmRestoreVersion}
         />
       )}
     </div>

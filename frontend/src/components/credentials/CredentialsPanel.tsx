@@ -20,6 +20,7 @@ import {
   Upload,
   X,
 } from 'lucide-react';
+import { ConfirmActionModal } from '@/components/common/ConfirmActionModal';
 import { apiFetch, ApiError } from '@/lib/api';
 import { useAuth } from '@/lib/auth-context';
 import { CredentialItem, LoginType, Site } from '@/lib/types';
@@ -47,6 +48,9 @@ export function CredentialsPanel({
     logs: Array<{ id: string; username: string; action: string; sourceIp?: string; createdAt: string }>;
   } | null>(null);
   const [error, setError] = useState('');
+  const [deleteTarget, setDeleteTarget] = useState<CredentialItem | null>(null);
+  const [deletingCred, setDeletingCred] = useState(false);
+  const [deleteCredError, setDeleteCredError] = useState<string | null>(null);
 
   const isIpViewer = user?.roleCode === 'IP_VIEWER';
 
@@ -183,10 +187,24 @@ export function CredentialsPanel({
     }
   };
 
-  const handleDelete = async (cred: CredentialItem) => {
-    if (!confirm(`Delete credentials for "${cred.deviceName}"?`)) return;
-    await apiFetch(`/credentials/${cred.id}`, { method: 'DELETE' });
-    loadCredentials();
+  const handleDelete = (cred: CredentialItem) => {
+    setDeleteCredError(null);
+    setDeleteTarget(cred);
+  };
+
+  const confirmDelete = async () => {
+    if (!deleteTarget) return;
+    setDeletingCred(true);
+    setDeleteCredError(null);
+    try {
+      await apiFetch(`/credentials/${deleteTarget.id}`, { method: 'DELETE' });
+      setDeleteTarget(null);
+      loadCredentials();
+    } catch (err) {
+      setDeleteCredError(err instanceof ApiError ? err.message : 'Failed to delete credential');
+    } finally {
+      setDeletingCred(false);
+    }
   };
 
   return (
@@ -661,6 +679,31 @@ export function CredentialsPanel({
             setShowImport(false);
             loadCredentials();
           }}
+        />
+      )}
+
+      {deleteTarget && (
+        <ConfirmActionModal
+          title="Delete Credential"
+          subtitle="Permanent vault entry removal"
+          itemName={deleteTarget.deviceName}
+          badgeText={deleteTarget.loginType}
+          details={[
+            ...(deleteTarget.site
+              ? [{ label: 'Site', value: `${deleteTarget.site.siteCode} — ${deleteTarget.site.siteName}` }]
+              : []),
+            ...(deleteTarget.managementIp
+              ? [{ label: 'Management IP', value: deleteTarget.managementIp }]
+              : []),
+          ]}
+          message={`Are you sure you want to delete credentials for "${deleteTarget.deviceName}"?`}
+          variant="danger"
+          loading={deletingCred}
+          error={deleteCredError}
+          onCancel={() => {
+            if (!deletingCred) setDeleteTarget(null);
+          }}
+          onConfirm={confirmDelete}
         />
       )}
     </div>
