@@ -160,9 +160,8 @@ function buildWindowsOneClickBat(
     'echo NIMS_FALLBACK_TCP_PORTS=22,80,443,3389,502,9100 >> "%INSTALL_DIR%\\nims-agent.env"',
     `echo NIMS_ALLOW_INSECURE_TLS=${allowInsecureTls ? 'true' : 'false'}>> "%INSTALL_DIR%\\nims-agent.env"`,
     '',
-    allowInsecureTls
-      ? 'powershell -NoProfile -ExecutionPolicy Bypass -Command "$ProgressPreference=\'SilentlyContinue\'; [System.Net.ServicePointManager]::SecurityProtocol=[System.Net.SecurityProtocolType]::Tls12; [System.Net.ServicePointManager]::ServerCertificateValidationCallback={$true}; $h=@{Authorization=(\'Bearer \'+$env:AGENT_TOKEN)}; Invoke-WebRequest -Uri ($env:NIMS_URL+\'/api/agents/runtime/script\') -Headers $h -OutFile ($env:INSTALL_DIR+\'\\nims-agent.mjs\') -UseBasicParsing"'
-      : 'powershell -NoProfile -ExecutionPolicy Bypass -Command "$ProgressPreference=\'SilentlyContinue\'; [System.Net.ServicePointManager]::SecurityProtocol=[System.Net.SecurityProtocolType]::Tls12; $h=@{Authorization=(\'Bearer \'+$env:AGENT_TOKEN)}; Invoke-WebRequest -Uri ($env:NIMS_URL+\'/api/agents/runtime/script\') -Headers $h -OutFile ($env:INSTALL_DIR+\'\\nims-agent.mjs\') -UseBasicParsing"',
+    ...(allowInsecureTls ? ['set "NODE_TLS_REJECT_UNAUTHORIZED=0"'] : []),
+    '"%NODE_EXE%" -e "fetch(process.env.NIMS_URL+\'/api/agents/runtime/script\',{headers:{Authorization:\'Bearer \'+process.env.AGENT_TOKEN}}).then(async r=>{if(!r.ok)throw new Error(\'HTTP \'+r.status);require(\'fs\').writeFileSync(require(\'path\').join(process.env.INSTALL_DIR,\'nims-agent.mjs\'),await r.text());}).catch(e=>{console.error(e.message||e);process.exit(1);})"',
     'if not errorlevel 1 goto :script_ok',
     'echo.',
     'echo [ERROR] Could not download agent script from %NIMS_URL%',
