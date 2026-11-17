@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import {
   Check,
@@ -78,23 +78,108 @@ export default function SitesPage() {
   const { t } = useI18n();
   const [sites, setSites] = useState<Site[]>([]);
   const [search, setSearch] = useState('');
+  const [quickFilter, setQuickFilter] = useState<
+    'ALL' | 'AGENT_LIVE' | 'HAS_DEVICES' | 'HAS_DIAGRAMS' | 'HAS_DOCS'
+  >('ALL');
+  const [customerFilter, setCustomerFilter] = useState('');
+  const [locationFilter, setLocationFilter] = useState('');
+  const [sortBy, setSortBy] = useState<'CODE_ASC' | 'NAME_ASC' | 'DEVICES_DESC' | 'AGENT_FIRST'>(
+    'CODE_ASC',
+  );
   const [showCreate, setShowCreate] = useState(false);
   const [editingSite, setEditingSite] = useState<Site | null>(null);
   const [viewingSite, setViewingSite] = useState<Site | null>(null);
   const [showImport, setShowImport] = useState(false);
 
   const loadSites = useCallback(async () => {
-    const q = search.trim() ? `?search=${encodeURIComponent(search.trim())}` : '';
-    const res = await apiFetch<{ sites: Site[] }>(`/sites${q}`);
+    const res = await apiFetch<{ sites: Site[] }>('/sites');
     setSites(res.sites);
-  }, [search]);
+  }, []);
 
   useEffect(() => {
-    const timer = setTimeout(() => {
+    loadSites().catch(() => {});
+    const timer = setInterval(() => {
       loadSites().catch(() => {});
-    }, search.trim() ? 200 : 0);
-    return () => clearTimeout(timer);
-  }, [loadSites, search]);
+    }, 30000);
+    return () => clearInterval(timer);
+  }, [loadSites]);
+
+  const customerOptions = useMemo(() => {
+    return Array.from(
+      new Set(sites.map((s) => (s.customerName || '').trim()).filter(Boolean)),
+    ).sort((a, b) => a.localeCompare(b));
+  }, [sites]);
+
+  const locationOptions = useMemo(() => {
+    return Array.from(
+      new Set(
+        sites
+          .map((s) => (s.location || '').trim())
+          .filter((loc) => Boolean(loc) && !/^https?:\/\//i.test(loc)),
+      ),
+    ).sort((a, b) => a.localeCompare(b));
+  }, [sites]);
+
+  const liveAgentSiteCount = useMemo(
+    () => sites.filter((s) => Boolean(s.hasLiveAgent)).length,
+    [sites],
+  );
+
+  const filteredSites = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    const list = sites.filter((s) => {
+      if (q) {
+        const haystack = [
+          s.siteCode,
+          s.siteName,
+          s.customerName || '',
+          s.location || '',
+          s.responsibleEngineer || '',
+          s.address || '',
+        ]
+          .join(' ')
+          .toLowerCase();
+        if (!haystack.includes(q)) return false;
+      }
+      if (customerFilter && (s.customerName || '').trim() !== customerFilter) return false;
+      if (locationFilter && (s.location || '').trim() !== locationFilter) return false;
+      if (quickFilter === 'AGENT_LIVE' && !s.hasLiveAgent) return false;
+      if (quickFilter === 'HAS_DEVICES' && (s._count?.devices ?? 0) === 0) return false;
+      if (quickFilter === 'HAS_DIAGRAMS' && (s._count?.diagrams ?? 0) === 0) return false;
+      if (quickFilter === 'HAS_DOCS' && (s._count?.documents ?? 0) === 0) return false;
+      return true;
+    });
+
+    const sorted = [...list];
+    sorted.sort((a, b) => {
+      if (sortBy === 'AGENT_FIRST') {
+        const diff = Number(Boolean(b.hasLiveAgent)) - Number(Boolean(a.hasLiveAgent));
+        if (diff !== 0) return diff;
+      } else if (sortBy === 'DEVICES_DESC') {
+        const diff = (b._count?.devices ?? 0) - (a._count?.devices ?? 0);
+        if (diff !== 0) return diff;
+      } else if (sortBy === 'NAME_ASC') {
+        return a.siteName.localeCompare(b.siteName);
+      }
+      return a.siteCode.localeCompare(b.siteCode);
+    });
+    return sorted;
+  }, [sites, search, customerFilter, locationFilter, quickFilter, sortBy]);
+
+  const hasActiveFilters =
+    Boolean(search.trim()) ||
+    quickFilter !== 'ALL' ||
+    Boolean(customerFilter) ||
+    Boolean(locationFilter) ||
+    sortBy !== 'CODE_ASC';
+
+  const resetFilters = () => {
+    setSearch('');
+    setQuickFilter('ALL');
+    setCustomerFilter('');
+    setLocationFilter('');
+    setSortBy('CODE_ASC');
+  };
 
   const isSuperAdmin = user?.roleCode === 'SUPER_ADMIN';
 
@@ -167,23 +252,138 @@ export default function SitesPage() {
         </div>
       </div>
 
-      <div className="relative max-w-md">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
-        <input
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          placeholder={t('sites.searchPlaceholder')}
-          className="w-full pl-9 pr-3 py-2 rounded-lg border border-[var(--nims-border)] bg-[var(--nims-surface)] text-sm"
-        />
+      <div className="space-y-3">
+        <div className="flex flex-wrap items-center gap-2.5">
+          <div className="relative flex-1 min-w-[240px] max-w-md">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+            <input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder={t('sites.searchPlaceholder')}
+              className="w-full pl-9 pr-8 py-2 rounded-lg border border-[var(--nims-border)] bg-[var(--nims-surface)] text-sm"
+            />
+            {search && (
+              <button
+                type="button"
+                onClick={() => setSearch('')}
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer"
+                title="Clear search"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            )}
+          </div>
+
+          {customerOptions.length > 0 && (
+            <select
+              value={customerFilter}
+              onChange={(e) => setCustomerFilter(e.target.value)}
+              className="px-3 py-2 rounded-lg border border-[var(--nims-border)] bg-[var(--nims-surface)] text-xs font-medium cursor-pointer"
+            >
+              <option value="">All Customers ({customerOptions.length})</option>
+              {customerOptions.map((c) => (
+                <option key={c} value={c}>
+                  {c}
+                </option>
+              ))}
+            </select>
+          )}
+
+          {locationOptions.length > 0 && (
+            <select
+              value={locationFilter}
+              onChange={(e) => setLocationFilter(e.target.value)}
+              className="px-3 py-2 rounded-lg border border-[var(--nims-border)] bg-[var(--nims-surface)] text-xs font-medium cursor-pointer"
+            >
+              <option value="">All Locations ({locationOptions.length})</option>
+              {locationOptions.map((loc) => (
+                <option key={loc} value={loc}>
+                  {loc}
+                </option>
+              ))}
+            </select>
+          )}
+
+          <select
+            value={sortBy}
+            onChange={(e) =>
+              setSortBy(
+                e.target.value as 'CODE_ASC' | 'NAME_ASC' | 'DEVICES_DESC' | 'AGENT_FIRST',
+              )
+            }
+            className="px-3 py-2 rounded-lg border border-[var(--nims-border)] bg-[var(--nims-surface)] text-xs font-medium cursor-pointer"
+          >
+            <option value="CODE_ASC">Sort: Site Code (A–Z)</option>
+            <option value="NAME_ASC">Sort: Site Name (A–Z)</option>
+            <option value="DEVICES_DESC">Sort: Most Devices</option>
+            <option value="AGENT_FIRST">Sort: Agent Live First</option>
+          </select>
+
+          {hasActiveFilters && (
+            <button
+              type="button"
+              onClick={resetFilters}
+              className="inline-flex items-center gap-1 px-2.5 py-2 rounded-lg border border-slate-200 dark:border-slate-700 text-xs font-medium text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+            >
+              <X className="h-3.5 w-3.5" />
+              Clear
+            </button>
+          )}
+        </div>
+
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex flex-wrap items-center gap-1.5">
+            {(
+              [
+                { id: 'ALL', label: `All (${sites.length})` },
+                { id: 'AGENT_LIVE', label: `Agent Live (${liveAgentSiteCount})`, liveDot: true },
+                { id: 'HAS_DEVICES', label: 'Has Devices' },
+                { id: 'HAS_DIAGRAMS', label: 'Has Diagrams' },
+                { id: 'HAS_DOCS', label: 'Has Docs' },
+              ] as const
+            ).map((chip) => {
+              const active = quickFilter === chip.id;
+              return (
+                <button
+                  key={chip.id}
+                  type="button"
+                  onClick={() => setQuickFilter(chip.id)}
+                  className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold border transition cursor-pointer ${
+                    active
+                      ? 'bg-blue-600 border-blue-600 text-white shadow-sm'
+                      : 'bg-[var(--nims-surface)] border-[var(--nims-border)] text-[var(--nims-muted)] hover:text-[var(--nims-text)]'
+                  }`}
+                >
+                  {'liveDot' in chip && chip.liveDot && (
+                    <span
+                      className={
+                        liveAgentSiteCount > 0
+                          ? 'nims-led-core nims-led-online'
+                          : 'nims-led-core nims-led-unknown'
+                      }
+                      aria-hidden="true"
+                    />
+                  )}
+                  {chip.label}
+                </button>
+              );
+            })}
+          </div>
+
+          <div className="text-xs text-[var(--nims-muted)]">
+            Showing <strong className="text-[var(--nims-text)]">{filteredSites.length}</strong> of{' '}
+            {sites.length} site(s)
+          </div>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-        {sites.length === 0 ? (
+        {filteredSites.length === 0 ? (
           <div className="col-span-full rounded-xl bg-[var(--nims-surface)] border border-[var(--nims-border)] p-8 text-center text-sm text-[var(--nims-muted)]">
             {t('sites.empty')}
           </div>
         ) : (
-          sites.map((site) => {
+          filteredSites.map((site) => {
             const allowEdit = canManageSite(site.id);
             const allowDelete = canDeleteSite(site.id);
 
