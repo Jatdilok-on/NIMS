@@ -2,7 +2,12 @@ import { describe, expect, it } from 'vitest';
 import ExcelJS from 'exceljs';
 import archiver from 'archiver';
 import { DeviceCategory, DeviceStatus, RoleCode } from '@prisma/client';
-import { decryptSecret, encryptSecret, hashPassword, verifyPassword } from '../lib/crypto';
+import { decryptSecret, encryptSecret, hashPassword, hashToken, verifyPassword } from '../lib/crypto';
+import {
+  computeAgentConnectionState,
+  evaluateDevicePingOutcome,
+  generateAgentTokenPair,
+} from '../lib/agentService';
 import {
   enumerateBlock24Hosts,
   isIpInCidr,
@@ -334,5 +339,87 @@ describe('Diagram Engine (Draw.io & Visio Conversion)', () => {
     const svg = await convertVsdxToSvg(vsdxBuffer);
     expect(svg).toContain('<svg');
     expect(svg).toContain('Core Switch');
+  });
+});
+
+describe('Site Agent Ping Evaluation & Token Helpers', () => {
+  it('generates prefixed tokens whose hash matches hashToken()', () => {
+    const pair = generateAgentTokenPair();
+    expect(pair.rawToken.startsWith('nims_agt_')).toBe(true);
+    expect(pair.tokenPrefix).toBe(pair.rawToken.slice(0, 16));
+    expect(pair.tokenHash).toBe(hashToken(pair.rawToken));
+  });
+
+  it('computes agent connection state accurately from heartbeat cadence', () => {
+    const now = new Date('2026-11-17T06:00:00Z');
+    expect(
+      computeAgentConnectionState({ isActive: false, pollIntervalSec: 60, lastHeartbeatAt: now }, now),
+    ).toBe('DISABLED');
+    expect(
+      computeAgentConnectionState({ isActive: true, pollIntervalSec: 60, lastHeartbeatAt: null }, now),
+    ).toBe('NEVER_CONNECTED');
+    expect(
+      computeAgentConnectionState(
+        { isActive: true, pollIntervalSec: 60, lastHeartbeatAt: new Date(now.getTime() - 120_000) },
+        now,
+      ),
+    ).toBe('ONLINE');
+    expect(
+      computeAgentConnectionState(
+        { isActive: true, pollIntervalSec: 60, lastHeartbeatAt: new Date(now.getTime() - 240_000) },
+        now,
+      ),
+    ).toBe('OFFLINE');
+  });
+
+  it('requires consecutive misses >= offlineThreshold before flipping to OFFLINE and protects MAINTENANCE', () => {
+    const now = new Date('2026-11-17T06:00:00Z');
+    const miss1 = evaluateDevicePingOutcome({
+      currentStatus: DeviceStatus.ONLINE,
+      currentMisses: 0,
+      alive: false,
+      latencyMs: null,
+      offlineThreshold: 3,
+      now,
+    });
+    expect(miss1.nextStatus).toBe(DeviceStatus.ONLINE);
+    expect(miss1.nextMisses).toBe(1);
+    expect(miss1.statusChanged).toBe(false);
+
+    const miss3 = evaluateDevicePingOutcome({
+      currentStatus: DeviceStatus.ONLINE,
+      currentMisses: 2,
+      alive: false,
+      latencyMs: null,
+      offlineThreshold: 3,
+      now,
+    });
+    expect(miss3.nextStatus).toBe(DeviceStatus.OFFLINE);
+    expect(miss3.nextMisses).toBe(3);
+    expect(miss3.statusChanged).toBe(true);
+
+    const recovered = evaluateDevicePingOutcome({
+      currentStatus: DeviceStatus.OFFLINE,
+      currentMisses: 3,
+      alive: true,
+      latencyMs: 4,
+      offlineThreshold: 3,
+      now,
+    });
+    expect(recovered.nextStatus).toBe(DeviceStatus.ONLINE);
+    expect(recovered.nextMisses).toBe(0);
+    expect(recovered.lastLatencyMs).toBe(4);
+    expect(recovered.statusChanged).toBe(true);
+
+    const maintProtected = evaluateDevicePingOutcome({
+      currentStatus: DeviceStatus.MAINTENANCE,
+      currentMisses: 0,
+      alive: false,
+      latencyMs: null,
+      offlineThreshold: 1,
+      now,
+    });
+    expect(maintProtected.nextStatus).toBe(DeviceStatus.MAINTENANCE);
+    expect(maintProtected.statusChanged).toBe(false);
   });
 });

@@ -10,6 +10,7 @@ import {
   LayoutGrid,
   MapPin,
   Network,
+  Radio,
   Server,
   Settings,
   Wrench,
@@ -25,6 +26,7 @@ import { DiagramsPanel } from '@/components/diagram/DiagramsPanel';
 import { getDiagramThumbnailSrc } from '@/components/diagram/DiagramViewer';
 import { DocumentsPanel } from '@/components/documents/DocumentsPanel';
 import { MaintenancePanel } from '@/components/maintenance/MaintenancePanel';
+import { SiteAgentsPanel } from '@/components/sites/SiteAgentsPanel';
 
 type SiteTab =
   | 'overview'
@@ -34,6 +36,7 @@ type SiteTab =
   | 'access'
   | 'documents'
   | 'maintenance'
+  | 'agents'
   | 'settings';
 
 export default function SiteDetailPage() {
@@ -117,6 +120,12 @@ export default function SiteDetailPage() {
     },
     { id: 'documents', label: t('sites.tabDocuments'), icon: FileText, show: permissions.canViewDocuments },
     { id: 'maintenance', label: t('sites.tabMaintenance'), icon: Wrench, show: permissions.canViewMaintenance },
+    {
+      id: 'agents',
+      label: t('sites.tabAgents'),
+      icon: Radio,
+      show: permissions.canViewInventory || permissions.canManageSite || user?.roleCode === 'SUPER_ADMIN',
+    },
     { id: 'settings', label: t('sites.tabSettings'), icon: Settings, show: permissions.canManageSite || user?.roleCode === 'SUPER_ADMIN' },
   ];
   const tabs = allTabs.filter((tabItem) => tabItem.show);
@@ -337,6 +346,14 @@ export default function SiteDetailPage() {
 
       {tab === 'maintenance' && (
         <MaintenancePanel siteId={site.id} canEdit={permissions.canEditMaintenance} />
+      )}
+
+      {tab === 'agents' && (
+        <SiteAgentsPanel
+          siteId={site.id}
+          siteCode={site.siteCode}
+          canManage={permissions.canManageSite || user?.roleCode === 'SUPER_ADMIN'}
+        />
       )}
 
       {tab === 'settings' && (

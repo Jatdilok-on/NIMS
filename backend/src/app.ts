@@ -22,6 +22,7 @@ import usersRoutes from './routes/users.routes';
 import auditRoutes from './routes/audit.routes';
 import backupRoutes from './routes/backup.routes';
 import settingsRoutes from './routes/settings.routes';
+import agentsRoutes from './routes/agents.routes';
 
 export function createApp() {
   const app = express();
@@ -70,6 +71,7 @@ export function createApp() {
   app.use('/api/audit-logs', auditRoutes);
   app.use('/api/backups', backupRoutes);
   app.use('/api/settings', settingsRoutes);
+  app.use('/api/agents', agentsRoutes);
 
   app.use(errorHandler);
   return app;

@@ -116,6 +116,11 @@ export interface Device {
   vlan?: string | null;
   location?: string | null;
   status: DeviceStatus;
+  lastPingAt?: string | null;
+  lastSeenAt?: string | null;
+  lastLatencyMs?: number | null;
+  consecutiveMisses?: number;
+  monitorEnabled?: boolean;
   responsiblePerson?: string | null;
   remark?: string | null;
   createdAt: string;
@@ -243,4 +248,33 @@ export interface DocumentItem {
     changeNote?: string | null;
     createdAt: string;
   }>;
+}
+
+export type AgentConnectionState = 'ONLINE' | 'OFFLINE' | 'NEVER_CONNECTED' | 'DISABLED';
+
+export interface SiteAgent {
+  id: string;
+  siteId: string;
+  name: string;
+  tokenPrefix: string;
+  isActive: boolean;
+  pollIntervalSec: number;
+  offlineThreshold: number;
+  hostname?: string | null;
+  localIp?: string | null;
+  platform?: string | null;
+  agentVersion?: string | null;
+  lastHeartbeatAt?: string | null;
+  lastReportSummary?: {
+    total: number;
+    up: number;
+    down: number;
+    ignored?: number;
+    durationMs?: number | null;
+    reportedAt?: string;
+  } | null;
+  connectionState: AgentConnectionState;
+  createdAt: string;
+  updatedAt: string;
+  site?: { id: string; siteCode: string; siteName: string };
 }

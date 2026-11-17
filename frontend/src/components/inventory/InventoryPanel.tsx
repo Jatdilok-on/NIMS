@@ -642,6 +642,16 @@ export function InventoryPanel({
                           {dev.status}
                         </span>
                       )}
+                      {dev.lastPingAt && (
+                        <div className="text-[10px] font-mono text-slate-400 mt-1">
+                          {dev.lastLatencyMs != null ? `${dev.lastLatencyMs}ms` : 'No reply'}
+                          {' • '}
+                          {new Date(dev.lastPingAt).toLocaleTimeString([], {
+                            hour: '2-digit',
+                            minute: '2-digit',
+                          })}
+                        </div>
+                      )}
                     </td>
                     <td className="px-4 py-2.5 text-right whitespace-nowrap">
                       <button

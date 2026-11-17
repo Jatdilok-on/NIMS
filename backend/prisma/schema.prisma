@@ -284,6 +284,7 @@ model Site {
   documents          Document[]
   projects           Project[]
   maintenanceRecords MaintenanceRecord[]
+  siteAgents         SiteAgent[]
   auditLogs          AuditLog[]
 
   @@index([siteName])
@@ -366,6 +367,11 @@ model Device {
   vlan              String?
   location          String?
   status            DeviceStatus   @default(UNKNOWN)
+  lastPingAt        DateTime?
+  lastSeenAt        DateTime?
+  lastLatencyMs     Int?
+  consecutiveMisses Int            @default(0)
+  monitorEnabled    Boolean        @default(true)
   responsiblePerson String?
   remark            String?
   createdAt         DateTime       @default(now())
@@ -763,4 +769,32 @@ model SystemSetting {
   updatedAt            DateTime       @updatedAt
 
   @@map("system_settings")
+}
+
+// ============================================================================
+// 9. REMOTE SITE PING AGENTS (DISTRIBUTED MONITORING)
+// ============================================================================
+
+model SiteAgent {
+  id                String    @id @default(auto()) @map("_id") @db.ObjectId
+  siteId            String    @db.ObjectId
+  name              String
+  tokenPrefix       String
+  tokenHash         String    @unique
+  isActive          Boolean   @default(true)
+  pollIntervalSec   Int       @default(60)
+  offlineThreshold  Int       @default(3)
+  hostname          String?
+  localIp           String?
+  platform          String?
+  agentVersion      String?
+  lastHeartbeatAt   DateTime?
+  lastReportSummary Json?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  site Site @relation(fields: [siteId], references: [id], onDelete: Cascade)
+
+  @@index([siteId])
+  @@map("site_agents")
 }
