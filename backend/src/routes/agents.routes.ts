@@ -310,7 +310,10 @@ router.post('/runtime/report', authenticateAgent, async (req, res, next) => {
       reportedAt: now.toISOString(),
     };
 
-    const agentUpdateOp = prisma.siteAgent.update({
+    for (let i = 0; i < updates.length; i += 20) {
+      await Promise.all(updates.slice(i, i + 20));
+    }
+    await prisma.siteAgent.update({
       where: { id: agent.id },
       data: {
         lastHeartbeatAt: now,
@@ -321,8 +324,6 @@ router.post('/runtime/report', authenticateAgent, async (req, res, next) => {
         ...(body.agentVersion ? { agentVersion: body.agentVersion } : {}),
       },
     });
-
-    await prisma.$transaction([...updates, agentUpdateOp]);
 
     for (const tr of transitions) {
       await recordAuditLog({

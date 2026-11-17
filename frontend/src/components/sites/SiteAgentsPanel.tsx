@@ -145,7 +145,7 @@ function buildWindowsOneClickBat(
     '',
     'echo [2/5] Preparing folder "%INSTALL_DIR%"...',
     'if not exist "%INSTALL_DIR%" mkdir "%INSTALL_DIR%"',
-    'powershell -NoProfile -ExecutionPolicy Bypass -Command "Get-CimInstance Win32_Process | Where-Object { $_.Name -eq \'node.exe\' -and $_.CommandLine -like \'*nims-agent.mjs*\' -and $_.CommandLine -like (\'*\' + $env:INSTALL_DIR + \'*\') } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }" >nul 2>&1',
+    'powershell -NoProfile -ExecutionPolicy Bypass -Command "Get-CimInstance Win32_Process | Where-Object { ($_.Name -eq \'cmd.exe\' -and $_.CommandLine -like (\'*\' + $env:INSTALL_DIR + \'*node-run.cmd*\')) -or ($_.Name -eq \'wscript.exe\' -and $_.CommandLine -like (\'*\' + $env:INSTALL_DIR + \'*run-hidden.vbs*\')) -or ($_.Name -eq \'node.exe\' -and $_.CommandLine -like (\'*\' + $env:INSTALL_DIR + \'*nims-agent.mjs*\')) } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }" >nul 2>&1',
     '',
     'echo [3/5] Writing config and downloading latest nims-agent.mjs...',
     'echo NIMS_URL=%NIMS_URL%> "%INSTALL_DIR%\\nims-agent.env"',
@@ -167,7 +167,10 @@ function buildWindowsOneClickBat(
     'echo @echo off > "%INSTALL_DIR%\\node-run.cmd"',
     'echo cd /d "%INSTALL_DIR%" >> "%INSTALL_DIR%\\node-run.cmd"',
     'echo :loop >> "%INSTALL_DIR%\\node-run.cmd"',
+    'echo if not exist "%INSTALL_DIR%\\nims-agent.mjs" exit /b 0 >> "%INSTALL_DIR%\\node-run.cmd"',
+    'echo if not exist "%INSTALL_DIR%\\nims-agent.env" exit /b 0 >> "%INSTALL_DIR%\\node-run.cmd"',
     'echo "%NODE_EXE%" "%INSTALL_DIR%\\nims-agent.mjs" ^>^> "%INSTALL_DIR%\\agent.log" 2^>^&1 >> "%INSTALL_DIR%\\node-run.cmd"',
+    'echo if %%ERRORLEVEL%% EQU 42 exit /b 0 >> "%INSTALL_DIR%\\node-run.cmd"',
     'echo timeout /t 10 /nobreak ^>nul >> "%INSTALL_DIR%\\node-run.cmd"',
     'echo goto loop >> "%INSTALL_DIR%\\node-run.cmd"',
     '',
@@ -184,10 +187,12 @@ function buildWindowsOneClickBat(
     'echo pause >> "%INSTALL_DIR%\\view-log.bat"',
     '',
     'echo @echo off > "%INSTALL_DIR%\\uninstall-agent.bat"',
-    'echo echo Stopping NIMS Agent... >> "%INSTALL_DIR%\\uninstall-agent.bat"',
-    'echo powershell -NoProfile -ExecutionPolicy Bypass -Command "Get-CimInstance Win32_Process | Where-Object { $_.Name -eq \'node.exe\' -and $_.CommandLine -like \'*nims-agent.mjs*\' -and $_.CommandLine -like \'*%INSTALL_DIR%*\'} | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }" >> "%INSTALL_DIR%\\uninstall-agent.bat"',
+    'echo echo Stopping NIMS Agent and removing Auto-Start... >> "%INSTALL_DIR%\\uninstall-agent.bat"',
     'echo schtasks /delete /tn "%TASK_NAME%" /f ^>nul 2^>^&1 >> "%INSTALL_DIR%\\uninstall-agent.bat"',
-    'echo echo NIMS Site Agent stopped and auto-start removed. >> "%INSTALL_DIR%\\uninstall-agent.bat"',
+    'echo powershell -NoProfile -ExecutionPolicy Bypass -Command "Get-CimInstance Win32_Process | Where-Object { ($_.Name -eq \'cmd.exe\' -and $_.CommandLine -like \'*%INSTALL_DIR%*node-run.cmd*\') -or ($_.Name -eq \'wscript.exe\' -and $_.CommandLine -like \'*%INSTALL_DIR%*run-hidden.vbs*\') -or ($_.Name -eq \'node.exe\' -and $_.CommandLine -like \'*%INSTALL_DIR%*nims-agent.mjs*\') } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }" >> "%INSTALL_DIR%\\uninstall-agent.bat"',
+    'echo cd /d "%%TEMP%%" >> "%INSTALL_DIR%\\uninstall-agent.bat"',
+    'echo start "" /min powershell -NoProfile -WindowStyle Hidden -Command "Start-Sleep 2; Remove-Item -LiteralPath \'%INSTALL_DIR%\' -Recurse -Force -ErrorAction SilentlyContinue" >> "%INSTALL_DIR%\\uninstall-agent.bat"',
+    'echo echo NIMS Site Agent stopped, auto-start removed, and folder scheduled for cleanup. >> "%INSTALL_DIR%\\uninstall-agent.bat"',
     'echo pause >> "%INSTALL_DIR%\\uninstall-agent.bat"',
     '',
     'echo [4/5] Running quick connection ^& ping test (--once)...',
@@ -352,6 +357,20 @@ export function SiteAgentsPanel({
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={() =>
+              copyText(
+                'cleanup',
+                'Get-ScheduledTask -TaskName "NIMS-SiteAgent-*" -ErrorAction SilentlyContinue | Unregister-ScheduledTask -Confirm:$false; Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -match "nims-agent\\.mjs|node-run\\.cmd|run-hidden\\.vbs" } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }; Remove-Item "$env:LOCALAPPDATA\\NIMS-Agent" -Recurse -Force -ErrorAction SilentlyContinue',
+              )
+            }
+            title="Copy PowerShell command to stop and remove all local agent processes on the agent PC"
+            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-red-200 dark:border-red-900/60 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/30 text-xs font-medium cursor-pointer"
+          >
+            {copiedKey === 'cleanup' ? <Check className="h-3.5 w-3.5" /> : <Trash2 className="h-3.5 w-3.5" />}
+            {copiedKey === 'cleanup' ? 'Copied Cleanup Cmd' : 'Copy Uninstall Cmd'}
+          </button>
           <button
             type="button"
             onClick={() => loadAgents()}

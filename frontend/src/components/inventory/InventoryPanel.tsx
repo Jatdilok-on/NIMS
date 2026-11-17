@@ -3,6 +3,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import {
   AlertTriangle,
+  ChevronDown,
   Download,
   Edit,
   Eye,
@@ -45,11 +46,63 @@ const CATEGORY_LABELS: Record<DeviceCategory, string> = {
 };
 
 const STATUS_BADGE: Record<DeviceStatus, string> = {
-  ONLINE: 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300',
-  OFFLINE: 'bg-red-50 text-red-700 dark:bg-red-950/60 dark:text-red-300',
-  MAINTENANCE: 'bg-amber-50 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300',
-  UNKNOWN: 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300',
+  ONLINE:
+    'bg-emerald-500/10 border-emerald-500/30 text-emerald-700 dark:bg-emerald-950/60 dark:border-emerald-500/35 dark:text-emerald-300 shadow-[0_0_12px_rgba(16,185,129,0.12)]',
+  OFFLINE:
+    'bg-red-500/10 border-red-500/35 text-red-700 dark:bg-red-950/60 dark:border-red-500/40 dark:text-red-300 shadow-[0_0_12px_rgba(239,68,68,0.15)]',
+  MAINTENANCE:
+    'bg-amber-500/10 border-amber-500/30 text-amber-700 dark:bg-amber-950/60 dark:border-amber-500/35 dark:text-amber-300',
+  UNKNOWN:
+    'bg-slate-500/10 border-slate-400/30 text-slate-600 dark:bg-slate-800/80 dark:border-slate-700 dark:text-slate-300',
 };
+
+const STATUS_LED_CLASS: Record<DeviceStatus, string> = {
+  ONLINE: 'nims-led-core nims-led-online',
+  OFFLINE: 'nims-led-core nims-led-offline',
+  MAINTENANCE: 'nims-led-core nims-led-maint',
+  UNKNOWN: 'nims-led-core nims-led-unknown',
+};
+
+function DeviceStatusPill({
+  status,
+  canEdit = false,
+  onChange,
+}: {
+  status: DeviceStatus;
+  canEdit?: boolean;
+  onChange?: (next: DeviceStatus) => void;
+}) {
+  const pillContent = (
+    <span
+      className={`inline-flex items-center gap-2 px-2.5 py-1 rounded-full border text-[11px] font-bold tracking-wide transition ${STATUS_BADGE[status]}`}
+    >
+      <span className={STATUS_LED_CLASS[status]} aria-hidden="true" />
+      <span>{status}</span>
+      {canEdit && <ChevronDown className="h-3 w-3 opacity-60" />}
+    </span>
+  );
+
+  if (!canEdit || !onChange) {
+    return pillContent;
+  }
+
+  return (
+    <div className="relative inline-flex items-center" title="Click to change status">
+      {pillContent}
+      <select
+        value={status}
+        aria-label="Device status"
+        onChange={(e) => onChange(e.target.value as DeviceStatus)}
+        className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+      >
+        <option value="ONLINE">ONLINE</option>
+        <option value="OFFLINE">OFFLINE</option>
+        <option value="MAINTENANCE">MAINTENANCE</option>
+        <option value="UNKNOWN">UNKNOWN</option>
+      </select>
+    </div>
+  );
+}
 
 export function InventoryPanel({
   fixedSiteId,
@@ -98,8 +151,8 @@ export function InventoryPanel({
       .catch(() => {});
   }, []);
 
-  const loadDevices = useCallback(async () => {
-    setLoading(true);
+  const loadDevices = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true);
     try {
       const params = new URLSearchParams();
       if (fixedSiteId || siteFilter) params.set('siteId', fixedSiteId || siteFilter);
@@ -121,9 +174,9 @@ export function InventoryPanel({
       setTotal(res.pagination.total);
       setTotalPages(res.pagination.totalPages);
     } catch {
-      setDevices([]);
+      if (!silent) setDevices([]);
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }, [
     fixedSiteId,
@@ -141,6 +194,10 @@ export function InventoryPanel({
 
   useEffect(() => {
     loadDevices();
+    const timer = setInterval(() => {
+      loadDevices(true).catch(() => {});
+    }, 10000);
+    return () => clearInterval(timer);
   }, [loadDevices]);
 
   useEffect(() => {
@@ -610,41 +667,18 @@ export function InventoryPanel({
                     <td className="px-4 py-2.5 text-xs">{dev.vlan || '-'}</td>
                     <td className="px-4 py-2.5 text-xs">{dev.location || '-'}</td>
                     <td className="px-4 py-2.5">
-                      {canEdit ? (
-                        <select
-                          value={dev.status}
-                          onChange={(e) =>
-                            handleQuickStatusChange(dev, e.target.value as DeviceStatus)
-                          }
-                          title="Quick change status"
-                          className={`px-2 py-0.5 rounded-full text-xs font-semibold border border-transparent cursor-pointer ${STATUS_BADGE[dev.status]}`}
-                        >
-                          <option value="ONLINE">ONLINE</option>
-                          <option value="OFFLINE">OFFLINE</option>
-                          <option value="MAINTENANCE">MAINTENANCE</option>
-                          <option value="UNKNOWN">UNKNOWN</option>
-                        </select>
-                      ) : (
-                        <span
-                          className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium ${STATUS_BADGE[dev.status]}`}
-                        >
-                          <span
-                            className={`h-1.5 w-1.5 rounded-full ${
-                              dev.status === 'ONLINE'
-                                ? 'bg-emerald-500'
-                                : dev.status === 'OFFLINE'
-                                ? 'bg-red-500'
-                                : dev.status === 'MAINTENANCE'
-                                ? 'bg-amber-500'
-                                : 'bg-slate-400'
-                            }`}
-                          />
-                          {dev.status}
-                        </span>
-                      )}
+                      <DeviceStatusPill
+                        status={dev.status}
+                        canEdit={canEdit}
+                        onChange={(nextStatus) => handleQuickStatusChange(dev, nextStatus)}
+                      />
                       {dev.lastPingAt && (
                         <div className="text-[10px] font-mono text-slate-400 mt-1">
-                          {dev.lastLatencyMs != null ? `${dev.lastLatencyMs}ms` : 'No reply'}
+                          {dev.lastLatencyMs != null
+                            ? `${dev.lastLatencyMs}ms`
+                            : dev.status !== 'OFFLINE' && (dev.consecutiveMisses ?? 0) > 0
+                            ? `Miss (${dev.consecutiveMisses})`
+                            : 'No reply'}
                           {' • '}
                           {new Date(dev.lastPingAt).toLocaleTimeString([], {
                             hour: '2-digit',
@@ -706,11 +740,7 @@ export function InventoryPanel({
                   {CATEGORY_LABELS[dev.category]} • {dev.model || 'Unknown model'}
                 </div>
               </div>
-              <span
-                className={`px-2 py-0.5 rounded-full text-[11px] font-medium ${STATUS_BADGE[dev.status]}`}
-              >
-                {dev.status}
-              </span>
+              <DeviceStatusPill status={dev.status} />
             </div>
             <div className="grid grid-cols-2 gap-1 text-xs text-slate-600 dark:text-slate-400">
               <div>IP: <span className="font-mono">{dev.managementIp || '-'}</span></div>
@@ -783,11 +813,14 @@ export function InventoryPanel({
         <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
           <div className="bg-white dark:bg-slate-900 rounded-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto border border-slate-200 dark:border-slate-800 shadow-2xl">
             <div className="px-6 py-4 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
-              <div>
-                <h3 className="font-bold text-lg">{selectedDevice.name}</h3>
-                <p className="text-xs text-slate-500">
-                  {selectedDevice.site?.siteCode} • {CATEGORY_LABELS[selectedDevice.category]}
-                </p>
+              <div className="flex items-center gap-3">
+                <div>
+                  <h3 className="font-bold text-lg">{selectedDevice.name}</h3>
+                  <p className="text-xs text-slate-500">
+                    {selectedDevice.site?.siteCode} • {CATEGORY_LABELS[selectedDevice.category]}
+                  </p>
+                </div>
+                <DeviceStatusPill status={selectedDevice.status} />
               </div>
               <div className="flex items-center gap-2">
                 {canEdit && (

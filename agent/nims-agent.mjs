@@ -57,13 +57,17 @@ function parseCliArgs(argv) {
 }
 
 const cli = parseCliArgs(process.argv.slice(2));
-if (cli.configPath) {
-  loadEnvFile(cli.configPath);
-} else {
-  loadEnvFile(path.join(process.cwd(), 'nims-agent.env'));
-  loadEnvFile(path.join(process.cwd(), '.env'));
-  loadEnvFile(path.join(__dirname, 'nims-agent.env'));
-  loadEnvFile(path.join(__dirname, '.env'));
+const candidateEnvPaths = cli.configPath
+  ? [cli.configPath]
+  : [
+      path.join(process.cwd(), 'nims-agent.env'),
+      path.join(process.cwd(), '.env'),
+      path.join(__dirname, 'nims-agent.env'),
+      path.join(__dirname, '.env'),
+    ];
+const loadedEnvPath = candidateEnvPaths.find((p) => fs.existsSync(p)) || null;
+for (const envCandidate of candidateEnvPaths) {
+  loadEnvFile(envCandidate);
 }
 
 if (process.env.NIMS_ALLOW_INSECURE_TLS === 'true') {
@@ -244,7 +248,9 @@ async function fetchJson(url, options = {}) {
       data = { raw: text };
     }
     if (!res.ok) {
-      throw new Error(`HTTP ${res.status}: ${data.error || text || res.statusText}`);
+      const error = new Error(`HTTP ${res.status}: ${data.error || text || res.statusText}`);
+      error.status = res.status;
+      throw error;
     }
     return data;
   } finally {
@@ -315,16 +321,34 @@ async function main() {
     console.log(`[NIMS Agent] Fallback TCP ports enabled: ${FALLBACK_TCP_PORTS.join(', ')}`);
   }
 
+  let consecutiveAuthFailures = 0;
+
   while (!stopping) {
+    if (!fs.existsSync(__filename) || (loadedEnvPath && !fs.existsSync(loadedEnvPath))) {
+      console.log('[NIMS Agent] Agent script or config was removed from disk. Stopping.');
+      process.exit(42);
+    }
+
     let waitSec = 60;
     try {
       waitSec = await runCycle();
+      consecutiveAuthFailures = 0;
     } catch (err) {
+      const status = err && typeof err === 'object' && 'status' in err ? Number(err.status) : 0;
       const causeMsg =
         err && typeof err === 'object' && 'cause' in err && err.cause
           ? ` (${err.cause.code || err.cause.message || String(err.cause)})`
           : '';
       console.error(`[${new Date().toISOString()}] [NIMS Agent] Cycle failed: ${err.message}${causeMsg}`);
+      if (status === 401) {
+        consecutiveAuthFailures++;
+        if (consecutiveAuthFailures >= 2) {
+          console.error('[NIMS Agent] Token revoked or agent deleted on server. Stopping permanently.');
+          process.exit(42);
+        }
+      } else {
+        consecutiveAuthFailures = 0;
+      }
       if (/localhost|127\.0\.0\.1/i.test(NIMS_URL) && /fetch failed/i.test(err.message)) {
         console.error(
           '[NIMS Agent] Hint: NIMS_URL points to localhost. If this agent runs on another PC, set NIMS_URL in nims-agent.env to the NIMS server IP.',
