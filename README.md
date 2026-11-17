@@ -1,52 +1,84 @@
-# NIMS – Network Infrastructure Management System
+# NIMS – ระบบบริหารจัดการโครงสร้างพื้นฐานเครือข่าย (Network Infrastructure Management System)
 
-Centralized enterprise web application for managing multi-site Network Infrastructure, Network Diagrams, IP Address Management (IPAM), Device Inventory, Encrypted Login Credentials, Project Documents, Maintenance History, and Immutable Audit Logs.
+เว็บแอปพลิเคชันสำหรับบริหารจัดการระบบเครือข่ายหลายสาขาแบบรวมศูนย์ (On-Premise) ครอบคลุมตั้งแต่ผังเครือข่าย (Network Diagrams), การจัดการ IP Address (IPAM), คลังอุปกรณ์ (Device Inventory), ห้องนิรภัยเก็บรหัสผ่านแบบเข้ารหัส, เอกสารโครงการ, ประวัติการบำรุงรักษา, สิทธิ์การใช้งาน (RBAC) และ Audit Log
 
-## Key Capabilities
+---
 
-- **Multi-Site Organization**: Manage unlimited sites (e.g., `BTV`, `AMW`, `CUST01`) with strict site-scoped permissions and an 8-tab site workspace (Overview, Network Diagram, Device Inventory, IPAM, Access Management, Project Documents, Maintenance History, Site Settings).
-- **Dashboard & Analytics**: Organization-wide KPIs, status counts (`Online`, `Offline`, `Maintenance`, `Unknown`), and interactive charts (Devices by Site, Type, Status, Monthly Additions) with per-site filtering.
-- **Device Inventory & Excel Import/Export**: Switches, Access Points, AP Clients, Wireless Controllers (WLC), and Servers; duplicate IP & MAC detection within each site; Global Search; 10-step Excel/CSV Import Wizard (supports legacy `No., Model, MAC, SN, NAME, Location, IP(VLAN 1211)` headers); Export to `.xlsx`, `.csv`, and `.pdf`.
-- **IP Address Management (IPAM)**: VLANs, CIDR subnet auto-calculation (mask, network, broadcast, usable range), gateway/DNS/DHCP tracking, interactive IP map, and automatic linking to inventory devices.
-- **Network Diagram Engine**:
-  - Upload & preview `PNG`, `JPG`, `SVG`, `PDF` (multi-page), `.drawio`, `.xml`, and Visio `.vsdx` (automatic server-side SVG preview conversion).
-  - Interactive Web-Based Topology Editor (`@xyflow/react`) with drag-and-drop network shapes, live Inventory device drag-and-drop, LAN/Fiber/Wireless edge metadata (port, VLAN, speed, color), background image overlay, live inventory sync, Undo/Redo, version history, and export to PNG / `.drawio`.
-- **Access Management / Credentials Vault**: AES-256-GCM encrypted username/password storage using an isolated `CREDENTIALS_ENCRYPTION_KEY`, reveal/copy audit logging, and strict backend `403` enforcement preventing `IP_VIEWER` access.
-- **Project Document Management**: Folder categories, version control (replace & download history), inline preview, and permission-scoped deletion.
-- **RBAC & Immutable Audit Logs**: `SUPER_ADMIN`, `SITE_ADMIN`, `NETWORK_ENGINEER`, `VIEWER`, `IP_VIEWER`, plus per-site granular module permissions.
-- **Backup & Restore**: Manual & scheduled (Daily/Weekly/Monthly) ZIP archives containing MongoDB JSON snapshot + uploaded files + SHA-256 manifest, with one-click restore.
+## ความสามารถหลักของระบบ
 
-## Project Structure
+- **บริหารจัดการหลายสาขา (Multi-Site Organization)**
+  - จัดการ Site ได้ไม่จำกัดพร้อมกำหนดสิทธิ์การเข้าถึงแยกราย Site และ Workspace 8 แท็บต่อ Site (ภาพรวม, ผังเครือข่าย, คลังอุปกรณ์, IPAM, จัดการรหัสผ่าน, เอกสารโครงการ, ประวัติซ่อมบำรุง, ตั้งค่า Site)
+  - มีหน้าต่าง Quick View สำหรับดูรายละเอียด Site, ลิงก์ Google Map และข้อมูล VPN / รหัสผ่านได้อย่างรวดเร็ว
 
-- `backend/` — Node.js + Express + TypeScript + Prisma ORM + MongoDB REST API
-- `frontend/` — Next.js App Router + React + TypeScript + Tailwind CSS + React Flow
-- `scripts/run-nims.mjs` — Direct Node.js runner (no Docker required)
-- `start-nims.ps1` / `start-nims.bat` — Windows quick-launch scripts
-- `docs/` — [ARCHITECTURE.md](docs/ARCHITECTURE.md), [INSTALLATION.md](docs/INSTALLATION.md), [BACKUP_RESTORE.md](docs/BACKUP_RESTORE.md), [API.md](docs/API.md)
-- `docker-compose.yml` — Optional Docker Compose stack (MongoDB 7 + Backend + Frontend)
-- `.env.example` — Environment template
+- **แดชบอร์ดและสถิติภาพรวม (NOC Dashboard & Analytics)**
+  - แสดง KPI ภาพรวมทั้งองค์กรหรือกรองแยกตาม Site (จำนวน Site, อุปกรณ์ทั้งหมด, ผังเครือข่าย, เอกสาร และอุปกรณ์แยกทั้ง 16 ประเภท)
+  - แสดงสถานะอุปกรณ์ (`ONLINE`, `OFFLINE`, `MAINTENANCE`, `UNKNOWN`), กราฟแท่ง, กราฟวงกลม, แนวโน้มการเพิ่มรายเดือน และ Recent Activity ที่จำกัดให้เห็นเฉพาะกิจกรรมของตนเอง (ยกเว้น `SUPER_ADMIN` ที่ดูได้ทั้งหมด)
 
-## Quick Start (Node.js + MongoDB, No Docker Required)
+- **คลังอุปกรณ์และการนำเข้า/ส่งออก (Device Inventory & Import/Export)**
+  - รองรับอุปกรณ์ **16 ประเภท**: `SWITCH`, `ACCESS_POINT`, `AP_CLIENT`, `WLC`, `SERVER`, `PLC`, `ESXI`, `VM`, `NAS`, `UPS`, `IP_CAM`, `PC`, `NVR`, `TV`, `PRINTER`, `BARCODE`
+  - ตรวจจับ IP และ MAC ซ้ำซ้อนภายในแต่ละ Site พร้อมค้นหาทั้งระบบ (Global Search)
+  - นำเข้าจาก `.xlsx` / `.csv` (รองรับไฟล์ CSV ภาษาไทยทั้ง UTF-8 และ Windows-874/TIS-620) สามารถแยก Device Type หลายชนิดในไฟล์เดียว และตรวจจับ Target Site อัตโนมัติจากคอลัมน์หรือชื่อไฟล์
+  - รองรับแก้ไข/ลบหลายรายการพร้อมกัน (Bulk Edit / Bulk Delete), แสดงผลทั้งหมดในหน้าเดียว และส่งออกเป็น `.xlsx`, `.csv`, `.pdf`
 
-1. Install **MongoDB Community Server** and enable single-node Replica Set (`rs0`) in `mongod.cfg` (required by Prisma ORM on MongoDB):
-   - Add `replication: { replSetName: "rs0" }` to `mongod.cfg` and restart the MongoDB service (`Restart-Service MongoDB` in Admin PowerShell).
-2. Install dependencies, initialize `.env`, initialize Replica Set (`rs0`), push MongoDB collections/indexes, and seed reference data (no `mongosh` needed):
+- **การจัดการ IP Address (IPAM)**
+  - จัดการ VLAN และ Subnet คำนวณ Mask, Network, Broadcast, ช่วง IP ใช้งานอัตโนมัติ พร้อมตาราง IP Grid แบบ Interactive
+  - เชื่อมโยง IP ของอุปกรณ์จาก Device Inventory เข้าสู่ Subnet ให้อัตโนมัติ มีระบบตรวจจับ IP ที่ยังไม่มี Subnet รองรับ และปุ่ม Auto-Create `/24` Subnets & Sync รวมถึงแก้ไขข้อมูล Subnet (`Edit Subnet`) ได้โดยตรง
+
+- **เครื่องมือจัดการและวาดผังเครือข่าย (Network Diagram Engine)**
+  - รองรับการอัปโหลดและพรีวิวไฟล์ `PNG`, `JPG`, `SVG`, `PDF` (หลายหน้า), `.drawio`, `.xml` และ Visio `.vsdx` (แปลงเป็น SVG อัตโนมัติฝั่ง Server) รวมถึงเก็บประวัติเวอร์ชันและกู้คืนเวอร์ชันเดิมได้
+  - ตัวแก้ไขผังเครือข่ายบนเว็บ (`@xyflow/react`) ลากวางอุปกรณ์จริงจาก Inventory หรือ Shape มาตรฐาน เชื่อมสาย LAN/Fiber/Wireless ระบุพอร์ต/VLAN/ความเร็ว ตั้งภาพพื้นหลัง (Floor Plan) แบบตรึงพิกัด เดินเส้นหลบอุปกรณ์อัตโนมัติ (Orthogonal Routing) Sync สถานะกลับสู่ Inventory แบบเรียลไทม์ และส่งออกเป็น `PNG` / `.drawio` / `.json`
+
+- **ห้องนิรภัยเก็บรหัสผ่าน (Access Management / Credentials Vault)**
+  - เข้ารหัสชื่อผู้ใช้และรหัสผ่านด้วย **AES-256-GCM** แยกคีย์ `CREDENTIALS_ENCRYPTION_KEY` บันทึกประวัติทุกครั้งที่มีการกดดูหรือคัดลอก และบังคับบล็อกสิทธิ์ `IP_VIEWER` (`403`) จากฝั่ง Backend
+
+- **เอกสารโครงการ (Project Documents) และประวัติบำรุงรักษา (Maintenance History)**
+  - จัดเก็บเอกสารแยกหมวดหมู่ มีระบบอัปเดตเวอร์ชันและดาวน์โหลดย้อนหลัง รวมถึงบันทึกประวัติงานซ่อมบำรุง/อัปเกรดเฟิร์มแวร์
+
+- **ระบบผู้ใช้งาน, สิทธิ์ (RBAC) และ Audit Logs**
+  - รองรับ Role 5 ระดับ: `SUPER_ADMIN`, `SITE_ADMIN`, `NETWORK_ENGINEER`, `VIEWER`, `IP_VIEWER` พร้อมกำหนดสิทธิ์ราย Site และรายโมดูล (รองรับ Bulk Assign)
+  - รองรับการเพิ่มผู้ใช้งานจำนวนมากด้วยการ Import Excel / CSV และบังคับเปลี่ยนรหัสผ่านเมื่อเข้าสู่ระบบครั้งแรก (`First-Login Password Change`)
+  - รองรับเปลี่ยนภาษาหน้าเว็บ 4 ภาษา (`ไทย`, `English`, `中文`, `日本語`) และธีมสีหลายรูปแบบ
+
+- **สำรองและกู้คืนข้อมูล (Backup & Restore)**
+  - สร้างไฟล์สำรองแบบ ZIP ที่รวม Snapshot ฐานข้อมูล MongoDB, ไฟล์อัปโหลดทั้งหมด และ SHA-256 Manifest ทั้งแบบกดสำรองเองและตั้งเวลาอัตโนมัติ (รายวัน/รายสัปดาห์/รายเดือน)
+
+---
+
+## โครงสร้างโปรเจกต์
+
+- `backend/` — Node.js + Express + TypeScript + Prisma ORM + MongoDB REST API (พอร์ต `4000`)
+- `frontend/` — Next.js App Router + React + TypeScript + Tailwind CSS + React Flow (พอร์ต `3000`)
+- `scripts/run-nims.mjs` — สคริปต์รันระบบด้วย Node.js โดยตรง (ไม่ต้องใช้ Docker)
+- `start-nims.ps1` / `start-nims.bat` — สคริปต์เปิดใช้งานด่วนบน Windows
+- `docs/` — เอกสารเพิ่มเติม: [ARCHITECTURE.md](docs/ARCHITECTURE.md), [INSTALLATION.md](docs/INSTALLATION.md), [BACKUP_RESTORE.md](docs/BACKUP_RESTORE.md), [API.md](docs/API.md)
+- `docker-compose.yml` — สำหรับรันด้วย Docker Compose (MongoDB 7 + Backend + Frontend)
+- `.env.example` — เทมเพลตการตั้งค่า Environment
+
+---
+
+## การติดตั้งและเริ่มต้นใช้งาน (Node.js + MongoDB ไม่ต้องใช้ Docker)
+
+1. ติดตั้ง **MongoDB Community Server** และเปิดโหมด Single-Node Replica Set (`rs0`) ในไฟล์ `mongod.cfg` *(จำเป็นสำหรับ Prisma ORM บน MongoDB)*:
+   - เพิ่มค่า `replication: { replSetName: "rs0" }` ใน `mongod.cfg` แล้ว Restart Service `MongoDB`
+2. ติดตั้ง Dependencies, สร้างไฟล์ `.env`, ตั้งค่า Replica Set (`rs0`), Push Schema และ Seed ข้อมูลตั้งต้น:
    ```bash
    npm run install:all
    npm run setup:db
    ```
-3. Start both Backend (port `4000`) and Frontend (port `3000`):
+3. รันระบบในโหมดพัฒนา (Development):
    ```bash
    npm run dev
    ```
-   Or build and run in production mode:
+   หรือ Build และรันในโหมดใช้งานจริง (Production):
    ```bash
    npm run build
    npm start
    ```
-4. Open `http://localhost:3000/setup` in your browser to create the first **Super Admin** account securely (no default passwords are hardcoded).
+4. เปิดเบราว์เซอร์ไปที่ `http://localhost:3000/setup` เพื่อสร้างบัญชี **Super Admin** คนแรกอย่างปลอดภัย
 
-## Author & License
+---
 
-- **Created & Developed by:** AUTOMOTIONWORKS
-- **Copyright & License:** © 2026 AUTOMOTIONWORKS. All Rights Reserved. See [LICENSE](LICENSE) for attribution requirements.
+## ผู้พัฒนาและลิขสิทธิ์ (Author & License)
+
+- **Developed & Maintained by:** AUTOMOTIONWORKS
+- **Copyright & License:** © 2026 AUTOMOTIONWORKS. All Rights Reserved. กรุณาดูรายละเอียดในไฟล์ [LICENSE](LICENSE)
