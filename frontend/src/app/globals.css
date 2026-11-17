@@ -227,6 +227,21 @@ body {
   animation: nims-led-breath 2.4s ease-in-out infinite;
 }
 
+.nims-led-online-static {
+  background: radial-gradient(circle at 35% 35%, #6ee7b7, #10b981 65%, #059669);
+  box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.55);
+}
+
+.nims-led-offline-static {
+  background: radial-gradient(circle at 35% 35%, #fca5a5, #ef4444 65%, #dc2626);
+  box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.5);
+}
+
+.nims-led-maint-static {
+  background: radial-gradient(circle at 35% 35%, #fde68a, #f59e0b 65%, #d97706);
+  box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.45);
+}
+
 .nims-led-unknown {
   background: radial-gradient(circle at 35% 35%, #cbd5e1, #64748b 70%, #475569);
   box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.45);

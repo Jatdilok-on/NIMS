@@ -136,11 +136,20 @@ export default function SiteDetailPage() {
       {/* Site Header */}
       <div className="rounded-xl bg-[#0f2942] text-white p-5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div>
-          <div className="flex items-center gap-2.5">
+          <div className="flex items-center gap-2.5 flex-wrap">
             <span className="px-2.5 py-0.5 rounded bg-blue-500/30 border border-blue-400/40 text-xs font-bold">
               {site.siteCode}
             </span>
             <h1 className="text-xl font-bold">{site.siteName}</h1>
+            {site.hasLiveAgent && (
+              <span
+                title="Site Agent online & actively monitoring devices"
+                className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-emerald-500/15 border border-emerald-400/40 text-emerald-200 text-[11px] font-bold"
+              >
+                <span className="nims-led-core nims-led-online" aria-hidden="true" />
+                Agent Live
+              </span>
+            )}
           </div>
           <p className="text-xs text-blue-200 mt-1">
             {[site.customerName, locationText, site.responsibleEngineer ? `Engineer: ${site.responsibleEngineer}` : null]

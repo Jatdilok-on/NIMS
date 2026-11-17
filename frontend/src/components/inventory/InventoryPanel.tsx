@@ -56,27 +56,37 @@ const STATUS_BADGE: Record<DeviceStatus, string> = {
     'bg-slate-500/10 border-slate-400/30 text-slate-600 dark:bg-slate-800/80 dark:border-slate-700 dark:text-slate-300',
 };
 
-const STATUS_LED_CLASS: Record<DeviceStatus, string> = {
+const STATUS_LED_LIVE_CLASS: Record<DeviceStatus, string> = {
   ONLINE: 'nims-led-core nims-led-online',
   OFFLINE: 'nims-led-core nims-led-offline',
   MAINTENANCE: 'nims-led-core nims-led-maint',
   UNKNOWN: 'nims-led-core nims-led-unknown',
 };
 
+const STATUS_LED_STATIC_CLASS: Record<DeviceStatus, string> = {
+  ONLINE: 'nims-led-core nims-led-online-static',
+  OFFLINE: 'nims-led-core nims-led-offline-static',
+  MAINTENANCE: 'nims-led-core nims-led-maint-static',
+  UNKNOWN: 'nims-led-core nims-led-unknown',
+};
+
 function DeviceStatusPill({
   status,
+  live = false,
   canEdit = false,
   onChange,
 }: {
   status: DeviceStatus;
+  live?: boolean;
   canEdit?: boolean;
   onChange?: (next: DeviceStatus) => void;
 }) {
+  const ledClass = live ? STATUS_LED_LIVE_CLASS[status] : STATUS_LED_STATIC_CLASS[status];
   const pillContent = (
     <span
       className={`inline-flex items-center gap-2 px-2.5 py-1 rounded-full border text-[11px] font-bold tracking-wide transition ${STATUS_BADGE[status]}`}
     >
-      <span className={STATUS_LED_CLASS[status]} aria-hidden="true" />
+      <span className={ledClass} aria-hidden="true" />
       <span>{status}</span>
       {canEdit && <ChevronDown className="h-3 w-3 opacity-60" />}
     </span>
@@ -669,6 +679,7 @@ export function InventoryPanel({
                     <td className="px-4 py-2.5">
                       <DeviceStatusPill
                         status={dev.status}
+                        live={Boolean(dev.agentLive)}
                         canEdit={canEdit}
                         onChange={(nextStatus) => handleQuickStatusChange(dev, nextStatus)}
                       />
@@ -740,7 +751,7 @@ export function InventoryPanel({
                   {CATEGORY_LABELS[dev.category]} • {dev.model || 'Unknown model'}
                 </div>
               </div>
-              <DeviceStatusPill status={dev.status} />
+              <DeviceStatusPill status={dev.status} live={Boolean(dev.agentLive)} />
             </div>
             <div className="grid grid-cols-2 gap-1 text-xs text-slate-600 dark:text-slate-400">
               <div>IP: <span className="font-mono">{dev.managementIp || '-'}</span></div>
@@ -820,7 +831,7 @@ export function InventoryPanel({
                     {selectedDevice.site?.siteCode} • {CATEGORY_LABELS[selectedDevice.category]}
                   </p>
                 </div>
-                <DeviceStatusPill status={selectedDevice.status} />
+                <DeviceStatusPill status={selectedDevice.status} live={Boolean(selectedDevice.agentLive)} />
               </div>
               <div className="flex items-center gap-2">
                 {canEdit && (

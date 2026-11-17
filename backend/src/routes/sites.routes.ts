@@ -11,6 +11,7 @@ import {
   parseSiteSpreadsheetBuffer,
 } from '../lib/excel';
 import { recordAuditLog } from '../lib/audit';
+import { getLiveAgentSiteIds } from '../lib/agentService';
 
 const router = Router();
 router.use(authenticate);
@@ -135,7 +136,10 @@ router.get('/', async (req, res, next) => {
       orderBy: { siteCode: 'asc' },
     });
 
-    res.json({ sites });
+    const liveSiteIds = await getLiveAgentSiteIds(sites.map((s) => s.id));
+    res.json({
+      sites: sites.map((s) => ({ ...s, hasLiveAgent: liveSiteIds.has(s.id) })),
+    });
   } catch (err) {
     next(err);
   }
@@ -518,7 +522,12 @@ router.get('/:id', async (req, res, next) => {
             canManageSite: hasSitePermission(user, siteId, 'canManageSite'),
           };
 
-    res.json({ site, deviceCounts, permissions: userPerms });
+    const liveSiteIds = await getLiveAgentSiteIds([siteId]);
+    res.json({
+      site: { ...site, hasLiveAgent: liveSiteIds.has(siteId) },
+      deviceCounts,
+      permissions: userPerms,
+    });
   } catch (err) {
     next(err);
   }

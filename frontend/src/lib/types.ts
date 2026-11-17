@@ -90,6 +90,7 @@ export interface Site {
   contactPerson?: string | null;
   responsibleEngineer?: string | null;
   storageQuotaMb: number;
+  hasLiveAgent?: boolean;
   createdAt: string;
   updatedAt: string;
   _count?: {
@@ -121,6 +122,7 @@ export interface Device {
   lastLatencyMs?: number | null;
   consecutiveMisses?: number;
   monitorEnabled?: boolean;
+  agentLive?: boolean;
   responsiblePerson?: string | null;
   remark?: string | null;
   createdAt: string;

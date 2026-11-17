@@ -10,6 +10,7 @@ import {
   updateDeviceWithDetails,
 } from '../lib/deviceService';
 import { recordAuditLog } from '../lib/audit';
+import { getLiveAgentSiteIds, isDeviceMonitoredByLiveAgent } from '../lib/agentService';
 
 const router = Router();
 router.use(authenticate);
@@ -191,8 +192,15 @@ router.get('/', async (req, res, next) => {
       });
     }
 
+    const uniqueSiteIds = Array.from(new Set(devices.map((d) => d.siteId)));
+    const liveSiteIds =
+      uniqueSiteIds.length > 0 ? await getLiveAgentSiteIds(uniqueSiteIds) : new Set<string>();
+
     res.json({
-      devices,
+      devices: devices.map((d) => ({
+        ...d,
+        agentLive: isDeviceMonitoredByLiveAgent(d, liveSiteIds),
+      })),
       pagination: {
         page: isAllPageSize ? 1 : page,
         pageSize,
@@ -236,7 +244,13 @@ router.get('/:id', async (req, res, next) => {
       return;
     }
 
-    res.json({ device });
+    const liveSiteIds = await getLiveAgentSiteIds([device.siteId]);
+    res.json({
+      device: {
+        ...device,
+        agentLive: isDeviceMonitoredByLiveAgent(device, liveSiteIds),
+      },
+    });
   } catch (err) {
     next(err);
   }
@@ -347,7 +361,13 @@ router.put('/:id', async (req, res, next) => {
       details: { category: device.category, managementIp: device.managementIp },
     });
 
-    res.json({ device });
+    const liveSiteIds = await getLiveAgentSiteIds([device.siteId]);
+    res.json({
+      device: {
+        ...device,
+        agentLive: isDeviceMonitoredByLiveAgent(device, liveSiteIds),
+      },
+    });
   } catch (err) {
     next(err);
   }

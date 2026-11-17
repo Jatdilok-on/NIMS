@@ -8,6 +8,7 @@ import {
   computeAgentConnectionState,
   evaluateDevicePingOutcome,
   generateAgentTokenPair,
+  isDeviceMonitoredByLiveAgent,
 } from '../lib/agentService';
 import {
   enumerateBlock24Hosts,
@@ -456,6 +457,40 @@ describe('Site Agent Ping Evaluation & Token Helpers', () => {
       canManageSiteAgents(
         { roleCode: RoleCode.IP_VIEWER, sitePermissions: [{ siteId: 'site-amw' }] },
         'site-amw',
+      ),
+    ).toBe(false);
+  });
+
+  it('flags devices as agentLive only when their site has an active live agent and valid IP', () => {
+    const liveSites = new Set(['site-amw']);
+    expect(
+      isDeviceMonitoredByLiveAgent(
+        { siteId: 'site-amw', managementIp: '191.20.110.5', monitorEnabled: true },
+        liveSites,
+      ),
+    ).toBe(true);
+    expect(
+      isDeviceMonitoredByLiveAgent(
+        { siteId: 'site-amw', managementIp: '191.20.110.5', monitorEnabled: undefined },
+        liveSites,
+      ),
+    ).toBe(true);
+    expect(
+      isDeviceMonitoredByLiveAgent(
+        { siteId: 'site-amw', managementIp: '191.20.110.5', monitorEnabled: false },
+        liveSites,
+      ),
+    ).toBe(false);
+    expect(
+      isDeviceMonitoredByLiveAgent(
+        { siteId: 'site-amw', managementIp: null, monitorEnabled: true },
+        liveSites,
+      ),
+    ).toBe(false);
+    expect(
+      isDeviceMonitoredByLiveAgent(
+        { siteId: 'site-other', managementIp: '191.20.110.5', monitorEnabled: true },
+        liveSites,
       ),
     ).toBe(false);
   });

@@ -1,6 +1,7 @@
 import { DeviceStatus, RoleCode } from '@prisma/client';
 import { generateRandomToken, hashToken } from './crypto';
 import { isValidIpv4 } from './ipam';
+import { prisma } from './prisma';
 
 export type AgentConnectionState = 'ONLINE' | 'OFFLINE' | 'NEVER_CONNECTED' | 'DISABLED';
 
@@ -103,4 +104,43 @@ export function canManageSiteAgents(
     return user.sitePermissions.some((p) => p.siteId === siteId);
   }
   return false;
+}
+
+/**
+ * Returns the set of siteIds that currently have at least one ONLINE Site Agent.
+ */
+export async function getLiveAgentSiteIds(siteIds?: string[]): Promise<Set<string>> {
+  const agents = await prisma.siteAgent.findMany({
+    where: {
+      isActive: true,
+      lastHeartbeatAt: { not: null },
+      ...(siteIds && siteIds.length > 0 ? { siteId: { in: siteIds } } : {}),
+    },
+    select: {
+      siteId: true,
+      isActive: true,
+      pollIntervalSec: true,
+      lastHeartbeatAt: true,
+    },
+  });
+
+  const now = new Date();
+  const liveSiteIds = new Set<string>();
+  for (const agent of agents) {
+    if (computeAgentConnectionState(agent, now) === 'ONLINE') {
+      liveSiteIds.add(agent.siteId);
+    }
+  }
+  return liveSiteIds;
+}
+
+export function isDeviceMonitoredByLiveAgent(
+  device: { siteId: string; managementIp?: string | null; monitorEnabled?: boolean | null },
+  liveSiteIds: Set<string>,
+): boolean {
+  return (
+    liveSiteIds.has(device.siteId) &&
+    device.monitorEnabled !== false &&
+    isAgentTargetIpValid(device.managementIp)
+  );
 }

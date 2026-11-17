@@ -218,9 +218,20 @@ export default function SitesPage() {
                         </div>
                       </div>
                     </div>
-                    <span className="h-8 w-8 rounded-lg bg-sky-500/10 text-sky-500 flex items-center justify-center shrink-0">
-                      <TechSiteNodeIcon className="h-4 w-4" />
-                    </span>
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      {site.hasLiveAgent && (
+                        <span
+                          title="Site Agent online & actively monitoring devices"
+                          className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-600 dark:text-emerald-400 text-[10px] font-bold tracking-wide"
+                        >
+                          <span className="nims-led-core nims-led-online" aria-hidden="true" />
+                          Agent Live
+                        </span>
+                      )}
+                      <span className="h-8 w-8 rounded-lg bg-sky-500/10 text-sky-500 flex items-center justify-center shrink-0">
+                        <TechSiteNodeIcon className="h-4 w-4" />
+                      </span>
+                    </div>
                   </div>
 
                   {(site.location || site.googleMapUrl) && (() => {
