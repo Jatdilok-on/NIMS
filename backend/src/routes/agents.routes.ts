@@ -122,6 +122,17 @@ const reportSchema = z.object({
     .max(5000),
 });
 
+router.get('/runtime/script', authenticateAgent, (_req, res) => {
+  const scriptPath = resolveAgentScriptPath();
+  if (!scriptPath) {
+    res.status(404).json({ error: 'Agent script file not found on server' });
+    return;
+  }
+  res.setHeader('Content-Type', 'application/javascript; charset=utf-8');
+  res.setHeader('Content-Disposition', 'attachment; filename="nims-agent.mjs"');
+  res.sendFile(scriptPath);
+});
+
 router.get('/runtime/targets', authenticateAgent, async (req, res, next) => {
   try {
     const agent = req.siteAgent!;

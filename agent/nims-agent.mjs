@@ -320,7 +320,16 @@ async function main() {
     try {
       waitSec = await runCycle();
     } catch (err) {
-      console.error(`[${new Date().toISOString()}] [NIMS Agent] Cycle failed: ${err.message}`);
+      const causeMsg =
+        err && typeof err === 'object' && 'cause' in err && err.cause
+          ? ` (${err.cause.code || err.cause.message || String(err.cause)})`
+          : '';
+      console.error(`[${new Date().toISOString()}] [NIMS Agent] Cycle failed: ${err.message}${causeMsg}`);
+      if (/localhost|127\.0\.0\.1/i.test(NIMS_URL) && /fetch failed/i.test(err.message)) {
+        console.error(
+          '[NIMS Agent] Hint: NIMS_URL points to localhost. If this agent runs on another PC, set NIMS_URL in nims-agent.env to the NIMS server IP.',
+        );
+      }
     }
     if (cli.once) {
       break;

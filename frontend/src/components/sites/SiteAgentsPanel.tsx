@@ -3,6 +3,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import {
   Activity,
+  AlertTriangle,
   Check,
   Copy,
   Download,
@@ -14,6 +15,7 @@ import {
   RefreshCw,
   Terminal,
   Trash2,
+  Wand2,
   X,
 } from 'lucide-react';
 import { ConfirmActionModal } from '@/components/common/ConfirmActionModal';
@@ -60,8 +62,9 @@ function formatRelativeTime(iso?: string | null): string {
 }
 
 function buildAgentEnvText(serverUrl: string, token: string): string {
+  const cleanUrl = serverUrl.trim().replace(/\/+$/, '');
   return [
-    `NIMS_URL=${serverUrl}`,
+    `NIMS_URL=${cleanUrl}`,
     `NIMS_AGENT_TOKEN=${token}`,
     'NIMS_PING_TIMEOUT_MS=2000',
     'NIMS_CONCURRENCY=15',
@@ -70,6 +73,143 @@ function buildAgentEnvText(serverUrl: string, token: string): string {
     'NIMS_ALLOW_INSECURE_TLS=false',
     '',
   ].join('\n');
+}
+
+function sanitizeBatValue(value: string): string {
+  return value.replace(/[\r\n"&|<>^%]/g, '').trim();
+}
+
+function buildWindowsOneClickBat(
+  siteCode: string,
+  agentName: string,
+  serverUrl: string,
+  token: string,
+): string {
+  const cleanUrl = sanitizeBatValue(serverUrl).replace(/\/+$/, '');
+  const cleanToken = sanitizeBatValue(token);
+  const safeSite = siteCode.replace(/[^a-zA-Z0-9_-]/g, '') || 'SITE';
+  const suffix = cleanToken.replace(/^nims_agt_/, '').slice(0, 6) || 'agent';
+  const folderName = `${safeSite}-${suffix}`;
+  const taskName = `NIMS-SiteAgent-${folderName}`;
+  const safeAgentName = sanitizeBatValue(agentName) || safeSite;
+
+  const lines = [
+    '@echo off',
+    'setlocal EnableExtensions',
+    `title NIMS Site Ping Agent - 1-Click Installer (${safeSite})`,
+    'echo.',
+    'echo ============================================================',
+    `echo   NIMS Site Ping Agent - 1-Click Auto Setup (${safeSite})`,
+    `echo   Agent: ${safeAgentName}`,
+    'echo ============================================================',
+    'echo.',
+    `set "SITE_CODE=${safeSite}"`,
+    `set "NIMS_URL=${cleanUrl}"`,
+    `set "AGENT_TOKEN=${cleanToken}"`,
+    `set "INSTALL_DIR=%LOCALAPPDATA%\\NIMS-Agent\\${folderName}"`,
+    `set "TASK_NAME=${taskName}"`,
+    'set "NODE_EXE="',
+    '',
+    'echo [1/5] Checking Node.js runtime...',
+    'for /f "delims=" %%i in (\'where node 2^>nul\') do if not defined NODE_EXE set "NODE_EXE=%%i"',
+    'if defined NODE_EXE goto :check_node_ver',
+    'if exist "%ProgramFiles%\\nodejs\\node.exe" set "NODE_EXE=%ProgramFiles%\\nodejs\\node.exe"',
+    'if defined NODE_EXE goto :check_node_ver',
+    '',
+    ':install_node',
+    'echo Node.js not found. Installing Node.js LTS via winget...',
+    'where winget >nul 2>&1',
+    'if errorlevel 1 goto :no_winget',
+    'winget install -e --id OpenJS.NodeJS.LTS --silent --accept-package-agreements --accept-source-agreements',
+    'if exist "%ProgramFiles%\\nodejs\\node.exe" set "NODE_EXE=%ProgramFiles%\\nodejs\\node.exe"',
+    'if defined NODE_EXE goto :check_node_ver',
+    'for /f "delims=" %%i in (\'where node 2^>nul\') do if not defined NODE_EXE set "NODE_EXE=%%i"',
+    'if defined NODE_EXE goto :check_node_ver',
+    '',
+    ':no_winget',
+    'echo [ERROR] Node.js 18+ is required and could not be auto-installed.',
+    'echo Please install Node.js LTS from https://nodejs.org then run this file again.',
+    'pause',
+    'exit /b 1',
+    '',
+    ':check_node_ver',
+    'for /f "delims=" %%v in (\'"%NODE_EXE%" -p "process.versions.node.split(\'.\')[0]" 2^>nul\') do set "NODE_MAJOR=%%v"',
+    'if "%NODE_MAJOR%"=="" set "NODE_MAJOR=0"',
+    'if %NODE_MAJOR% LSS 18 goto :install_node',
+    'echo       Using Node.js: "%NODE_EXE%" (v%NODE_MAJOR%+)',
+    '',
+    'echo [2/5] Preparing folder "%INSTALL_DIR%"...',
+    'if not exist "%INSTALL_DIR%" mkdir "%INSTALL_DIR%"',
+    'powershell -NoProfile -ExecutionPolicy Bypass -Command "Get-CimInstance Win32_Process | Where-Object { $_.Name -eq \'node.exe\' -and $_.CommandLine -like \'*nims-agent.mjs*\' -and $_.CommandLine -like (\'*\' + $env:INSTALL_DIR + \'*\') } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }" >nul 2>&1',
+    '',
+    'echo [3/5] Writing config and downloading latest nims-agent.mjs...',
+    'echo NIMS_URL=%NIMS_URL%> "%INSTALL_DIR%\\nims-agent.env"',
+    'echo NIMS_AGENT_TOKEN=%AGENT_TOKEN%>> "%INSTALL_DIR%\\nims-agent.env"',
+    'echo NIMS_PING_TIMEOUT_MS=2000>> "%INSTALL_DIR%\\nims-agent.env"',
+    'echo NIMS_CONCURRENCY=15 >> "%INSTALL_DIR%\\nims-agent.env"',
+    'echo NIMS_FALLBACK_TCP_PORTS=22,80,443,3389,502,9100 >> "%INSTALL_DIR%\\nims-agent.env"',
+    'echo NIMS_ALLOW_INSECURE_TLS=false>> "%INSTALL_DIR%\\nims-agent.env"',
+    '',
+    'powershell -NoProfile -ExecutionPolicy Bypass -Command "$ProgressPreference=\'SilentlyContinue\'; $h=@{Authorization=(\'Bearer \'+$env:AGENT_TOKEN)}; Invoke-WebRequest -Uri ($env:NIMS_URL+\'/api/agents/runtime/script\') -Headers $h -OutFile ($env:INSTALL_DIR+\'\\nims-agent.mjs\') -UseBasicParsing"',
+    'if not errorlevel 1 goto :script_ok',
+    'echo.',
+    'echo [ERROR] Could not download agent script from %NIMS_URL%',
+    'echo Check that NIMS Server is running and reachable from this PC.',
+    'pause',
+    'exit /b 1',
+    '',
+    ':script_ok',
+    'echo @echo off > "%INSTALL_DIR%\\node-run.cmd"',
+    'echo cd /d "%INSTALL_DIR%" >> "%INSTALL_DIR%\\node-run.cmd"',
+    'echo :loop >> "%INSTALL_DIR%\\node-run.cmd"',
+    'echo "%NODE_EXE%" "%INSTALL_DIR%\\nims-agent.mjs" ^>^> "%INSTALL_DIR%\\agent.log" 2^>^&1 >> "%INSTALL_DIR%\\node-run.cmd"',
+    'echo timeout /t 10 /nobreak ^>nul >> "%INSTALL_DIR%\\node-run.cmd"',
+    'echo goto loop >> "%INSTALL_DIR%\\node-run.cmd"',
+    '',
+    'echo Set fso = CreateObject("Scripting.FileSystemObject") > "%INSTALL_DIR%\\run-hidden.vbs"',
+    'echo Set sh = CreateObject("WScript.Shell") >> "%INSTALL_DIR%\\run-hidden.vbs"',
+    'echo d = fso.GetParentFolderName(WScript.ScriptFullName) >> "%INSTALL_DIR%\\run-hidden.vbs"',
+    'echo sh.CurrentDirectory = d >> "%INSTALL_DIR%\\run-hidden.vbs"',
+    'echo lf = d ^& "\\agent.log" >> "%INSTALL_DIR%\\run-hidden.vbs"',
+    'echo If fso.FileExists(lf) Then If fso.GetFile(lf).Size ^> 2097152 Then fso.DeleteFile lf, True >> "%INSTALL_DIR%\\run-hidden.vbs"',
+    'echo sh.Run "cmd /c " ^& Chr(34) ^& d ^& "\\node-run.cmd" ^& Chr(34), 0, False >> "%INSTALL_DIR%\\run-hidden.vbs"',
+    '',
+    'echo @echo off > "%INSTALL_DIR%\\view-log.bat"',
+    'echo powershell -NoProfile -Command "Get-Content -Path \'%INSTALL_DIR%\\agent.log\' -Tail 30" >> "%INSTALL_DIR%\\view-log.bat"',
+    'echo pause >> "%INSTALL_DIR%\\view-log.bat"',
+    '',
+    'echo @echo off > "%INSTALL_DIR%\\uninstall-agent.bat"',
+    'echo echo Stopping NIMS Agent... >> "%INSTALL_DIR%\\uninstall-agent.bat"',
+    'echo powershell -NoProfile -ExecutionPolicy Bypass -Command "Get-CimInstance Win32_Process | Where-Object { $_.Name -eq \'node.exe\' -and $_.CommandLine -like \'*nims-agent.mjs*\' -and $_.CommandLine -like \'*%INSTALL_DIR%*\'} | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }" >> "%INSTALL_DIR%\\uninstall-agent.bat"',
+    'echo schtasks /delete /tn "%TASK_NAME%" /f ^>nul 2^>^&1 >> "%INSTALL_DIR%\\uninstall-agent.bat"',
+    'echo echo NIMS Site Agent stopped and auto-start removed. >> "%INSTALL_DIR%\\uninstall-agent.bat"',
+    'echo pause >> "%INSTALL_DIR%\\uninstall-agent.bat"',
+    '',
+    'echo [4/5] Running quick connection ^& ping test (--once)...',
+    '"%NODE_EXE%" "%INSTALL_DIR%\\nims-agent.mjs" --once',
+    'if errorlevel 1 echo [WARN] Initial test reported an error. Auto-start will still retry automatically.',
+    '',
+    'echo [5/5] Registering background auto-start and starting agent...',
+    'schtasks /create /tn "%TASK_NAME%" /tr "wscript.exe \\"%INSTALL_DIR%\\run-hidden.vbs\\"" /sc ONSTART /ru SYSTEM /rl HIGHEST /f >nul 2>&1',
+    'if not errorlevel 1 goto :task_ready',
+    'schtasks /create /tn "%TASK_NAME%" /tr "wscript.exe \\"%INSTALL_DIR%\\run-hidden.vbs\\"" /sc ONLOGON /f >nul 2>&1',
+    ':task_ready',
+    'wscript.exe "%INSTALL_DIR%\\run-hidden.vbs"',
+    '',
+    'echo.',
+    'echo ============================================================',
+    'echo   [OK] NIMS Site Agent is now running silently in background!',
+    'echo   - Auto-start task : %TASK_NAME%',
+    'echo   - Install folder  : %INSTALL_DIR%',
+    'echo   - Check log       : "%INSTALL_DIR%\\view-log.bat"',
+    'echo   - Uninstall       : "%INSTALL_DIR%\\uninstall-agent.bat"',
+    'echo ============================================================',
+    'echo.',
+    'pause',
+    '',
+  ];
+
+  return lines.join('\r\n');
 }
 
 function downloadTextFile(filename: string, content: string) {
@@ -112,8 +252,10 @@ export function SiteAgentsPanel({
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
 
-  const serverOrigin =
-    typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3000';
+  const [nimsServerUrl, setNimsServerUrl] = useState(() =>
+    typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3000',
+  );
+  const isLocalhostUrl = /\/\/(localhost|127\.0\.0\.1)(:|\/|$)/i.test(nimsServerUrl);
 
   const loadAgents = useCallback(async () => {
     try {
@@ -277,37 +419,79 @@ export function SiteAgentsPanel({
             </button>
           </div>
 
+          <div className="rounded-lg bg-white dark:bg-slate-900 border border-emerald-200 dark:border-emerald-800 p-3 space-y-2">
+            <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-300">
+              NIMS Server URL (URL ที่เครื่อง Agent หน้างานเรียกมาถึงได้)
+            </label>
+            <input
+              type="text"
+              value={nimsServerUrl}
+              onChange={(e) => setNimsServerUrl(e.target.value)}
+              placeholder="http://191.20.110.191:3000"
+              className="w-full px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-transparent font-mono text-xs"
+            />
+            {isLocalhostUrl && (
+              <p className="text-[11px] text-amber-700 dark:text-amber-300 flex items-center gap-1.5">
+                <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                <span>
+                  ตอนนี้เป็น <code className="font-mono">localhost</code> — ถ้านำไปรันบนเครื่องอื่น กรุณาแก้เป็น IP ของเครื่อง NIMS Server (เช่น <code className="font-mono">http://191.20.110.191:3000</code>) ก่อนกดดาวน์โหลด
+                </span>
+              </p>
+            )}
+          </div>
+
           <div className="flex flex-wrap items-center gap-2 pt-1">
+            <button
+              type="button"
+              onClick={() =>
+                downloadTextFile(
+                  `nims-agent-${siteCode.toLowerCase().replace(/[^a-z0-9_-]/g, '') || 'site'}-1click.bat`,
+                  buildWindowsOneClickBat(
+                    siteCode,
+                    tokenReveal.agentName,
+                    nimsServerUrl,
+                    tokenReveal.rawToken,
+                  ),
+                )
+              }
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-sm cursor-pointer"
+            >
+              <Wand2 className="h-4 w-4" />
+              Download 1-Click Auto Installer (.bat) — ดับเบิลคลิกจบ
+            </button>
             <a
               href="/api/agents/script"
               download="nims-agent.mjs"
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-xs font-semibold hover:bg-slate-50 dark:hover:bg-slate-800"
+              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-xs font-medium hover:bg-slate-50 dark:hover:bg-slate-800"
             >
               <Download className="h-3.5 w-3.5 text-blue-600" />
-              1. Download nims-agent.mjs
+              nims-agent.mjs
             </a>
             <button
               type="button"
               onClick={() =>
                 downloadTextFile(
                   'nims-agent.env',
-                  buildAgentEnvText(serverOrigin, tokenReveal.rawToken),
+                  buildAgentEnvText(nimsServerUrl, tokenReveal.rawToken),
                 )
               }
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-xs font-semibold hover:bg-slate-50 dark:hover:bg-slate-800 cursor-pointer"
+              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-xs font-medium hover:bg-slate-50 dark:hover:bg-slate-800 cursor-pointer"
             >
               <Download className="h-3.5 w-3.5 text-emerald-600" />
-              2. Download nims-agent.env
+              nims-agent.env
             </button>
             <button
               type="button"
               onClick={() => copyText('cmd', 'node nims-agent.mjs --once')}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-900 text-white text-xs font-mono hover:bg-slate-800 cursor-pointer"
+              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-slate-900 text-white text-xs font-mono hover:bg-slate-800 cursor-pointer"
             >
               <Terminal className="h-3.5 w-3.5" />
-              {copiedKey === 'cmd' ? 'Copied command!' : '3. Copy: node nims-agent.mjs --once'}
+              {copiedKey === 'cmd' ? 'Copied!' : 'Copy CLI Test'}
             </button>
           </div>
+          <p className="text-[11px] text-emerald-800 dark:text-emerald-300">
+            แนะนำ: กด <strong>Download 1-Click Auto Installer (.bat)</strong> แล้วนำไปดับเบิลคลิกบนเครื่อง Windows หน้างาน — ระบบจะเช็ก/ติดตั้ง Node.js, ดาวน์โหลดสคริปต์, ทดสอบ Ping, รันเบื้องหลังแบบซ่อนหน้าต่าง และตั้ง Auto-Start ตอนเปิดเครื่องให้อัตโนมัติ
+          </p>
         </div>
       )}
 
