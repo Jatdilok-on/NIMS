@@ -61,7 +61,11 @@ function formatRelativeTime(iso?: string | null): string {
   return `${Math.floor(hr / 24)}d ago`;
 }
 
-function buildAgentEnvText(serverUrl: string, token: string): string {
+function buildAgentEnvText(
+  serverUrl: string,
+  token: string,
+  allowInsecureTls = false,
+): string {
   const cleanUrl = serverUrl.trim().replace(/\/+$/, '');
   return [
     `NIMS_URL=${cleanUrl}`,
@@ -70,7 +74,7 @@ function buildAgentEnvText(serverUrl: string, token: string): string {
     'NIMS_CONCURRENCY=15',
     '# Optional: fallback TCP port checks when ICMP ping is blocked by firewall',
     'NIMS_FALLBACK_TCP_PORTS=22,80,443,3389,502,9100',
-    'NIMS_ALLOW_INSECURE_TLS=false',
+    `NIMS_ALLOW_INSECURE_TLS=${allowInsecureTls ? 'true' : 'false'}`,
     '',
   ].join('\n');
 }
@@ -84,6 +88,7 @@ function buildWindowsOneClickBat(
   agentName: string,
   serverUrl: string,
   token: string,
+  allowInsecureTls = false,
 ): string {
   const cleanUrl = sanitizeBatValue(serverUrl).replace(/\/+$/, '');
   const cleanToken = sanitizeBatValue(token);
@@ -153,9 +158,11 @@ function buildWindowsOneClickBat(
     'echo NIMS_PING_TIMEOUT_MS=2000>> "%INSTALL_DIR%\\nims-agent.env"',
     'echo NIMS_CONCURRENCY=15 >> "%INSTALL_DIR%\\nims-agent.env"',
     'echo NIMS_FALLBACK_TCP_PORTS=22,80,443,3389,502,9100 >> "%INSTALL_DIR%\\nims-agent.env"',
-    'echo NIMS_ALLOW_INSECURE_TLS=false>> "%INSTALL_DIR%\\nims-agent.env"',
+    `echo NIMS_ALLOW_INSECURE_TLS=${allowInsecureTls ? 'true' : 'false'}>> "%INSTALL_DIR%\\nims-agent.env"`,
     '',
-    'powershell -NoProfile -ExecutionPolicy Bypass -Command "$ProgressPreference=\'SilentlyContinue\'; $h=@{Authorization=(\'Bearer \'+$env:AGENT_TOKEN)}; Invoke-WebRequest -Uri ($env:NIMS_URL+\'/api/agents/runtime/script\') -Headers $h -OutFile ($env:INSTALL_DIR+\'\\nims-agent.mjs\') -UseBasicParsing"',
+    allowInsecureTls
+      ? 'powershell -NoProfile -ExecutionPolicy Bypass -Command "$ProgressPreference=\'SilentlyContinue\'; [System.Net.ServicePointManager]::SecurityProtocol=[System.Net.SecurityProtocolType]::Tls12; [System.Net.ServicePointManager]::ServerCertificateValidationCallback={$true}; $h=@{Authorization=(\'Bearer \'+$env:AGENT_TOKEN)}; Invoke-WebRequest -Uri ($env:NIMS_URL+\'/api/agents/runtime/script\') -Headers $h -OutFile ($env:INSTALL_DIR+\'\\nims-agent.mjs\') -UseBasicParsing"'
+      : 'powershell -NoProfile -ExecutionPolicy Bypass -Command "$ProgressPreference=\'SilentlyContinue\'; [System.Net.ServicePointManager]::SecurityProtocol=[System.Net.SecurityProtocolType]::Tls12; $h=@{Authorization=(\'Bearer \'+$env:AGENT_TOKEN)}; Invoke-WebRequest -Uri ($env:NIMS_URL+\'/api/agents/runtime/script\') -Headers $h -OutFile ($env:INSTALL_DIR+\'\\nims-agent.mjs\') -UseBasicParsing"',
     'if not errorlevel 1 goto :script_ok',
     'echo.',
     'echo [ERROR] Could not download agent script from %NIMS_URL%',
@@ -264,6 +271,9 @@ export function SiteAgentsPanel({
 
   const [nimsServerUrl, setNimsServerUrl] = useState(() =>
     typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3000',
+  );
+  const [allowInsecureTls, setAllowInsecureTls] = useState(() =>
+    typeof window !== 'undefined' ? window.location.protocol === 'https:' : false,
   );
   const isLocalhostUrl = /\/\/(localhost|127\.0\.0\.1)(:|\/|$)/i.test(nimsServerUrl);
 
@@ -450,10 +460,29 @@ export function SiteAgentsPanel({
             <input
               type="text"
               value={nimsServerUrl}
-              onChange={(e) => setNimsServerUrl(e.target.value)}
-              placeholder="http://191.20.110.191:3000"
+              onChange={(e) => {
+                const next = e.target.value;
+                setNimsServerUrl(next);
+                if (next.trim().toLowerCase().startsWith('https://')) {
+                  setAllowInsecureTls(true);
+                }
+              }}
+              placeholder="https://191.20.110.191:3000"
               className="w-full px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-transparent font-mono text-xs"
             />
+            {nimsServerUrl.trim().toLowerCase().startsWith('https://') && (
+              <label className="flex items-center gap-2 text-[11px] text-slate-600 dark:text-slate-300 cursor-pointer pt-0.5">
+                <input
+                  type="checkbox"
+                  checked={allowInsecureTls}
+                  onChange={(e) => setAllowInsecureTls(e.target.checked)}
+                  className="rounded border-slate-300"
+                />
+                <span>
+                  Allow Self-Signed / Internal LAN HTTPS (แนะนำเมื่อใช้ใบรับรองภายในจาก Caddy)
+                </span>
+              </label>
+            )}
             {isLocalhostUrl && (
               <p className="text-[11px] text-amber-700 dark:text-amber-300 flex items-center gap-1.5">
                 <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
@@ -475,6 +504,7 @@ export function SiteAgentsPanel({
                     tokenReveal.agentName,
                     nimsServerUrl,
                     tokenReveal.rawToken,
+                    allowInsecureTls,
                   ),
                 )
               }
@@ -496,7 +526,7 @@ export function SiteAgentsPanel({
               onClick={() =>
                 downloadTextFile(
                   'nims-agent.env',
-                  buildAgentEnvText(nimsServerUrl, tokenReveal.rawToken),
+                  buildAgentEnvText(nimsServerUrl, tokenReveal.rawToken, allowInsecureTls),
                 )
               }
               className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-xs font-medium hover:bg-slate-50 dark:hover:bg-slate-800 cursor-pointer"
