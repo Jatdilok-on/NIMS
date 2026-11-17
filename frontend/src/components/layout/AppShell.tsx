@@ -383,10 +383,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </div>
 
           <div className="flex items-center gap-2.5 shrink-0">
-            <span className="hidden xl:inline-flex items-center gap-2 px-2.5 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/25 text-emerald-600 dark:text-emerald-400 text-[11px] font-mono font-semibold">
-              <span className="relative h-2 w-2 rounded-full bg-emerald-500 text-emerald-500 nims-pulse-ring" />
-              NOC LIVE
-            </span>
             {isIpViewer && (
               <span className="hidden md:inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-amber-100 text-amber-800 text-xs font-medium">
                 <ShieldAlert className="h-3.5 w-3.5" />
