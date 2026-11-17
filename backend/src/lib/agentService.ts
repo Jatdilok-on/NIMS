@@ -1,4 +1,4 @@
-import { DeviceStatus } from '@prisma/client';
+import { DeviceStatus, RoleCode } from '@prisma/client';
 import { generateRandomToken, hashToken } from './crypto';
 import { isValidIpv4 } from './ipam';
 
@@ -87,4 +87,20 @@ export function evaluateDevicePingOutcome(input: PingEvaluationInput): PingEvalu
 
 export function isAgentTargetIpValid(ip: string | null | undefined): ip is string {
   return Boolean(ip && isValidIpv4(ip.trim()));
+}
+
+/**
+ * Only SUPER_ADMIN (any site) and SITE_ADMIN (assigned sites) may view or manage Site Agents.
+ */
+export function canManageSiteAgents(
+  user: { roleCode: RoleCode; sitePermissions: Array<{ siteId: string }> },
+  siteId: string,
+): boolean {
+  if (user.roleCode === RoleCode.SUPER_ADMIN) {
+    return true;
+  }
+  if (user.roleCode === RoleCode.SITE_ADMIN) {
+    return user.sitePermissions.some((p) => p.siteId === siteId);
+  }
+  return false;
 }

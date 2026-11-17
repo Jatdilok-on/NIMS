@@ -98,6 +98,7 @@ export default function SiteDetailPage() {
   }
 
   const isIpViewer = user?.roleCode === 'IP_VIEWER';
+  const canAccessSiteAgents = user?.roleCode === 'SUPER_ADMIN' || user?.roleCode === 'SITE_ADMIN';
   const siteMapUrl = getSiteGoogleMapUrl(site.location, site.googleMapUrl);
   const locationText =
     site.location && !/^https?:\/\//i.test(site.location.trim()) ? site.location : null;
@@ -124,7 +125,7 @@ export default function SiteDetailPage() {
       id: 'agents',
       label: t('sites.tabAgents'),
       icon: Radio,
-      show: permissions.canViewInventory || permissions.canManageSite || user?.roleCode === 'SUPER_ADMIN',
+      show: canAccessSiteAgents,
     },
     { id: 'settings', label: t('sites.tabSettings'), icon: Settings, show: permissions.canManageSite || user?.roleCode === 'SUPER_ADMIN' },
   ];
@@ -348,11 +349,11 @@ export default function SiteDetailPage() {
         <MaintenancePanel siteId={site.id} canEdit={permissions.canEditMaintenance} />
       )}
 
-      {tab === 'agents' && (
+      {tab === 'agents' && canAccessSiteAgents && (
         <SiteAgentsPanel
           siteId={site.id}
           siteCode={site.siteCode}
-          canManage={permissions.canManageSite || user?.roleCode === 'SUPER_ADMIN'}
+          canManage={canAccessSiteAgents}
         />
       )}
 

@@ -5,10 +5,11 @@ import { Prisma, RoleCode } from '@prisma/client';
 import { z } from 'zod';
 import { prisma } from '../lib/prisma';
 import { authenticate } from '../middleware/auth';
-import { getPermittedSiteIds, hasSitePermission } from '../middleware/rbac';
+import { requireRoles } from '../middleware/rbac';
 import { hashToken } from '../lib/crypto';
 import { extractClientIp, recordAuditLog } from '../lib/audit';
 import {
+  canManageSiteAgents,
   computeAgentConnectionState,
   evaluateDevicePingOutcome,
   generateAgentTokenPair,
@@ -359,6 +360,7 @@ router.post('/runtime/report', authenticateAgent, async (req, res, next) => {
 // ============================================================================
 
 router.use(authenticate);
+router.use(requireRoles(RoleCode.SUPER_ADMIN, RoleCode.SITE_ADMIN));
 
 function serializeAgent(agent: {
   id: string;
@@ -403,21 +405,17 @@ router.get('/', async (req, res, next) => {
         : undefined;
 
     if (requestedSiteId) {
-      const canSee =
-        hasSitePermission(req.user!, requestedSiteId, 'canViewInventory') ||
-        hasSitePermission(req.user!, requestedSiteId, 'canManageSite');
-      if (!canSee) {
+      if (!canManageSiteAgents(req.user!, requestedSiteId)) {
         res.status(403).json({ error: 'Access denied to requested site' });
         return;
       }
     }
 
-    const permittedSiteIds = getPermittedSiteIds(req.user!, 'canViewInventory');
     const where: Prisma.SiteAgentWhereInput = {};
     if (requestedSiteId) {
       where.siteId = requestedSiteId;
-    } else if (permittedSiteIds !== null) {
-      where.siteId = { in: permittedSiteIds };
+    } else if (req.user!.roleCode !== RoleCode.SUPER_ADMIN) {
+      where.siteId = { in: req.user!.sitePermissions.map((p) => p.siteId) };
     }
 
     const agents = await prisma.siteAgent.findMany({
@@ -465,11 +463,8 @@ router.post('/', async (req, res, next) => {
     }
 
     const { siteId, name, pollIntervalSec = 60, offlineThreshold = 3 } = parsed.data;
-    const canManage =
-      req.user!.roleCode === RoleCode.SUPER_ADMIN ||
-      hasSitePermission(req.user!, siteId, 'canManageSite');
-    if (!canManage) {
-      res.status(403).json({ error: 'Site management permission required to create a site agent' });
+    if (!canManageSiteAgents(req.user!, siteId)) {
+      res.status(403).json({ error: 'Admin permission required to create a site agent' });
       return;
     }
 
@@ -558,11 +553,8 @@ router.patch('/:id', async (req, res, next) => {
       return;
     }
 
-    const canManage =
-      req.user!.roleCode === RoleCode.SUPER_ADMIN ||
-      hasSitePermission(req.user!, existing.siteId, 'canManageSite');
-    if (!canManage) {
-      res.status(403).json({ error: 'Site management permission required' });
+    if (!canManageSiteAgents(req.user!, existing.siteId)) {
+      res.status(403).json({ error: 'Admin permission required' });
       return;
     }
 
@@ -618,11 +610,8 @@ router.post('/:id/rotate-token', async (req, res, next) => {
       return;
     }
 
-    const canManage =
-      req.user!.roleCode === RoleCode.SUPER_ADMIN ||
-      hasSitePermission(req.user!, existing.siteId, 'canManageSite');
-    if (!canManage) {
-      res.status(403).json({ error: 'Site management permission required' });
+    if (!canManageSiteAgents(req.user!, existing.siteId)) {
+      res.status(403).json({ error: 'Admin permission required' });
       return;
     }
 
@@ -679,11 +668,8 @@ router.delete('/:id', async (req, res, next) => {
       return;
     }
 
-    const canManage =
-      req.user!.roleCode === RoleCode.SUPER_ADMIN ||
-      hasSitePermission(req.user!, existing.siteId, 'canManageSite');
-    if (!canManage) {
-      res.status(403).json({ error: 'Site management permission required' });
+    if (!canManageSiteAgents(req.user!, existing.siteId)) {
+      res.status(403).json({ error: 'Admin permission required' });
       return;
     }
 
@@ -724,12 +710,8 @@ router.patch('/devices/:deviceId/monitoring', async (req, res, next) => {
       return;
     }
 
-    const allowed =
-      req.user!.roleCode === RoleCode.SUPER_ADMIN ||
-      hasSitePermission(req.user!, device.siteId, 'canEditInventory') ||
-      hasSitePermission(req.user!, device.siteId, 'canManageSite');
-    if (!allowed) {
-      res.status(403).json({ error: 'Permission denied' });
+    if (!canManageSiteAgents(req.user!, device.siteId)) {
+      res.status(403).json({ error: 'Admin permission required' });
       return;
     }
 

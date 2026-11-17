@@ -4,6 +4,7 @@ import archiver from 'archiver';
 import { DeviceCategory, DeviceStatus, RoleCode } from '@prisma/client';
 import { decryptSecret, encryptSecret, hashPassword, hashToken, verifyPassword } from '../lib/crypto';
 import {
+  canManageSiteAgents,
   computeAgentConnectionState,
   evaluateDevicePingOutcome,
   generateAgentTokenPair,
@@ -421,5 +422,41 @@ describe('Site Agent Ping Evaluation & Token Helpers', () => {
     });
     expect(maintProtected.nextStatus).toBe(DeviceStatus.MAINTENANCE);
     expect(maintProtected.statusChanged).toBe(false);
+  });
+
+  it('restricts site agent management to SUPER_ADMIN and assigned SITE_ADMIN only', () => {
+    expect(
+      canManageSiteAgents({ roleCode: RoleCode.SUPER_ADMIN, sitePermissions: [] }, 'site-amw'),
+    ).toBe(true);
+    expect(
+      canManageSiteAgents(
+        { roleCode: RoleCode.SITE_ADMIN, sitePermissions: [{ siteId: 'site-amw' }] },
+        'site-amw',
+      ),
+    ).toBe(true);
+    expect(
+      canManageSiteAgents(
+        { roleCode: RoleCode.SITE_ADMIN, sitePermissions: [{ siteId: 'site-amw' }] },
+        'site-other',
+      ),
+    ).toBe(false);
+    expect(
+      canManageSiteAgents(
+        { roleCode: RoleCode.NETWORK_ENGINEER, sitePermissions: [{ siteId: 'site-amw' }] },
+        'site-amw',
+      ),
+    ).toBe(false);
+    expect(
+      canManageSiteAgents(
+        { roleCode: RoleCode.VIEWER, sitePermissions: [{ siteId: 'site-amw' }] },
+        'site-amw',
+      ),
+    ).toBe(false);
+    expect(
+      canManageSiteAgents(
+        { roleCode: RoleCode.IP_VIEWER, sitePermissions: [{ siteId: 'site-amw' }] },
+        'site-amw',
+      ),
+    ).toBe(false);
   });
 });
