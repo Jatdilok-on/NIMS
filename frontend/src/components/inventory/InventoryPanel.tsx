@@ -2,6 +2,7 @@
 
 import React, { useCallback, useEffect, useState } from 'react';
 import {
+  AlertTriangle,
   Download,
   Edit,
   Eye,
@@ -77,6 +78,11 @@ export function InventoryPanel({
   const [editingDevice, setEditingDevice] = useState<Device | null>(null);
   const [showAddModal, setShowAddModal] = useState(false);
   const [showImportModal, setShowImportModal] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<
+    { mode: 'SINGLE'; device: Device } | { mode: 'BULK'; count: number } | null
+  >(null);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState('');
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [bulkCategory, setBulkCategory] = useState<DeviceCategory>('SWITCH');
   const [bulkStatus, setBulkStatus] = useState<DeviceStatus>('ONLINE');
@@ -145,14 +151,32 @@ export function InventoryPanel({
     }
   }, [initialDeviceId]);
 
-  const handleDelete = async (dev: Device) => {
-    if (!confirm(`Delete device "${dev.name}"?`)) return;
+  const handleDelete = (dev: Device) => {
+    setDeleteError('');
+    setDeleteTarget({ mode: 'SINGLE', device: dev });
+  };
+
+  const confirmDelete = async () => {
+    if (!deleteTarget) return;
+    setDeleting(true);
+    setDeleteError('');
     try {
-      await apiFetch(`/devices/${dev.id}`, { method: 'DELETE' });
-      setSelectedIds((prev) => prev.filter((id) => id !== dev.id));
-      loadDevices();
+      if (deleteTarget.mode === 'SINGLE') {
+        await apiFetch(`/devices/${deleteTarget.device.id}`, { method: 'DELETE' });
+        setSelectedIds((prev) => prev.filter((id) => id !== deleteTarget.device.id));
+      } else {
+        await apiFetch('/devices/bulk-delete', {
+          method: 'POST',
+          body: JSON.stringify({ deviceIds: selectedIds }),
+        });
+        setSelectedIds([]);
+      }
+      setDeleteTarget(null);
+      await loadDevices();
     } catch (err) {
-      alert(err instanceof ApiError ? err.message : 'Delete failed');
+      setDeleteError(err instanceof ApiError ? err.message : 'Delete failed');
+    } finally {
+      setDeleting(false);
     }
   };
 
@@ -188,28 +212,10 @@ export function InventoryPanel({
     }
   };
 
-  const handleBulkDelete = async () => {
+  const handleBulkDelete = () => {
     if (selectedIds.length === 0) return;
-    if (
-      !confirm(
-        `Delete ${selectedIds.length} selected device(s)?\nThis will also release their allocated IPAM addresses.`,
-      )
-    ) {
-      return;
-    }
-    setApplyingBulk(true);
-    try {
-      await apiFetch('/devices/bulk-delete', {
-        method: 'POST',
-        body: JSON.stringify({ deviceIds: selectedIds }),
-      });
-      setSelectedIds([]);
-      await loadDevices();
-    } catch (err) {
-      alert(err instanceof ApiError ? err.message : 'Bulk delete failed');
-    } finally {
-      setApplyingBulk(false);
-    }
+    setDeleteError('');
+    setDeleteTarget({ mode: 'BULK', count: selectedIds.length });
   };
 
   const allShownSelected =
@@ -789,10 +795,10 @@ export function InventoryPanel({
                       Edit
                     </button>
                     <button
-                      onClick={async () => {
+                      onClick={() => {
                         const target = selectedDevice;
                         setSelectedDevice(null);
-                        await handleDelete(target);
+                        handleDelete(target);
                       }}
                       className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-red-600 hover:bg-red-700 text-white text-xs font-semibold cursor-pointer"
                     >
@@ -858,6 +864,98 @@ export function InventoryPanel({
                   <p className="mt-1">{selectedDevice.remark}</p>
                 </div>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Confirmation Modal */}
+      {deleteTarget && (
+        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-[2px] flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl max-w-md w-full border border-slate-200 dark:border-slate-800 shadow-2xl overflow-hidden">
+            <div className="px-6 py-4 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="h-10 w-10 rounded-xl bg-red-50 dark:bg-red-950/60 border border-red-200 dark:border-red-800 text-red-600 dark:text-red-400 flex items-center justify-center shrink-0">
+                  <AlertTriangle className="h-5 w-5" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-base">
+                    {deleteTarget.mode === 'SINGLE'
+                      ? 'Confirm Delete Device'
+                      : `Delete ${deleteTarget.count} Selected Devices`}
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    This action cannot be undone and will release linked IPAM allocations.
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                disabled={deleting}
+                onClick={() => setDeleteTarget(null)}
+                className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer disabled:opacity-50"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-4 text-sm">
+              {deleteError && (
+                <div className="rounded-lg bg-red-50 dark:bg-red-950/50 border border-red-200 dark:border-red-800 px-3 py-2 text-xs text-red-700 dark:text-red-300">
+                  {deleteError}
+                </div>
+              )}
+
+              {deleteTarget.mode === 'SINGLE' ? (
+                <div className="rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 p-4 space-y-2 text-xs">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="font-bold text-sm text-slate-900 dark:text-white">
+                      {deleteTarget.device.name}
+                    </span>
+                    <span className="px-2 py-0.5 rounded bg-blue-50 dark:bg-blue-950 text-blue-700 dark:text-blue-300 font-semibold">
+                      {deleteTarget.device.site?.siteCode || '-'} •{' '}
+                      {CATEGORY_LABELS[deleteTarget.device.category]}
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2 pt-1 text-slate-600 dark:text-slate-300">
+                    <div>
+                      <span className="text-slate-400 block">Management IP</span>
+                      <span className="font-mono font-semibold">
+                        {deleteTarget.device.managementIp || '-'}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-slate-400 block">Location</span>
+                      <span>{deleteTarget.device.location || '-'}</span>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="rounded-xl bg-red-50/70 dark:bg-red-950/30 border border-red-200 dark:border-red-800 p-4 text-xs text-red-800 dark:text-red-200">
+                  You are about to permanently delete <strong>{deleteTarget.count}</strong> selected
+                  device(s) and release any IPAM addresses allocated to them.
+                </div>
+              )}
+
+              <div className="flex justify-end gap-2 pt-1">
+                <button
+                  type="button"
+                  disabled={deleting}
+                  onClick={() => setDeleteTarget(null)}
+                  className="px-4 py-2 rounded-lg border border-slate-200 dark:border-slate-700 text-xs sm:text-sm font-medium hover:bg-slate-50 dark:hover:bg-slate-800 cursor-pointer disabled:opacity-50"
+                >
+                  {t('common.cancel')}
+                </button>
+                <button
+                  type="button"
+                  disabled={deleting}
+                  onClick={confirmDelete}
+                  className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-red-600 hover:bg-red-700 text-white text-xs sm:text-sm font-semibold cursor-pointer disabled:opacity-60"
+                >
+                  <Trash2 className="h-4 w-4" />
+                  {deleting ? 'Deleting...' : t('common.delete')}
+                </button>
+              </div>
             </div>
           </div>
         </div>
