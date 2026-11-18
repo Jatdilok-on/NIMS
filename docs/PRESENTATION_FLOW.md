@@ -1,6 +1,6 @@
-# NIMS – ภาพรวมระบบ, สถาปัตยกรรม และ Flow การทำงานทั้งหมด (เอกสารสำหรับนำเสนอ)
+# NIMS – ภาพรวมระบบ, สถาปัตยกรรม, โครงสร้างเซิร์ฟเวอร์ และ Flow การทำงาน
 
-**NIMS (Network Infrastructure Management System)** คือระบบบริหารจัดการโครงสร้างพื้นฐานเครือข่ายแบบรวมศูนย์ (On-Premise) ที่รวมการเก็บข้อมูลอุปกรณ์, IPAM, ผัง Network Diagram แบบโต้ตอบได้, ห้องนิรภัยรหัสผ่านเข้ารหัส, เอกสารโครงการ และ **ระบบตรวจเช็กสถานะอุปกรณ์อัตโนมัติ (Site Ping Agents)** ทั้งในวง LAN เดียวกันและข้ามวง Network ไว้ในจุดเดียว
+**NIMS (Network Infrastructure Management System)** คือระบบบริหารจัดการโครงสร้างพื้นฐานเครือข่ายแบบรวมศูนย์ (On-Premise) ที่รวมการเก็บข้อมูลอุปกรณ์, IPAM, ผัง Network Diagram แบบโต้ตอบได้, ห้องนิรภัยรหัสผ่านแบบเข้ารหัส, เอกสารโครงการ และ **ระบบตรวจเช็กสถานะอุปกรณ์อัตโนมัติ (Site Ping Agents)** ทั้งในวง LAN เดียวกันและข้ามวง Network ไว้ในระบบเดียว
 
 ---
 
@@ -15,7 +15,44 @@
 
 ---
 
-## 2. สถาปัตยกรรมภาพรวม (System Architecture & Network Topology)
+## 2. เทคโนโลยีที่ใช้รันระบบ, เซิร์ฟเวอร์ และฐานข้อมูล (Runtime, Server & Database)
+
+### 2.1 ระบบรันผ่านอะไร และใช้ Server ตัวไหน
+ตัวระบบออกแบบให้ติดตั้งบน **Windows Server (On-Premise)** และทำงานผ่าน **Node.js Runtime** โดยตรง (รองรับการรันแบบไม่ต้องพึ่งอินเทอร์เน็ต และมี Docker Compose เป็นทางเลือกเสริม):
+
+| ส่วนประกอบ (Component) | เทคโนโลยี / ซอฟต์แวร์ที่ใช้ | หน้าที่และพอร์ตการทำงาน |
+| :--- | :--- | :--- |
+| **HTTPS Reverse Proxy** | **Caddy Web Server** (`caddy_windows_amd64`) | รับการเชื่อมต่อ HTTPS หลักที่พอร์ต **`3000`** (`tls internal`) และกระจายทราฟฟิกไปยัง Frontend และ Backend API |
+| **Web Frontend Server** | **Next.js 15** (React 19 + TypeScript + Tailwind CSS + React Flow) | ให้บริการหน้าเว็บ Portal, Dashboard, IPAM และ Network Diagram Editor (รันภายในหลัง Proxy) |
+| **Backend API Server** | **Node.js + Express + TypeScript** | จัดการ REST API, Authentication, RBAC, AES-256-GCM Vault, Visio/Excel/PDF Engine และรับผลจาก Site Agents (พอร์ตภายใน **`4000`**) |
+| **Process & Auto-Start** | **Windows Task Scheduler** (`NIMS Production Server`, `NIMS HTTPS Proxy`) + `scripts/run-nims.mjs` | สั่งเปิด Frontend, Backend และ Caddy อัตโนมัติตั้งแต่บูตเครื่อง Server |
+| **Cloud Relay (สำหรับข้ามวง)** | **Cloudflare Workers** + **Cloudflare D1** | จุดพักรับ-ส่งผล Ping ผ่าน HTTPS 443 (เฉพาะเส้นทาง `/api/agents/runtime/*` และ `/bridge/*`) |
+| **Bridge & Probe Agents** | **Node.js Standalone Scripts** (`nims-relay-bridge.mjs`, `nims-agent.mjs`) | รันเบื้องหลังอัตโนมัติผ่าน Windows Task Scheduler (`NIMS-Relay-Bridge`, `NIMS-SiteAgent-*`) |
+
+### 2.2 ใช้ Database ยังไง และจัดเก็บข้อมูลอย่างไร
+1. **ฐานข้อมูลหลัก (On-Premise Database):**
+   - ใช้ **MongoDB Community Server** ตั้งค่าเป็น **Single-Node Replica Set (`rs0`)** ฟังเฉพาะภายในเครื่อง (`127.0.0.1:27017` — ปิดพอร์ตจากภายนอกด้วย Windows Firewall)
+   - เชื่อมต่อผ่าน **Prisma ORM (`@prisma/client`)** จัดการโครงสร้าง Collection หลักครบวงจร เช่น `Sites`, `Devices` (16 ประเภท), `Subnets`, `IPAllocations`, `Diagrams` (เก็บประวัติเวอร์ชัน), `Documents`, `Credentials`, `MaintenanceRecords`, `SiteAgents`, `Users`, `Roles`, `UserSitePermissions` และ `AuditLogs`
+   - **การป้องกันข้อมูลสำคัญ:** รหัสผ่านผู้ใช้ Hash ด้วย `bcrypt` และรหัสผ่านอุปกรณ์ใน Credentials Vault เข้ารหัสระดับ Field ด้วย **AES-256-GCM** (แยก Encryption Key ไว้ใน `.env` ของ Server)
+2. **การจัดเก็บไฟล์และระบบสำรองข้อมูล (File Storage & Backup):**
+   - ไฟล์ Diagram (`.png`, `.pdf`, `.vsdx`, `.drawio`) และเอกสารโครงการ เก็บแยกโฟลเดอร์ตาม `Site` บน Local Disk / NAS และเสิร์ฟผ่าน API ที่ตรวจสิทธิ์ RBAC ทุกครั้ง
+   - รองรับ **Backup & Restore** แบบ ZIP Snapshot รวมทั้งข้อมูล MongoDB + ไฟล์อัปโหลดทั้งหมด + SHA-256 Manifest (กดสำรองเองหรือตั้งเวลาอัตโนมัติ)
+3. **ฐานข้อมูลชั่วคราวบน Cloud (เฉพาะโหมด Cross-Network Relay):**
+   - ใช้ **Cloudflare D1 (SQLite)** เก็บเฉพาะ 2 ตาราง คือ `relay_targets` (รายชื่อ IP เป้าหมาย) และ `relay_reports` (ผล Ping ล่าสุด)
+   - อ้างอิงด้วยค่า **SHA-256 Hash ของ Agent Token** เท่านั้น (ไม่เก็บ Token จริง และลบทิ้งทันทีเมื่อ Bridge ดึงผลส่งเข้า MongoDB บน NIMS Server สำเร็จ)
+
+```mermaid
+flowchart TB
+    USR["ผู้ใช้งาน (Browser PC / Mobile)"] -->|"HTTPS :3000"| CADDY["Caddy HTTPS Reverse Proxy"]
+    CADDY -->|"หน้าเว็บ"| FE["Next.js 15 Frontend"]
+    CADDY -->|"/api/*"| BE["Node.js + Express Backend (:4000)"]
+    BE -->|"Prisma ORM"| MONGO[("MongoDB Replica Set rs0 (127.0.0.1:27017)")]
+    BE -->|"Read / Write"| DISK["Local Storage / NAS (Diagrams, Docs, Backups)"]
+```
+
+---
+
+## 3. สถาปัตยกรรมเครือข่าย (Network Topology Architecture)
 
 ระบบรองรับการมอนิเตอร์อุปกรณ์ได้ 2 รูปแบบพร้อมกันบน Server เดียว:
 1. **Same LAN Mode:** Site ที่อยู่ในวงเครือข่ายเดียวกับ NIMS Server (Agent ส่งผลเข้า Server ตรง)
@@ -51,9 +88,9 @@ flowchart LR
 
 ---
 
-## 3. Flow การทำงานทั้งหมด (End-to-End Workflows)
+## 4. Flow การทำงานทั้งหมด (End-to-End Workflows)
 
-### 3.1 การทำงานของระบบหลัก (Core Web Portal Flow)
+### 4.1 การทำงานของระบบหลัก (Core Web Portal Flow)
 
 ```mermaid
 flowchart TD
@@ -67,7 +104,7 @@ flowchart TD
     SITE --> AGT["Site Agents (สร้าง Token + โหลด 1-Click Installer)"]
 ```
 
-### 3.2 Flow การทำงานของ Cross-Network Site Agent (คนละวงเน็ต & Server ไม่ออกเน็ต)
+### 4.2 Flow การทำงานของ Cross-Network Site Agent (คนละวงเน็ต & Server ไม่ออกเน็ต)
 
 ```mermaid
 sequenceDiagram
@@ -95,11 +132,11 @@ sequenceDiagram
     B->>CF: GET /bridge/reports (ดึงผลค้างส่งทั้งหมด)
     CF-->>B: ส่งรายการผล Ping ล่าสุด
     B->>S: POST /api/agents/runtime/report (ส่งเข้า NIMS Server ในวง LAN)
-    S-->>B: อัปเดต DB + Audit Log (ONLINE/OFFLINE)
+    S-->>B: อัปเดต MongoDB + Audit Log (ONLINE/OFFLINE)
     B->>CF: POST /bridge/reports/ack (ลบคิวที่ส่งสำเร็จแล้ว)
 ```
 
-### 3.3 Flow การแสดงผลสถานะ Real-Time บนหน้าเว็บ
+### 4.3 Flow การแสดงผลสถานะ Real-Time บนหน้าเว็บ
 1. **ประมวลผลสถานะ (`evaluateDevicePingOutcome`):**
    - ถ้า Ping ผ่าน → อัปเดตอุปกรณ์เป็น `ONLINE`, รีเซ็ตจำนวนครั้งที่พลาด, บันทึก `lastLatencyMs` และ `lastPingAt`
    - ถ้า Ping ไม่ผ่าน → นับ `consecutiveMisses` เพิ่มขึ้นทีละ 1; เมื่อพลาดครบตามค่า `Offline Misses` (ค่าเริ่มต้น `3` ครั้ง) จึงเปลี่ยนสถานะเป็น `OFFLINE` พร้อมบันทึก `DEVICE_STATUS_TRANSITION` ลง Audit Log *(อุปกรณ์ที่ตั้ง `MAINTENANCE` ไว้จะไม่ถูกเขียนทับ)*
@@ -111,25 +148,25 @@ sequenceDiagram
 
 ---
 
-## 4. ระบบความปลอดภัย (Security Architecture)
+## 5. ระบบความปลอดภัย (Security Architecture)
 
 1. **Zero Inbound Firewall Ports:** ทั้งเครื่อง Server, Notebook ตัวกลาง และเครื่อง Agent หน้างาน **ไม่ต้องเปิด Port ขาเข้าจากอินเทอร์เน็ต** และไม่ต้องขอแก้ไข Router ของลูกค้า
 2. **Token & Secret Isolation:**
-   - Agent Token (`nims_agt_...`) เก็บเฉพาะ **SHA-256 Hash** ทั้งใน NIMS Database และบน Cloudflare D1 (ไม่เก็บ Token ดิบไว้บน Cloud)
+   - Agent Token (`nims_agt_...`) เก็บเฉพาะ **SHA-256 Hash** ทั้งใน MongoDB และบน Cloudflare D1 (ไม่เก็บ Token ดิบไว้บน Cloud)
    - ช่องทางควบคุม Bridge (`/bridge/*`) แยกสิทธิ์ด้วย `BRIDGE_SECRET` แบบ Constant-Time Comparison
-   - หน้าเว็บหลัก/Login/Database ของ NIMS **ไม่ถูกเปิดออกอินเทอร์เน็ต** — มีเฉพาะข้อมูล Target IP และผล Ping ที่วิ่งผ่าน Cloud Relay
+   - หน้าเว็บหลัก/Login/ฐานข้อมูลของ NIMS **ไม่ถูกเปิดออกอินเทอร์เน็ต** — มีเฉพาะข้อมูล Target IP และผล Ping ที่วิ่งผ่าน Cloud Relay
 3. **Data Protection:** รหัสผ่านผู้ใช้ Hash ด้วย `bcrypt`, ข้อมูลใน Credentials Vault เข้ารหัสด้วย **AES-256-GCM**, Session ใช้ **HttpOnly Cookie + CSRF**, และตรวจสิทธิ์ **RBAC ราย Site** ทุก API
 
 ---
 
-## 5. ความสามารถในการรองรับ (Capacity & Scalability)
+## 6. ความสามารถในการรองรับ (Capacity & Scalability)
 
-### 5.1 Site ในวง LAN / VPN เดียวกัน (Direct LAN Mode)
+### 6.1 Site ในวง LAN / VPN เดียวกัน (Direct LAN Mode)
 - **ไม่จำกัดจำนวนด้วยโควตา Cloud** (ขึ้นกับสเปกเครื่อง NIMS Server และ MongoDB)
 - API `POST /api/agents/runtime/report` รองรับสูงสุด **`5,000` อุปกรณ์ต่อรอบรายงาน** และอัปเดตฐานข้อมูลแบบ Batch
 - **รองรับได้ ~100+ Sites** (หลายพันอุปกรณ์) บน Server มาตรฐาน
 
-### 5.2 Site คนละวง Network (Cross-Network ผ่าน Cloudflare Workers + D1 แพ็กเกจ Free)
+### 6.2 Site คนละวง Network (Cross-Network ผ่าน Cloudflare Workers + D1 แพ็กเกจ Free)
 
 Cloudflare แพ็กเกจ **Free (0 บาท/เดือน)** ให้โควตา:
 - **Cloudflare Workers:** `100,000` Requests / วัน
@@ -150,10 +187,10 @@ Cloudflare แพ็กเกจ **Free (0 บาท/เดือน)** ให�
 
 ---
 
-## 6. สรุปประเด็นสำคัญสำหรับใช้ Present หัวหน้า (Key Takeaways)
+## 7. สรุปจุดเด่นและคุณค่าของระบบ (Key Takeaways & Business Value)
 
-1. **ประหยัดและติดตั้งเร็ว:** ใช้ทรัพยากรที่มีอยู่ (On-Premise Server + Cloudflare Free Tier 0 บาท) ไม่ต้องซื้อ IP Public หรือเช่า VPN Tunnel รายสาขา
-2. **ไม่กระทบระบบลูกค้า (Zero Router Config):** ไม่ต้องขอเปิด Port หรือตั้ง Firewall ขาเข้าที่ Router ลูกค้า
-3. **ติดตั้งง่ายแบบ 1-Click:** สร้าง Agent บนหน้าเว็บ → กดโหลด `.bat` ตัวเดียวไปดับเบิลคลิกที่เครื่องกลางและเครื่องปลายทาง → ติดตั้ง Node.js, Auto-Start และรันเบื้องหลังให้อัตโนมัติ
-4. **เห็นภาพรวมทันทีแบบ Real-Time:** คลิกจาก Dashboard เพื่อเจาะดูเครื่องที่มีปัญหาได้เลย และเห็นสาย/อุปกรณ์กระพริบแจ้งเตือน Up/Down บนผัง Network Diagram ทันที
-5. **รองรับการขยายตัวในอนาคต:** รองรับทั้งวง LAN (`100+` Sites) และ Remote ข้ามวง (`15–45+` Sites ฟรี, ขยายได้เป็นหลักร้อย Sites ด้วยงบเพียง ~\$5/เดือน)
+1. **ประหยัดงบประมาณและลดเวลาติดตั้ง:** ใช้โครงสร้างที่มีอยู่ (On-Premise Server + Cloudflare Free Tier 0 บาท) ไม่ต้องซื้อ IP Public หรือเช่า VPN Tunnel รายสาขา
+2. **ปลอดภัยและไม่กระทบระบบเครือข่ายลูกค้า (Zero Router Config):** ไม่ต้องขอเปิด Port ขาเข้าหรือแก้ Firewall/Router ของลูกค้าทั้งฝั่งต้นทางและปลายทาง
+3. **ติดตั้งและขยายสาขาได้แบบ 1-Click:** สร้าง Agent บนหน้าเว็บ → ดาวน์โหลดไฟล์ `.bat` ไปดับเบิลคลิกที่เครื่องกลางและเครื่องปลายทาง → ติดตั้ง Runtime, Auto-Start และรันเบื้องหลังอัตโนมัติ
+4. **ติดตามปัญหาเชิงรุกแบบ Real-Time:** คลิกเจาะลึกจาก NOC Dashboard ไปยังอุปกรณ์ที่มีปัญหาได้ทันที และเห็นไฟกระพริบแจ้งเตือน Up/Down บนผัง Network Diagram แบบเรียลไทม์
+5. **รองรับการเติบโตในอนาคต (Scalable):** รองรับทั้งวง LAN (`100+` Sites) และ Remote ข้ามวง (`15–45+` Sites ฟรี, ขยายได้เป็นหลักร้อย Sites ด้วยงบเพียง ~\$5/เดือน)
