@@ -40,13 +40,14 @@ export function buildObstacleRects(
   nodes: Node[],
   sourceId: string,
   targetId: string,
-  otherPad = 18,
+  otherPad = 10,
+  endpointPad = 4,
 ): ObstacleRect[] {
   const rects: ObstacleRect[] = [];
   for (const n of nodes) {
     if (isShapeOrNote(n)) continue;
     const isEndpoint = n.id === sourceId || n.id === targetId;
-    const pad = isEndpoint ? Math.min(10, otherPad) : otherPad;
+    const pad = isEndpoint ? Math.min(endpointPad, otherPad) : otherPad;
     const w =
       n.measured?.width ??
       (typeof n.width === 'number' && n.width > 0 ? n.width : DEFAULT_NODE_WIDTH);
@@ -62,6 +63,13 @@ export function buildObstacleRects(
     });
   }
   return rects;
+}
+
+function pointInsideAnyObstacle(p: Point, obstacles: ObstacleRect[]): boolean {
+  const eps = 0.5;
+  return obstacles.some(
+    (r) => p.x > r.x1 + eps && p.x < r.x2 - eps && p.y > r.y1 + eps && p.y < r.y2 - eps,
+  );
 }
 
 /**
@@ -401,55 +409,129 @@ export function computeSmartOrthogonalEdgePath({
   nodes: Node[];
   parallelShift?: number;
 }): { path: string; labelX: number; labelY: number; avoidedObstacle: boolean } {
-  const obstacles = buildObstacleRects(nodes, sourceId, targetId);
   const srcVec = getDirectionVector(sourcePosition);
   const tgtVec = getDirectionVector(targetPosition);
+  const dx = targetX - sourceX;
+  const dy = targetY - sourceY;
+
+  const isFacing = srcVec.x === -tgtVec.x && srcVec.y === -tgtVec.y;
+  const isPerpendicular = srcVec.x * tgtVec.x + srcVec.y * tgtVec.y === 0;
+  const facingDist = dx * srcVec.x + dy * srcVec.y;
+  const fwdSrc = dx * srcVec.x + dy * srcVec.y;
+  const fwdTgt = -dx * tgtVec.x + -dy * tgtVec.y;
+
+  // Shrink port stubs automatically when nodes are placed close together so stubs never overshoot
+  let srcStub = PORT_STUB;
+  let tgtStub = PORT_STUB;
+  if (isFacing && facingDist > 0) {
+    const clamped = Math.max(2, Math.min(PORT_STUB, facingDist * 0.38));
+    srcStub = clamped;
+    tgtStub = clamped;
+  } else if (isPerpendicular) {
+    if (fwdSrc > 0) srcStub = Math.max(3, Math.min(PORT_STUB, fwdSrc * 0.45));
+    if (fwdTgt > 0) tgtStub = Math.max(3, Math.min(PORT_STUB, fwdTgt * 0.45));
+  }
 
   const pStart: Point = {
-    x: sourceX + srcVec.x * PORT_STUB,
-    y: sourceY + srcVec.y * PORT_STUB,
+    x: sourceX + srcVec.x * srcStub,
+    y: sourceY + srcVec.y * srcStub,
   };
   const pEnd: Point = {
-    x: targetX + tgtVec.x * PORT_STUB,
-    y: targetY + tgtVec.y * PORT_STUB,
+    x: targetX + tgtVec.x * tgtStub,
+    y: targetY + tgtVec.y * tgtStub,
   };
 
-  // Candidate simple 3/4-segment orthogonal routes matching port directions
-  const midX = (pStart.x + pEnd.x) / 2 + parallelShift;
-  const midY = (pStart.y + pEnd.y) / 2 + parallelShift;
+  // Clamp parallel shift inside tight facing gaps so parallel lines don't flip backward
+  const effectiveShift =
+    isFacing && facingDist > 0
+      ? Math.max(-facingDist * 0.22, Math.min(facingDist * 0.22, parallelShift))
+      : parallelShift;
 
-  const simpleCandidates: Point[][] = [
-    [
-      pStart,
-      { x: pStart.x, y: midY },
-      { x: pEnd.x, y: midY },
-      pEnd,
-    ],
-    [
-      pStart,
-      { x: midX, y: pStart.y },
-      { x: midX, y: pEnd.y },
-      pEnd,
-    ],
+  const tightObstacles = buildObstacleRects(nodes, sourceId, targetId, 4, 2);
+  const normalObstacles = buildObstacleRects(nodes, sourceId, targetId, 10, 4);
+  const routeObstacles =
+    pointInsideAnyObstacle(pStart, normalObstacles) || pointInsideAnyObstacle(pEnd, normalObstacles)
+      ? tightObstacles
+      : normalObstacles;
+
+  // Helper: ensure candidate exits source & enters target in the port's forward direction
+  const respectsPortDirections = (pts: Point[]): boolean => {
+    if (pts.length < 2) return true;
+    const first = pts[1];
+    const lastPrev = pts[pts.length - 2];
+    const dotOut = (first.x - sourceX) * srcVec.x + (first.y - sourceY) * srcVec.y;
+    const dotIn = (lastPrev.x - targetX) * tgtVec.x + (lastPrev.y - targetY) * tgtVec.y;
+    return dotOut >= -0.5 && dotIn >= -0.5;
+  };
+
+  // Fast-path: crisp straight line when facing ports are aligned & unobstructed
+  const alignedFacing =
+    isFacing &&
+    facingDist > 0 &&
+    effectiveShift === 0 &&
+    ((srcVec.x === 0 && Math.abs(dx) < 1.5) || (srcVec.y === 0 && Math.abs(dy) < 1.5));
+  if (alignedFacing) {
+    const straightPts = [{ x: sourceX, y: sourceY }, { x: targetX, y: targetY }];
+    if (!segmentHitsObstacles(pStart, pEnd, tightObstacles)) {
+      const lbl = findLabelPoint(straightPts);
+      return {
+        path: buildRoundedSvgPath(straightPts),
+        labelX: lbl.x,
+        labelY: lbl.y,
+        avoidedObstacle: false,
+      };
+    }
+  }
+
+  // Fast-path: crisp 1-bend L-route for perpendicular ports with positive forward clearance
+  const simpleCandidates: Point[][] = [];
+  if (isPerpendicular && fwdSrc >= 4 && fwdTgt >= 4 && effectiveShift === 0) {
+    const lCorner: Point =
+      srcVec.x !== 0 ? { x: targetX, y: sourceY } : { x: sourceX, y: targetY };
+    simpleCandidates.push([lCorner]);
+  }
+
+  // Standard 3/4-segment orthogonal routes matching port directions
+  const midX = (pStart.x + pEnd.x) / 2 + effectiveShift;
+  const midY = (pStart.y + pEnd.y) / 2 + effectiveShift;
+
+  const candVFirst: Point[] = [
+    pStart,
+    { x: pStart.x, y: midY },
+    { x: pEnd.x, y: midY },
+    pEnd,
+  ];
+  const candHFirst: Point[] = [
+    pStart,
+    { x: midX, y: pStart.y },
+    { x: midX, y: pEnd.y },
+    pEnd,
   ];
 
   // Prefer horizontal-midpoint first when leaving/entering Left/Right, else vertical-midpoint first
   const horizPorts =
     (sourcePosition === Position.Left || sourcePosition === Position.Right) &&
     (targetPosition === Position.Left || targetPosition === Position.Right);
-  const orderedCandidates = horizPorts
-    ? [simpleCandidates[1], simpleCandidates[0]]
-    : simpleCandidates;
+  simpleCandidates.push(...(horizPorts ? [candHFirst, candVFirst] : [candVFirst, candHFirst]));
 
-  for (const cand of orderedCandidates) {
+  const candidateCheckObstacles =
+    isFacing && facingDist > 0 && facingDist < 52 ? tightObstacles : routeObstacles;
+
+  for (const cand of simpleCandidates) {
     const fullPts = simplifyOrthogonalPoints([
       { x: sourceX, y: sourceY },
       ...cand,
       { x: targetX, y: targetY },
     ]);
-    // Check interior segments (excluding port entry/exit stubs directly attached to source/target)
-    const inner = fullPts.slice(1, fullPts.length - 1);
-    if (!pathHitsObstacles(inner.length >= 2 ? inner : fullPts, obstacles)) {
+    if (!respectsPortDirections(fullPts)) continue;
+    // Check interior path excluding port entry/exit stubs directly attached to source/target
+    const checkPts =
+      fullPts.length >= 4
+        ? fullPts.slice(1, fullPts.length - 1)
+        : fullPts.length === 3
+        ? [pStart, fullPts[1], pEnd]
+        : [pStart, pEnd];
+    if (!pathHitsObstacles(checkPts, candidateCheckObstacles)) {
       const lbl = findLabelPoint(fullPts);
       return {
         path: buildRoundedSvgPath(fullPts),
@@ -460,10 +542,11 @@ export function computeSmartOrthogonalEdgePath({
     }
   }
 
-  // Run Hanan-Grid A* obstacle-avoiding router (with tight-gap fallback if nodes are packed closely)
+  // Run Hanan-Grid A* obstacle-avoiding router (gradually relaxing padding for tightly packed nodes)
   const routed =
-    aStarHananRoute(pStart, pEnd, obstacles, srcVec) ??
-    aStarHananRoute(pStart, pEnd, buildObstacleRects(nodes, sourceId, targetId, 4), srcVec);
+    aStarHananRoute(pStart, pEnd, routeObstacles, srcVec) ??
+    aStarHananRoute(pStart, pEnd, tightObstacles, srcVec) ??
+    aStarHananRoute(pStart, pEnd, buildObstacleRects(nodes, sourceId, targetId, 1, 1), srcVec);
   if (routed && routed.length >= 2) {
     const fullPts = simplifyOrthogonalPoints([
       { x: sourceX, y: sourceY },
@@ -480,9 +563,15 @@ export function computeSmartOrthogonalEdgePath({
   }
 
   // Safe deterministic fallback if completely boxed in
+  const fallbackCand =
+    simpleCandidates.find((cand) =>
+      respectsPortDirections(
+        simplifyOrthogonalPoints([{ x: sourceX, y: sourceY }, ...cand, { x: targetX, y: targetY }]),
+      ),
+    ) || (horizPorts ? candHFirst : candVFirst);
   const fallbackPts = simplifyOrthogonalPoints([
     { x: sourceX, y: sourceY },
-    ...orderedCandidates[0],
+    ...fallbackCand,
     { x: targetX, y: targetY },
   ]);
   const lbl = findLabelPoint(fallbackPts);
