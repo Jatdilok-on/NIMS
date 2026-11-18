@@ -93,57 +93,19 @@ function encodeUtf8ToBase64(text: string): string {
   return btoa(binary);
 }
 
-function buildWindowsOneClickBat(
-  siteCode: string,
-  agentName: string,
-  serverUrl: string,
-  token: string,
-  allowInsecureTls = false,
-  embeddedScriptBase64?: string,
-): string {
-  const cleanUrl = sanitizeBatValue(serverUrl).replace(/\/+$/, '');
-  const cleanToken = sanitizeBatValue(token);
-  const safeSite = siteCode.replace(/[^a-zA-Z0-9_-]/g, '') || 'SITE';
-  const suffix = cleanToken.replace(/^nims_agt_/, '').slice(0, 6) || 'agent';
-  const folderName = `${safeSite}-${suffix}`;
-  const taskName = `NIMS-SiteAgent-${folderName}`;
-  const safeAgentName = sanitizeBatValue(agentName) || safeSite;
-  const scriptWriteLines = embeddedScriptBase64
-    ? [
-        ...Array.from(
-          { length: Math.ceil(embeddedScriptBase64.length / 900) },
-          (_, idx) => {
-            const chunk = embeddedScriptBase64.slice(idx * 900, (idx + 1) * 900);
-            const op = idx === 0 ? '>' : '>>';
-            return `${op} "%INSTALL_DIR%\\nims-agent.b64" echo ${chunk}`;
-          },
-        ),
-        '"%NODE_EXE%" -e "const fs=require(\'fs\'),p=require(\'path\');const b=p.join(process.env.INSTALL_DIR,\'nims-agent.b64\');fs.writeFileSync(p.join(process.env.INSTALL_DIR,\'nims-agent.mjs\'),Buffer.from(fs.readFileSync(b,\'utf8\').replace(/\\s+/g,\'\'),\'base64\'));fs.unlinkSync(b);"',
-      ]
-    : [
-        ...(allowInsecureTls ? ['set "NODE_TLS_REJECT_UNAUTHORIZED=0"'] : []),
-        '"%NODE_EXE%" -e "fetch(process.env.NIMS_URL+\'/api/agents/runtime/script\',{headers:{Authorization:\'Bearer \'+process.env.AGENT_TOKEN}}).then(async r=>{if(!r.ok)throw new Error(\'HTTP \'+r.status);require(\'fs\').writeFileSync(require(\'path\').join(process.env.INSTALL_DIR,\'nims-agent.mjs\'),await r.text());}).catch(e=>{console.error(e.message||e);process.exit(1);})"',
-      ];
+function buildBase64WriteLines(base64: string, b64Name: string, outName: string): string[] {
+  return [
+    ...Array.from({ length: Math.ceil(base64.length / 900) }, (_, idx) => {
+      const chunk = base64.slice(idx * 900, (idx + 1) * 900);
+      const op = idx === 0 ? '>' : '>>';
+      return `${op} "%INSTALL_DIR%\\${b64Name}" echo ${chunk}`;
+    }),
+    `"%NODE_EXE%" -e "const fs=require('fs'),p=require('path');const b=p.join(process.env.INSTALL_DIR,'${b64Name}');fs.writeFileSync(p.join(process.env.INSTALL_DIR,'${outName}'),Buffer.from(fs.readFileSync(b,'utf8').replace(/\\s+/g,''),'base64'));fs.unlinkSync(b);"`,
+  ];
+}
 
-  const lines = [
-    '@echo off',
-    'setlocal EnableExtensions',
-    `title NIMS Site Ping Agent - 1-Click Installer (${safeSite})`,
-    'echo.',
-    'echo ============================================================',
-    `echo   NIMS Site Ping Agent - 1-Click Auto Setup (${safeSite})`,
-    `echo   Agent: ${safeAgentName}`,
-    'echo ============================================================',
-    'echo.',
-    `set "SITE_CODE=${safeSite}"`,
-    `set "NIMS_URL=${cleanUrl}"`,
-    `set "AGENT_TOKEN=${cleanToken}"`,
-    `set "INSTALL_DIR=%LOCALAPPDATA%\\NIMS-Agent\\${folderName}"`,
-    `set "TASK_NAME=${taskName}"`,
-    'set "NODE_EXE="',
-    'set "TRIED_WINGET="',
-    '',
-    'echo [1/5] Checking Node.js runtime...',
+function buildWindowsNodeCheckLines(): string[] {
+  return [
     'for /f "delims=" %%i in (\'where node 2^>nul\') do if not defined NODE_EXE set "NODE_EXE=%%i"',
     'if defined NODE_EXE goto :check_node_ver',
     'if exist "%ProgramFiles%\\nodejs\\node.exe" set "NODE_EXE=%ProgramFiles%\\nodejs\\node.exe"',
@@ -174,6 +136,175 @@ function buildWindowsOneClickBat(
     'if "%NODE_MAJOR%"=="" set "NODE_MAJOR=0"',
     'if %NODE_MAJOR% LSS 18 goto :install_node',
     'echo       Using Node.js: "%NODE_EXE%" (v%NODE_MAJOR%+)',
+  ];
+}
+
+function buildBridgeEnvText(
+  nimsUrl: string,
+  relayUrl: string,
+  bridgeSecret: string,
+  token: string,
+  allowInsecureTls = true,
+): string {
+  const cleanNims = nimsUrl.trim().replace(/\/+$/, '');
+  const cleanRelay = relayUrl.trim().replace(/\/+$/, '');
+  const cleanSecret = bridgeSecret.trim() || 'CHANGE_ME_LONG_RANDOM_SECRET';
+  return [
+    `NIMS_URL=${cleanNims}`,
+    `NIMS_ALLOW_INSECURE_TLS=${allowInsecureTls ? 'true' : 'false'}`,
+    `RELAY_URL=${cleanRelay}`,
+    `BRIDGE_SECRET=${cleanSecret}`,
+    `NIMS_AGENT_TOKENS=${token.trim()}`,
+    'BRIDGE_POLL_SEC=15',
+    'TARGETS_SYNC_SEC=120',
+    '',
+  ].join('\n');
+}
+
+function buildWindowsBridgeOneClickBat(
+  nimsUrl: string,
+  relayUrl: string,
+  bridgeSecret: string,
+  token: string,
+  allowInsecureTls: boolean,
+  embeddedBridgeBase64: string,
+): string {
+  const cleanNims = sanitizeBatValue(nimsUrl).replace(/\/+$/, '');
+  const cleanRelay = sanitizeBatValue(relayUrl).replace(/\/+$/, '');
+  const cleanSecret = sanitizeBatValue(bridgeSecret);
+  const cleanToken = sanitizeBatValue(token);
+
+  const lines = [
+    '@echo off',
+    'setlocal EnableExtensions',
+    'title NIMS Notebook Relay Bridge - 1-Click Installer',
+    'echo.',
+    'echo ============================================================',
+    'echo   NIMS Notebook Relay Bridge - 1-Click Auto Setup',
+    'echo ============================================================',
+    'echo.',
+    `set "NIMS_URL=${cleanNims}"`,
+    `set "NIMS_INSECURE=${allowInsecureTls ? 'true' : 'false'}"`,
+    `set "RELAY_URL=${cleanRelay}"`,
+    `set "BRIDGE_SECRET=${cleanSecret}"`,
+    `set "NEW_TOKEN=${cleanToken}"`,
+    'set "INSTALL_DIR=%LOCALAPPDATA%\\NIMS-Relay-Bridge"',
+    'set "TASK_NAME=NIMS-Relay-Bridge"',
+    'set "NODE_EXE="',
+    'set "TRIED_WINGET="',
+    '',
+    'echo [1/4] Checking Node.js runtime...',
+    ...buildWindowsNodeCheckLines(),
+    '',
+    'echo [2/4] Preparing "%INSTALL_DIR%" and writing nims-relay-bridge.mjs...',
+    'if not exist "%INSTALL_DIR%" mkdir "%INSTALL_DIR%"',
+    'powershell -NoProfile -ExecutionPolicy Bypass -Command "Get-CimInstance Win32_Process | Where-Object { ($_.Name -eq \'cmd.exe\' -and $_.CommandLine -like \'*bridge-run.cmd*\') -or ($_.Name -eq \'wscript.exe\' -and $_.CommandLine -like \'*bridge-hidden.vbs*\') -or ($_.Name -eq \'node.exe\' -and $_.CommandLine -like \'*nims-relay-bridge.mjs*\') } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }" >nul 2>&1',
+    ...buildBase64WriteLines(embeddedBridgeBase64, 'bridge.b64', 'nims-relay-bridge.mjs'),
+    '',
+    'echo [3/4] Updating nims-relay-bridge.env (merging site token)...',
+    '"%NODE_EXE%" -e "const fs=require(\'fs\'),p=require(\'path\');const envPath=p.join(process.env.INSTALL_DIR,\'nims-relay-bridge.env\');const kv={NIMS_URL:process.env.NIMS_URL,NIMS_ALLOW_INSECURE_TLS:process.env.NIMS_INSECURE,RELAY_URL:process.env.RELAY_URL,BRIDGE_SECRET:process.env.BRIDGE_SECRET||\'CHANGE_ME_LONG_RANDOM_SECRET\',NIMS_AGENT_TOKENS:\'\',BRIDGE_POLL_SEC:\'15\',TARGETS_SYNC_SEC:\'120\'};if(fs.existsSync(envPath)){for(const raw of fs.readFileSync(envPath,\'utf8\').split(/\\r?\\n/)){const l=raw.trim();if(!l||l.startsWith(\'#\'))continue;const i=l.indexOf(\'=\');if(i>0){const k=l.slice(0,i).trim(),v=l.slice(i+1).trim();if(k===\'BRIDGE_SECRET\'&&!process.env.BRIDGE_SECRET&&v)kv[k]=v;else if(k!==\'NIMS_URL\'&&k!==\'RELAY_URL\'&&k!==\'NIMS_ALLOW_INSECURE_TLS\'&&k!==\'BRIDGE_SECRET\')kv[k]=v;}}}const tokens=new Set((kv.NIMS_AGENT_TOKENS||\'\').split(/[\\r\\n,]+/).map(s=>s.trim()).filter(Boolean));if(process.env.NEW_TOKEN)tokens.add(process.env.NEW_TOKEN);kv.NIMS_AGENT_TOKENS=Array.from(tokens).join(\',\');const out=Object.entries(kv).map(([k,v])=>k+\'=\'+v).join(\'\\n\')+\'\\n\';fs.writeFileSync(envPath,out,\'utf8\');console.log(\'       Active tokens in bridge:\',tokens.size);"',
+    '',
+    'findstr /C:"CHANGE_ME_LONG_RANDOM_SECRET" "%INSTALL_DIR%\\nims-relay-bridge.env" >nul 2>&1',
+    'if not errorlevel 1 (',
+    '  echo [ACTION REQUIRED] Please replace BRIDGE_SECRET in nims-relay-bridge.env, save, and re-run this file.',
+    '  notepad "%INSTALL_DIR%\\nims-relay-bridge.env"',
+    '  exit /b 1',
+    ')',
+    '',
+    '> "%INSTALL_DIR%\\bridge-run.cmd" echo @echo off',
+    '>> "%INSTALL_DIR%\\bridge-run.cmd" echo cd /d "%INSTALL_DIR%"',
+    '>> "%INSTALL_DIR%\\bridge-run.cmd" echo :loop',
+    '>> "%INSTALL_DIR%\\bridge-run.cmd" echo if not exist "%INSTALL_DIR%\\nims-relay-bridge.mjs" exit /b 0',
+    '>> "%INSTALL_DIR%\\bridge-run.cmd" echo if not exist "%INSTALL_DIR%\\nims-relay-bridge.env" exit /b 0',
+    '>> "%INSTALL_DIR%\\bridge-run.cmd" echo "%NODE_EXE%" "%INSTALL_DIR%\\nims-relay-bridge.mjs" ^>^> "%INSTALL_DIR%\\bridge.log" 2^>^&1',
+    '>> "%INSTALL_DIR%\\bridge-run.cmd" echo timeout /t 5 /nobreak ^>nul',
+    '>> "%INSTALL_DIR%\\bridge-run.cmd" echo goto loop',
+    '',
+    '> "%INSTALL_DIR%\\bridge-hidden.vbs" echo Set fso = CreateObject("Scripting.FileSystemObject")',
+    '>> "%INSTALL_DIR%\\bridge-hidden.vbs" echo Set sh = CreateObject("WScript.Shell")',
+    '>> "%INSTALL_DIR%\\bridge-hidden.vbs" echo d = fso.GetParentFolderName(WScript.ScriptFullName)',
+    '>> "%INSTALL_DIR%\\bridge-hidden.vbs" echo sh.CurrentDirectory = d',
+    '>> "%INSTALL_DIR%\\bridge-hidden.vbs" echo lf = d ^& "\\bridge.log"',
+    '>> "%INSTALL_DIR%\\bridge-hidden.vbs" echo If fso.FileExists(lf) Then If fso.GetFile(lf).Size ^> 2097152 Then fso.DeleteFile lf, True',
+    '>> "%INSTALL_DIR%\\bridge-hidden.vbs" echo sh.Run "cmd /c " ^& Chr(34) ^& d ^& "\\bridge-run.cmd" ^& Chr(34), 0, False',
+    '',
+    '> "%INSTALL_DIR%\\view-bridge-log.bat" echo @echo off',
+    '>> "%INSTALL_DIR%\\view-bridge-log.bat" echo title NIMS Relay Bridge Log',
+    '>> "%INSTALL_DIR%\\view-bridge-log.bat" echo powershell -NoProfile -Command "Get-Content -Path \'%INSTALL_DIR%\\bridge.log\' -Tail 30 -Wait"',
+    '',
+    '> "%INSTALL_DIR%\\uninstall-bridge.bat" echo @echo off',
+    '>> "%INSTALL_DIR%\\uninstall-bridge.bat" echo schtasks /delete /tn "%TASK_NAME%" /f ^>nul 2^>^&1',
+    '>> "%INSTALL_DIR%\\uninstall-bridge.bat" echo powershell -NoProfile -ExecutionPolicy Bypass -Command "Get-CimInstance Win32_Process | Where-Object { ($_.Name -eq \'cmd.exe\' -and $_.CommandLine -like \'*bridge-run.cmd*\') -or ($_.Name -eq \'wscript.exe\' -and $_.CommandLine -like \'*bridge-hidden.vbs*\') -or ($_.Name -eq \'node.exe\' -and $_.CommandLine -like \'*nims-relay-bridge.mjs*\') } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }"',
+    '>> "%INSTALL_DIR%\\uninstall-bridge.bat" echo cd /d "%%TEMP%%"',
+    '>> "%INSTALL_DIR%\\uninstall-bridge.bat" echo start "" /min powershell -NoProfile -WindowStyle Hidden -Command "Start-Sleep 2; Remove-Item -LiteralPath \'%INSTALL_DIR%\' -Recurse -Force -ErrorAction SilentlyContinue"',
+    '>> "%INSTALL_DIR%\\uninstall-bridge.bat" echo echo [OK] NIMS Relay Bridge stopped and removed.',
+    '>> "%INSTALL_DIR%\\uninstall-bridge.bat" echo pause',
+    '',
+    'echo [4/4] Registering auto-start task (%TASK_NAME%) and starting in background...',
+    'schtasks /create /tn "%TASK_NAME%" /tr "wscript.exe \\"%INSTALL_DIR%\\bridge-hidden.vbs\\"" /sc ONSTART /ru SYSTEM /rl HIGHEST /f >nul 2>&1',
+    'if not errorlevel 1 goto :task_ready',
+    'schtasks /create /tn "%TASK_NAME%" /tr "wscript.exe \\"%INSTALL_DIR%\\bridge-hidden.vbs\\"" /sc ONLOGON /f >nul 2>&1',
+    ':task_ready',
+    'wscript.exe "%INSTALL_DIR%\\bridge-hidden.vbs"',
+    'timeout /t 2 /nobreak >nul',
+    'echo.',
+    'echo ============================================================',
+    'echo   [OK] NIMS Relay Bridge is running silently in background!',
+    'echo   - Install folder  : %INSTALL_DIR%',
+    'echo   - View live log   : "%INSTALL_DIR%\\view-bridge-log.bat"',
+    'echo   - Uninstall       : "%INSTALL_DIR%\\uninstall-bridge.bat"',
+    'echo ============================================================',
+    'echo.',
+    'if exist "%INSTALL_DIR%\\bridge.log" powershell -NoProfile -Command "Get-Content -Path \'%INSTALL_DIR%\\bridge.log\' -Tail 10"',
+    'pause',
+    '',
+  ];
+
+  return lines.join('\r\n');
+}
+
+function buildWindowsOneClickBat(
+  siteCode: string,
+  agentName: string,
+  serverUrl: string,
+  token: string,
+  allowInsecureTls = false,
+  embeddedScriptBase64?: string,
+): string {
+  const cleanUrl = sanitizeBatValue(serverUrl).replace(/\/+$/, '');
+  const cleanToken = sanitizeBatValue(token);
+  const safeSite = siteCode.replace(/[^a-zA-Z0-9_-]/g, '') || 'SITE';
+  const suffix = cleanToken.replace(/^nims_agt_/, '').slice(0, 6) || 'agent';
+  const folderName = `${safeSite}-${suffix}`;
+  const taskName = `NIMS-SiteAgent-${folderName}`;
+  const safeAgentName = sanitizeBatValue(agentName) || safeSite;
+  const scriptWriteLines = embeddedScriptBase64
+    ? buildBase64WriteLines(embeddedScriptBase64, 'nims-agent.b64', 'nims-agent.mjs')
+    : [
+        ...(allowInsecureTls ? ['set "NODE_TLS_REJECT_UNAUTHORIZED=0"'] : []),
+        '"%NODE_EXE%" -e "fetch(process.env.NIMS_URL+\'/api/agents/runtime/script\',{headers:{Authorization:\'Bearer \'+process.env.AGENT_TOKEN}}).then(async r=>{if(!r.ok)throw new Error(\'HTTP \'+r.status);require(\'fs\').writeFileSync(require(\'path\').join(process.env.INSTALL_DIR,\'nims-agent.mjs\'),await r.text());}).catch(e=>{console.error(e.message||e);process.exit(1);})"',
+      ];
+
+  const lines = [
+    '@echo off',
+    'setlocal EnableExtensions',
+    `title NIMS Site Ping Agent - 1-Click Installer (${safeSite})`,
+    'echo.',
+    'echo ============================================================',
+    `echo   NIMS Site Ping Agent - 1-Click Auto Setup (${safeSite})`,
+    `echo   Agent: ${safeAgentName}`,
+    'echo ============================================================',
+    'echo.',
+    `set "SITE_CODE=${safeSite}"`,
+    `set "NIMS_URL=${cleanUrl}"`,
+    `set "AGENT_TOKEN=${cleanToken}"`,
+    `set "INSTALL_DIR=%LOCALAPPDATA%\\NIMS-Agent\\${folderName}"`,
+    `set "TASK_NAME=${taskName}"`,
+    'set "NODE_EXE="',
+    'set "TRIED_WINGET="',
+    '',
+    'echo [1/5] Checking Node.js runtime...',
+    ...buildWindowsNodeCheckLines(),
     '',
     'echo [2/5] Preparing folder "%INSTALL_DIR%"...',
     'if not exist "%INSTALL_DIR%" mkdir "%INSTALL_DIR%"',
@@ -287,6 +418,7 @@ export function SiteAgentsPanel({
   } | null>(null);
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const [downloadingRemoteBat, setDownloadingRemoteBat] = useState(false);
+  const [downloadingBridgeBat, setDownloadingBridgeBat] = useState(false);
 
   const [rotateTarget, setRotateTarget] = useState<SiteAgent | null>(null);
   const [rotating, setRotating] = useState(false);
@@ -302,6 +434,12 @@ export function SiteAgentsPanel({
     }
     return 'https://nims-relay.jatdilok-on.workers.dev';
   });
+  const [savedBridgeSecret, setSavedBridgeSecret] = useState(() => {
+    if (typeof window !== 'undefined') {
+      return window.localStorage.getItem('nims_bridge_secret') || '';
+    }
+    return '';
+  });
   const [nimsServerUrl, setNimsServerUrl] = useState(() =>
     typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3000',
   );
@@ -314,6 +452,48 @@ export function SiteAgentsPanel({
     setSavedRelayUrl(nextUrl);
     if (typeof window !== 'undefined') {
       window.localStorage.setItem('nims_relay_url', nextUrl);
+    }
+  };
+
+  const updateBridgeSecret = (nextSecret: string) => {
+    setSavedBridgeSecret(nextSecret);
+    if (typeof window !== 'undefined') {
+      window.localStorage.setItem('nims_bridge_secret', nextSecret);
+    }
+  };
+
+  const handleDownloadBridgeBat = async () => {
+    if (!tokenReveal) return;
+    if (!savedRelayUrl.trim() || !nimsServerUrl.trim()) {
+      setError('กรุณากรอก NIMS Server URL และ Cloudflare Relay URL ก่อนดาวน์โหลด');
+      return;
+    }
+    setDownloadingBridgeBat(true);
+    setError(null);
+    try {
+      const res = await fetch('/api/agents/relay-script', { credentials: 'include' });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const scriptText = await res.text();
+      const base64 = encodeUtf8ToBase64(scriptText);
+      downloadTextFile(
+        'nims-relay-bridge-1click.bat',
+        buildWindowsBridgeOneClickBat(
+          nimsServerUrl,
+          savedRelayUrl,
+          savedBridgeSecret,
+          tokenReveal.rawToken,
+          allowInsecureTls,
+          base64,
+        ),
+      );
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? `ไม่สามารถดึงไฟล์ nims-relay-bridge.mjs จาก Server ได้: ${err.message}`
+          : 'ไม่สามารถสร้างไฟล์ Bridge 1-Click Installer ได้',
+      );
+    } finally {
+      setDownloadingBridgeBat(false);
     }
   };
 
@@ -590,12 +770,78 @@ export function SiteAgentsPanel({
                 />
               </div>
 
-              <div className="rounded-lg bg-sky-50/90 dark:bg-sky-950/40 border border-sky-200 dark:border-sky-800 p-3 space-y-1.5 text-xs text-sky-900 dark:text-sky-200">
+              <div className="rounded-lg bg-sky-50/90 dark:bg-sky-950/40 border border-sky-200 dark:border-sky-800 p-3.5 space-y-2.5 text-xs text-sky-900 dark:text-sky-200">
                 <div className="font-bold">
-                  1) เครื่องกลาง (Notebook Bridge): เพิ่ม Token นี้ในไฟล์ <code className="font-mono">nims-relay-bridge.env</code>
+                  1) เครื่องกลาง (Notebook Bridge): กดโหลดไปรันหรืออัปเดต Token เข้าเครื่องกลาง
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  <div>
+                    <label className="block text-[10px] font-semibold opacity-80 mb-1">
+                      NIMS Server URL (วง LAN)
+                    </label>
+                    <input
+                      type="text"
+                      value={nimsServerUrl}
+                      onChange={(e) => setNimsServerUrl(e.target.value)}
+                      placeholder="https://191.20.110.191:3000"
+                      className="w-full px-2.5 py-1.5 rounded border border-sky-300 dark:border-sky-700 bg-white/80 dark:bg-slate-900 font-mono text-[11px]"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-semibold opacity-80 mb-1">
+                      BRIDGE_SECRET (จาก Cloudflare)
+                    </label>
+                    <input
+                      type="text"
+                      value={savedBridgeSecret}
+                      onChange={(e) => updateBridgeSecret(e.target.value)}
+                      placeholder="เว้นว่างได้ถ้าเครื่องกลางเคยตั้งไว้แล้ว"
+                      className="w-full px-2.5 py-1.5 rounded border border-sky-300 dark:border-sky-700 bg-white/80 dark:bg-slate-900 font-mono text-[11px]"
+                    />
+                  </div>
+                </div>
+                <div className="flex flex-wrap items-center gap-2 pt-0.5">
+                  <button
+                    type="button"
+                    disabled={downloadingBridgeBat}
+                    onClick={handleDownloadBridgeBat}
+                    className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold shadow-xs cursor-pointer disabled:opacity-60"
+                  >
+                    <Download className="h-3.5 w-3.5" />
+                    {downloadingBridgeBat
+                      ? 'Preparing Bridge Installer...'
+                      : '1) Download Bridge 1-Click (.bat) — เครื่องกลาง'}
+                  </button>
+                  <a
+                    href="/api/agents/relay-script"
+                    download="nims-relay-bridge.mjs"
+                    className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-white dark:bg-slate-900 border border-sky-200 dark:border-sky-700 text-[11px] font-medium hover:bg-sky-50 dark:hover:bg-slate-800"
+                  >
+                    <Download className="h-3 w-3 text-blue-600" />
+                    nims-relay-bridge.mjs
+                  </a>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      downloadTextFile(
+                        'nims-relay-bridge.env',
+                        buildBridgeEnvText(
+                          nimsServerUrl,
+                          savedRelayUrl,
+                          savedBridgeSecret,
+                          tokenReveal.rawToken,
+                          allowInsecureTls,
+                        ),
+                      )
+                    }
+                    className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-white dark:bg-slate-900 border border-sky-200 dark:border-sky-700 text-[11px] font-medium hover:bg-sky-50 dark:hover:bg-slate-800 cursor-pointer"
+                  >
+                    <Download className="h-3 w-3 text-sky-600" />
+                    nims-relay-bridge.env
+                  </button>
                 </div>
                 <p className="text-[11px] opacity-90">
-                  นำ Token ด้านบนไปต่อท้ายบรรทัด <code className="font-mono">NIMS_AGENT_TOKENS=</code> คั่นด้วย <code className="font-mono">,</code> (ถ้า <code className="font-mono">nims-relay-bridge.mjs</code> รันอยู่แล้ว ระบบจะโหลดใหม่อัตโนมัติภายใน ~15 วิ)
+                  ดับเบิลคลิกไฟล์ Bridge 1-Click (`.bat`) บนเครื่องกลาง — ระบบจะติดตั้ง, <strong>เพิ่ม Token นี้ต่อท้ายใน `nims-relay-bridge.env` อัตโนมัติ (ไม่ทับ Site เดิม)</strong> และรันเบื้องหลังทันที หรือจะก๊อปปี้ Token ไปต่อท้ายเองในไฟล์เดิมก็ได้ครับ
                 </p>
               </div>
             </div>

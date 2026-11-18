@@ -89,11 +89,11 @@ async function authenticateAgent(
   }
 }
 
-function resolveAgentScriptPath(): string | null {
+function resolveAgentScriptPath(relFile = 'nims-agent.mjs'): string | null {
   const candidates = [
-    path.resolve(process.cwd(), '../agent/nims-agent.mjs'),
-    path.resolve(process.cwd(), 'agent/nims-agent.mjs'),
-    path.resolve(__dirname, '../../../agent/nims-agent.mjs'),
+    path.resolve(process.cwd(), '../agent', relFile),
+    path.resolve(process.cwd(), 'agent', relFile),
+    path.resolve(__dirname, '../../../agent', relFile),
   ];
   for (const p of candidates) {
     if (fs.existsSync(p)) return p;
@@ -394,13 +394,24 @@ function serializeAgent(agent: {
 }
 
 router.get('/script', (_req, res) => {
-  const scriptPath = resolveAgentScriptPath();
+  const scriptPath = resolveAgentScriptPath('nims-agent.mjs');
   if (!scriptPath) {
     res.status(404).json({ error: 'Agent script file not found on server' });
     return;
   }
   res.setHeader('Content-Type', 'application/javascript; charset=utf-8');
   res.setHeader('Content-Disposition', 'attachment; filename="nims-agent.mjs"');
+  res.sendFile(scriptPath);
+});
+
+router.get('/relay-script', (_req, res) => {
+  const scriptPath = resolveAgentScriptPath('relay/nims-relay-bridge.mjs');
+  if (!scriptPath) {
+    res.status(404).json({ error: 'Relay bridge script file not found on server' });
+    return;
+  }
+  res.setHeader('Content-Type', 'application/javascript; charset=utf-8');
+  res.setHeader('Content-Disposition', 'attachment; filename="nims-relay-bridge.mjs"');
   res.sendFile(scriptPath);
 });
 
