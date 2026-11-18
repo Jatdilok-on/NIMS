@@ -18,6 +18,7 @@ import {
   releaseDeviceIpamAllocations,
   syncDeviceIpamAllocation,
 } from '../lib/deviceService';
+import { getLiveAgentSiteIds, isDeviceMonitoredByLiveAgent } from '../lib/agentService';
 import { recordAuditLog } from '../lib/audit';
 
 const router = Router();
@@ -136,6 +137,10 @@ router.get('/subnets', async (req, res, next) => {
       orderBy: [{ siteId: 'asc' }, { vlanNumber: 'asc' }, { cidr: 'asc' }],
     });
 
+    const liveSiteIds = await getLiveAgentSiteIds(
+      Array.from(new Set(subnets.map((s) => s.siteId))),
+    );
+
     const formatted = subnets.map((s) => {
       const allocatedCount = s.ipAddresses.filter(
         (ip) => ip.status !== IpAllocationStatus.AVAILABLE,
@@ -146,6 +151,7 @@ router.get('/subnets', async (req, res, next) => {
       return {
         ...s,
         ipAddresses: undefined,
+        hasLiveAgent: liveSiteIds.has(s.siteId),
         allocatedCount,
         reservedCount,
         availableCount: Math.max(0, s.totalHosts - allocatedCount),
@@ -482,6 +488,7 @@ router.get('/subnets/:id/ips', async (req, res, next) => {
             device: {
               select: {
                 id: true,
+                siteId: true,
                 name: true,
                 category: true,
                 model: true,
@@ -492,6 +499,9 @@ router.get('/subnets/:id/ips', async (req, res, next) => {
                 vlan: true,
                 location: true,
                 status: true,
+                monitorEnabled: true,
+                lastPingAt: true,
+                lastLatencyMs: true,
               },
             },
           },
@@ -508,19 +518,27 @@ router.get('/subnets/:id/ips', async (req, res, next) => {
       return;
     }
 
-    const allocatedMap = new Map(subnet.ipAddresses.map((a) => [a.ipAddress, a]));
-    const activeRecords = subnet.ipAddresses
-      .filter((a) => a.status !== IpAllocationStatus.AVAILABLE)
-      .sort((a, b) => ipv4ToInt(a.ipAddress) - ipv4ToInt(b.ipAddress));
-
-    const allocatedIps = activeRecords.map((record) => ({
+    const liveSiteIds = await getLiveAgentSiteIds([subnet.siteId]);
+    const serializeIpRecord = (record: (typeof subnet.ipAddresses)[number]) => ({
       ipAddress: record.ipAddress,
       status: record.status,
       hostname: record.hostname || record.device?.name || null,
       macAddress: record.macAddress || record.device?.macAddress || null,
       description: record.description || null,
-      device: record.device || null,
-    }));
+      device: record.device
+        ? {
+            ...record.device,
+            agentLive: isDeviceMonitoredByLiveAgent(record.device, liveSiteIds),
+          }
+        : null,
+    });
+
+    const allocatedMap = new Map(subnet.ipAddresses.map((a) => [a.ipAddress, a]));
+    const activeRecords = subnet.ipAddresses
+      .filter((a) => a.status !== IpAllocationStatus.AVAILABLE)
+      .sort((a, b) => ipv4ToInt(a.ipAddress) - ipv4ToInt(b.ipAddress));
+
+    const allocatedIps = activeRecords.map(serializeIpRecord);
 
     const blockCounts = new Map<string, number>();
     for (const record of activeRecords) {
@@ -548,14 +566,7 @@ router.get('/subnets/:id/ips', async (req, res, next) => {
     const grid = blockView.ips.map((ip) => {
       const record = allocatedMap.get(ip);
       if (record) {
-        return {
-          ipAddress: ip,
-          status: record.status,
-          hostname: record.hostname || record.device?.name || null,
-          macAddress: record.macAddress || record.device?.macAddress || null,
-          description: record.description || null,
-          device: record.device || null,
-        };
+        return serializeIpRecord(record);
       }
       return {
         ipAddress: ip,

@@ -155,6 +155,7 @@ export interface Subnet {
   reservedCount?: number;
   availableCount?: number;
   utilizationPct?: number;
+  hasLiveAgent?: boolean;
   site?: { id: string; siteCode: string; siteName: string };
   vlan?: { id: string; vlanId: number; name: string } | null;
 }

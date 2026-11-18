@@ -6,6 +6,7 @@ import { AlertCircle, ExternalLink, Layers, Pencil, Plus, RefreshCw, Search, Tra
 import { ConfirmActionModal } from '@/components/common/ConfirmActionModal';
 import { DeviceCategoryTechIcon, TechIpamIcon } from '@/components/icons/TechIcons';
 import { apiFetch, ApiError } from '@/lib/api';
+import { getDeviceLedClass, isDeviceAgentLive } from '@/lib/deviceTelemetry';
 import { useI18n } from '@/lib/i18n';
 import { IpAllocationStatus, Site, Subnet } from '@/lib/types';
 
@@ -17,6 +18,7 @@ interface IpGridCell {
   description?: string | null;
   device?: {
     id: string;
+    siteId?: string;
     name: string;
     category: string;
     model?: string | null;
@@ -26,6 +28,10 @@ interface IpGridCell {
     vlan?: string | null;
     location?: string | null;
     status: string;
+    monitorEnabled?: boolean;
+    lastPingAt?: string | null;
+    lastLatencyMs?: number | null;
+    agentLive?: boolean;
   } | null;
 }
 
@@ -156,31 +162,45 @@ export function IpamPanel({
     }
   };
 
-  const openSubnetGrid = async (subnet: Subnet, block?: string) => {
-    setLoadingGrid(true);
-    try {
-      const qs = block ? `?block=${encodeURIComponent(block)}` : '';
-      const res = await apiFetch<{
-        subnet: Subnet;
-        ips: IpGridCell[];
-        allocatedIps?: IpGridCell[];
-        activeBlocks?: ActiveBlockSummary[];
-        currentBlockPrefix?: string;
-        currentBlockCidr?: string;
-        isLargeSubnet?: boolean;
-      }>(`/ipam/subnets/${subnet.id}/ips${qs}`);
-      setSelectedSubnet(res.subnet);
-      setIpGrid(res.ips);
-      setAllocatedIps(res.allocatedIps ?? res.ips.filter((c) => c.status !== 'AVAILABLE'));
-      setActiveBlocks(res.activeBlocks ?? []);
-      setCurrentBlockPrefix(res.currentBlockPrefix ?? '');
-      setCurrentBlockCidr(res.currentBlockCidr ?? res.subnet.cidr);
-      setIsLargeSubnet(Boolean(res.isLargeSubnet));
-      setBlockSearch(res.currentBlockPrefix ?? '');
-    } finally {
-      setLoadingGrid(false);
-    }
-  };
+  const openSubnetGrid = useCallback(
+    async (subnet: Subnet, block?: string, silent = false) => {
+      if (!silent) setLoadingGrid(true);
+      try {
+        const qs = block ? `?block=${encodeURIComponent(block)}` : '';
+        const res = await apiFetch<{
+          subnet: Subnet;
+          ips: IpGridCell[];
+          allocatedIps?: IpGridCell[];
+          activeBlocks?: ActiveBlockSummary[];
+          currentBlockPrefix?: string;
+          currentBlockCidr?: string;
+          isLargeSubnet?: boolean;
+        }>(`/ipam/subnets/${subnet.id}/ips${qs}`);
+        setSelectedSubnet(res.subnet);
+        setIpGrid(res.ips);
+        setAllocatedIps(res.allocatedIps ?? res.ips.filter((c) => c.status !== 'AVAILABLE'));
+        setActiveBlocks(res.activeBlocks ?? []);
+        setCurrentBlockPrefix(res.currentBlockPrefix ?? '');
+        setCurrentBlockCidr(res.currentBlockCidr ?? res.subnet.cidr);
+        setIsLargeSubnet(Boolean(res.isLargeSubnet));
+        if (!silent) setBlockSearch(res.currentBlockPrefix ?? '');
+      } finally {
+        if (!silent) setLoadingGrid(false);
+      }
+    },
+    [],
+  );
+
+  // Poll live agent telemetry every 10s for subnets and currently opened IP grid
+  useEffect(() => {
+    const timer = setInterval(() => {
+      loadSubnets().catch(() => {});
+      if (selectedSubnet) {
+        openSubnetGrid(selectedSubnet, currentBlockPrefix || undefined, true).catch(() => {});
+      }
+    }, 10000);
+    return () => clearInterval(timer);
+  }, [loadSubnets, openSubnetGrid, selectedSubnet, currentBlockPrefix]);
 
   const handleJumpBlock = (e: React.FormEvent) => {
     e.preventDefault();
@@ -410,6 +430,13 @@ export function IpamPanel({
                     <TechIpamIcon className="h-4 w-4" />
                   </span>
                   <span className="font-bold font-mono text-base">{sub.cidr}</span>
+                  {sub.hasLiveAgent && (
+                    <span
+                      className="nims-led-core nims-led-online"
+                      title="Site Agent Live"
+                      aria-label="Site Agent Live"
+                    />
+                  )}
                 </div>
                 <div className="flex items-center gap-1.5">
                   {sub.vlanNumber && (
@@ -514,6 +541,12 @@ export function IpamPanel({
                   <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                     {allocatedIps.map((cell) => {
                       const blockPrefix = cell.ipAddress.split('.').slice(0, 3).join('.');
+                      const dev = cell.device;
+                      const devLive = Boolean(
+                        dev && isDeviceAgentLive({ agentLive: dev.agentLive, lastPingAt: dev.lastPingAt }),
+                      );
+                      const isAgentOnline = Boolean(devLive && dev?.status === 'ONLINE');
+                      const isOffline = dev?.status === 'OFFLINE';
                       return (
                         <tr
                           key={cell.ipAddress}
@@ -531,11 +564,30 @@ export function IpamPanel({
                             </span>
                           </td>
                           <td className="px-4 py-2.5 font-medium">
-                            {cell.device ? (
-                              <div className="flex items-center gap-1.5">
-                                <span>{cell.device.name}</span>
-                                <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">
-                                  {cell.device.status}
+                            {dev ? (
+                              <div className="flex items-center gap-1.5 flex-wrap">
+                                <span>{dev.name}</span>
+                                <span
+                                  className={`inline-flex items-center gap-1.5 text-[10px] px-2 py-0.5 rounded-full font-semibold ${
+                                    isOffline
+                                      ? 'bg-red-600 text-white'
+                                      : isAgentOnline
+                                      ? 'bg-emerald-500/12 text-emerald-700 dark:text-emerald-300 border border-emerald-500/35'
+                                      : dev.status === 'MAINTENANCE'
+                                      ? 'bg-amber-500/12 text-amber-700 dark:text-amber-300'
+                                      : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300'
+                                  }`}
+                                >
+                                  <span
+                                    className={getDeviceLedClass(dev.status, isAgentOnline)}
+                                    aria-hidden="true"
+                                  />
+                                  <span>{dev.status}</span>
+                                  {isAgentOnline && dev.lastLatencyMs != null && (
+                                    <span className="font-mono opacity-80">
+                                      {dev.lastLatencyMs}ms
+                                    </span>
+                                  )}
                                 </span>
                               </div>
                             ) : (
@@ -612,12 +664,17 @@ export function IpamPanel({
                   Click any IP address to view linked device & location or update allocation
                 </p>
               </div>
-              <div className="flex flex-wrap gap-2 text-[11px] font-medium">
+              <div className="flex flex-wrap gap-2 text-[11px] font-medium items-center">
                 <span className="px-2 py-0.5 rounded bg-emerald-100 text-emerald-800">Available</span>
                 <span className="px-2 py-0.5 rounded bg-blue-600 text-white">Allocated</span>
                 <span className="px-2 py-0.5 rounded bg-amber-400 text-slate-900">Reserved</span>
                 <span className="px-2 py-0.5 rounded bg-[#0f2942] text-white">Gateway</span>
                 <span className="px-2 py-0.5 rounded bg-violet-600 text-white">DHCP</span>
+                <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded bg-emerald-50 border border-emerald-300 text-emerald-800 dark:bg-emerald-950/50 dark:border-emerald-700 dark:text-emerald-300">
+                  <span className="nims-led-core nims-led-online !w-2 !h-2" aria-hidden="true" />
+                  Agent Online
+                </span>
+                <span className="px-2 py-0.5 rounded bg-red-600 text-white">Offline</span>
               </div>
             </div>
 
@@ -665,13 +722,39 @@ export function IpamPanel({
                   cell.status !== 'AVAILABLE'
                     ? cell.device?.name || (cell.status === 'GATEWAY' ? 'GW' : cell.hostname || cell.status)
                     : null;
+                const dev = cell.device;
+                const devLive = Boolean(
+                  dev && isDeviceAgentLive({ agentLive: dev.agentLive, lastPingAt: dev.lastPingAt }),
+                );
+                const isAgentOnline = Boolean(devLive && dev?.status === 'ONLINE');
+                const isOffline = dev?.status === 'OFFLINE';
+                const tileClass = isOffline
+                  ? 'bg-red-600 border-red-700 text-white'
+                  : isAgentOnline
+                  ? `${IP_TILE_CLASS[cell.status]} border-emerald-400 nims-ip-tile-online`
+                  : IP_TILE_CLASS[cell.status];
+
                 return (
                   <button
                     key={cell.ipAddress}
                     onClick={() => setSelectedIpCell(cell)}
-                    title={`${cell.ipAddress} (${cell.status})${cell.device ? ` - ${cell.device.name} (${cell.device.category})` : cell.hostname ? ` - ${cell.hostname}` : ''}`}
-                    className={`px-1 py-1.5 rounded border text-xs font-mono font-semibold text-center transition hover:scale-105 cursor-pointer flex flex-col items-center justify-center min-h-[44px] ${IP_TILE_CLASS[cell.status]}`}
+                    title={`${cell.ipAddress} (${cell.status})${
+                      dev
+                        ? ` - ${dev.name} (${dev.category}) • ${dev.status}${
+                            isAgentOnline && dev.lastLatencyMs != null ? ` (${dev.lastLatencyMs}ms)` : ''
+                          }`
+                        : cell.hostname
+                        ? ` - ${cell.hostname}`
+                        : ''
+                    }`}
+                    className={`relative px-1 py-1.5 rounded border text-xs font-mono font-semibold text-center transition hover:scale-105 cursor-pointer flex flex-col items-center justify-center min-h-[44px] ${tileClass}`}
                   >
+                    {isAgentOnline && (
+                      <span
+                        className="nims-led-core nims-led-online !w-2 !h-2 !absolute top-1 right-1"
+                        aria-hidden="true"
+                      />
+                    )}
                     <span>.{lastOctet}</span>
                     {tileLabel && (
                       <span className="text-[9px] font-sans font-medium truncate max-w-full opacity-90 leading-tight">
@@ -810,29 +893,58 @@ function IpAllocationModal({
           </button>
         </div>
         <form onSubmit={handleSave} className="p-5 space-y-3 text-sm">
-          {cell.device && (
-            <div className="rounded-lg bg-blue-50 dark:bg-blue-950/50 p-3 text-xs space-y-1">
-              <div className="flex items-center justify-between gap-2">
-                <div className="font-semibold text-blue-800 dark:text-blue-300">
-                  Linked Device: {cell.device.name}
+          {cell.device && (() => {
+            const dev = cell.device;
+            const devLive = isDeviceAgentLive({
+              agentLive: dev.agentLive,
+              lastPingAt: dev.lastPingAt,
+            });
+            const isAgentOnline = devLive && dev.status === 'ONLINE';
+            const isOffline = dev.status === 'OFFLINE';
+            return (
+              <div
+                className={`rounded-lg p-3 text-xs space-y-1 border ${
+                  isOffline
+                    ? 'bg-red-50 dark:bg-red-950/40 border-red-200 dark:border-red-800'
+                    : isAgentOnline
+                    ? 'bg-emerald-50/70 dark:bg-emerald-950/40 border-emerald-200 dark:border-emerald-800'
+                    : 'bg-blue-50 dark:bg-blue-950/50 border-blue-200 dark:border-blue-800'
+                }`}
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <div className="font-semibold flex items-center gap-1.5">
+                    <span
+                      className={getDeviceLedClass(dev.status, isAgentOnline)}
+                      aria-hidden="true"
+                    />
+                    <span>Linked Device: {dev.name}</span>
+                  </div>
+                  <Link
+                    href={`/sites/${subnet.siteId}?tab=inventory&deviceId=${dev.id}`}
+                    className="inline-flex items-center gap-1 text-blue-700 dark:text-blue-300 hover:underline font-medium"
+                  >
+                    Open <ExternalLink className="h-3 w-3" />
+                  </Link>
                 </div>
-                <Link
-                  href={`/sites/${subnet.siteId}?tab=inventory&deviceId=${cell.device.id}`}
-                  className="inline-flex items-center gap-1 text-blue-700 dark:text-blue-300 hover:underline font-medium"
-                >
-                  Open <ExternalLink className="h-3 w-3" />
-                </Link>
+                <div>
+                  Type: {dev.category} • Vendor/Model:{' '}
+                  {[dev.vendor, dev.model].filter(Boolean).join(' ') || '-'}
+                </div>
+                <div>
+                  VLAN: {dev.vlan || subnet.vlanNumber || '-'} • Location: {dev.location || '-'} • Status:{' '}
+                  <strong className={isOffline ? 'text-red-600 dark:text-red-400' : ''}>
+                    {dev.status}
+                  </strong>
+                  {isAgentOnline && dev.lastLatencyMs != null && (
+                    <span className="font-mono text-emerald-600 dark:text-emerald-400 ml-1">
+                      ({dev.lastLatencyMs}ms)
+                    </span>
+                  )}
+                </div>
+                {cell.macAddress && <div className="font-mono">MAC: {cell.macAddress}</div>}
               </div>
-              <div>
-                Type: {cell.device.category} • Vendor/Model:{' '}
-                {[cell.device.vendor, cell.device.model].filter(Boolean).join(' ') || '-'}
-              </div>
-              <div>
-                VLAN: {cell.device.vlan || subnet.vlanNumber || '-'} • Location: {cell.device.location || '-'} • Status: {cell.device.status}
-              </div>
-              {cell.macAddress && <div className="font-mono">MAC: {cell.macAddress}</div>}
-            </div>
-          )}
+            );
+          })()}
 
           <div>
             <label className="block text-xs font-semibold text-slate-500 mb-1">Status</label>
