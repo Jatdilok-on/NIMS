@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { apiFetch, ApiError } from '@/lib/api';
 import { useI18n } from '@/lib/i18n';
+import { getDeviceLedClass, isDeviceAgentLive } from '@/lib/deviceTelemetry';
 import { Device, DeviceCategory, DeviceStatus, Site } from '@/lib/types';
 import { DeviceCategoryTechIcon, TechDeviceAllIcon } from '@/components/icons/TechIcons';
 import { ImportWizardModal } from './ImportWizardModal';
@@ -56,26 +57,6 @@ const STATUS_BADGE: Record<DeviceStatus, string> = {
     'bg-slate-500/10 border-slate-400/30 text-slate-600 dark:bg-slate-800/80 dark:border-slate-700 dark:text-slate-300',
 };
 
-const STATUS_LED_LIVE_CLASS: Record<DeviceStatus, string> = {
-  ONLINE: 'nims-led-core nims-led-online',
-  OFFLINE: 'nims-led-core nims-led-offline',
-  MAINTENANCE: 'nims-led-core nims-led-maint',
-  UNKNOWN: 'nims-led-core nims-led-unknown',
-};
-
-const STATUS_LED_STATIC_CLASS: Record<DeviceStatus, string> = {
-  ONLINE: 'nims-led-core nims-led-online-static',
-  OFFLINE: 'nims-led-core nims-led-offline-static',
-  MAINTENANCE: 'nims-led-core nims-led-maint-static',
-  UNKNOWN: 'nims-led-core nims-led-unknown',
-};
-
-function isDeviceAgentLive(dev: Device): boolean {
-  if (typeof dev.agentLive === 'boolean') return dev.agentLive;
-  if (!dev.lastPingAt) return false;
-  return Date.now() - new Date(dev.lastPingAt).getTime() <= 3 * 60 * 1000;
-}
-
 function DeviceStatusPill({
   status,
   live = false,
@@ -87,7 +68,7 @@ function DeviceStatusPill({
   canEdit?: boolean;
   onChange?: (next: DeviceStatus) => void;
 }) {
-  const ledClass = live ? STATUS_LED_LIVE_CLASS[status] : STATUS_LED_STATIC_CLASS[status];
+  const ledClass = getDeviceLedClass(status, live);
   const pillContent = (
     <span
       className={`inline-flex items-center gap-2 px-2.5 py-1 rounded-full border text-[11px] font-bold tracking-wide transition ${STATUS_BADGE[status]}`}

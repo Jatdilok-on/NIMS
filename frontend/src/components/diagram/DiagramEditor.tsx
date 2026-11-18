@@ -38,6 +38,11 @@ import {
   X,
 } from 'lucide-react';
 import { apiFetch, apiUploadWithProgress, ApiError } from '@/lib/api';
+import {
+  findMatchingInventoryDevice,
+  getDeviceLedClass,
+  isDeviceAgentLive,
+} from '@/lib/deviceTelemetry';
 import { Device, DeviceCategory, DeviceStatus, DiagramItem } from '@/lib/types';
 import {
   isGeneralShapeType,
@@ -248,6 +253,46 @@ function mapCategoryToIconType(category: string): string {
   }
 }
 
+function enrichNodeWithTelemetry(n: Node, devices: Device[]): Node {
+  const nd = n.data as unknown as NetworkNodeData;
+  if (isGeneralShapeType(nd.deviceType) || nd.deviceType === 'note') return n;
+  const matched = findMatchingInventoryDevice(nd, devices);
+  if (!matched) {
+    if (!nd.agentLive) return n;
+    return {
+      ...n,
+      data: {
+        ...nd,
+        agentLive: false,
+        lastLatencyMs: null,
+        lastPingAt: null,
+      },
+    };
+  }
+  const live = isDeviceAgentLive(matched);
+  const nextStatus = matched.status;
+  const nextLatency = matched.lastLatencyMs ?? null;
+  const nextLastPing = matched.lastPingAt ?? null;
+  if (
+    nd.status === nextStatus &&
+    Boolean(nd.agentLive) === live &&
+    (nd.lastLatencyMs ?? null) === nextLatency &&
+    (nd.lastPingAt ?? null) === nextLastPing
+  ) {
+    return n;
+  }
+  return {
+    ...n,
+    data: {
+      ...nd,
+      status: nextStatus,
+      agentLive: live,
+      lastLatencyMs: nextLatency,
+      lastPingAt: nextLastPing,
+    },
+  };
+}
+
 function InnerDiagramEditor({
   diagram,
   siteDevices,
@@ -318,6 +363,37 @@ function InnerDiagramEditor({
   useEffect(() => {
     setInventoryDevices(siteDevices);
   }, [siteDevices]);
+
+  // Poll live device status & agent telemetry every 10s while the diagram is open
+  useEffect(() => {
+    let cancelled = false;
+    const refreshDevices = () => {
+      apiFetch<{ devices: Device[] }>(`/devices?siteId=${diagram.siteId}&pageSize=200`)
+        .then((res) => {
+          if (!cancelled) setInventoryDevices(res.devices);
+        })
+        .catch(() => {});
+    };
+    refreshDevices();
+    const timer = setInterval(refreshDevices, 10000);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [diagram.siteId]);
+
+  // Keep diagram node live status / agent telemetry synced with Inventory without polluting undo history
+  useEffect(() => {
+    setNodes((prevNodes) => {
+      let changed = false;
+      const nextNodes = prevNodes.map((n) => {
+        const enriched = enrichNodeWithTelemetry(n, inventoryDevices);
+        if (enriched !== n) changed = true;
+        return enriched;
+      });
+      return changed ? nextNodes : prevNodes;
+    });
+  }, [inventoryDevices, setNodes]);
 
   // Undo / Redo History
   const [history, setHistory] = useState<Array<{ nodes: Node[]; edges: Edge[] }>>([
@@ -443,6 +519,9 @@ function InnerDiagramEditor({
         location: dev.location || undefined,
         vlan: dev.vlan || undefined,
         status: dev.status,
+        agentLive: isDeviceAgentLive(dev),
+        lastLatencyMs: dev.lastLatencyMs ?? null,
+        lastPingAt: dev.lastPingAt ?? null,
       },
     };
     const nextNodes = [...nodes, newNode];
@@ -614,13 +693,20 @@ function InnerDiagramEditor({
     setEditorNotice(null);
     try {
       const changeNote = prompt('Optional version note:', 'Updated network topology') || undefined;
+      const serializableNodes = nodes.map((n) => {
+        const d = { ...(n.data as Record<string, unknown>) };
+        delete d.agentLive;
+        delete d.lastLatencyMs;
+        delete d.lastPingAt;
+        return { ...n, data: d };
+      });
       const res = await apiFetch<{ diagram: DiagramItem; syncedDevicesCount?: number }>(
         `/diagrams/${diagram.id}`,
         {
           method: 'PUT',
           body: JSON.stringify({
             canvasData: {
-              nodes,
+              nodes: serializableNodes,
               edges,
               backgroundImage,
               backgroundColor: backgroundColor || null,
@@ -636,7 +722,9 @@ function InnerDiagramEditor({
       );
       if (res.diagram.canvasData?.nodes) {
         setNodes(
-          (res.diagram.canvasData.nodes as Node[]).map((n) => ({ ...n, type: 'networkDevice' })),
+          (res.diagram.canvasData.nodes as Node[]).map((n) =>
+            enrichNodeWithTelemetry({ ...n, type: 'networkDevice' }, inventoryDevices),
+          ),
         );
       }
       if (res.syncedDevicesCount && res.syncedDevicesCount > 0) {
@@ -886,6 +974,9 @@ function InnerDiagramEditor({
         location: dev.location || undefined,
         vlan: dev.vlan || undefined,
         status: dev.status,
+        agentLive: isDeviceAgentLive(dev),
+        lastLatencyMs: dev.lastLatencyMs ?? null,
+        lastPingAt: dev.lastPingAt ?? null,
       },
     }));
 
@@ -1592,22 +1683,42 @@ function InnerDiagramEditor({
                 className="w-full px-2.5 py-1 mb-2 rounded border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs"
               />
               <div className="space-y-1.5 max-h-64 overflow-y-auto">
-                {filteredDevices.map((dev) => (
-                  <div
-                    key={dev.id}
-                    draggable
-                    onDragStart={(e) =>
-                      e.dataTransfer.setData('application/nims-device', JSON.stringify(dev))
-                    }
-                    onClick={() => addInventoryDeviceNode(dev)}
-                    className="p-2 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 hover:border-blue-500 cursor-grab text-xs"
-                  >
-                    <div className="font-semibold truncate">{dev.name}</div>
-                    <div className="text-[10px] text-slate-500 font-mono truncate">
-                      {dev.managementIp || dev.category}
+                {filteredDevices.map((dev) => {
+                  const devLive = isDeviceAgentLive(dev);
+                  return (
+                    <div
+                      key={dev.id}
+                      draggable
+                      onDragStart={(e) =>
+                        e.dataTransfer.setData('application/nims-device', JSON.stringify(dev))
+                      }
+                      onClick={() => addInventoryDeviceNode(dev)}
+                      className="p-2 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 hover:border-blue-500 cursor-grab text-xs"
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="font-semibold truncate">{dev.name}</div>
+                        <span
+                          className={getDeviceLedClass(dev.status, devLive)}
+                          title={
+                            devLive
+                              ? `Agent Live • ${dev.status}${
+                                  dev.lastLatencyMs != null ? ` (${dev.lastLatencyMs}ms)` : ''
+                                }`
+                              : dev.status
+                          }
+                        />
+                      </div>
+                      <div className="flex items-center justify-between gap-2 text-[10px] text-slate-500 font-mono truncate mt-0.5">
+                        <span className="truncate">{dev.managementIp || dev.category}</span>
+                        {devLive && dev.lastLatencyMs != null && dev.status === 'ONLINE' && (
+                          <span className="text-emerald-600 dark:text-emerald-400 shrink-0">
+                            {dev.lastLatencyMs}ms
+                          </span>
+                        )}
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
           </aside>
@@ -1708,8 +1819,73 @@ function InnerDiagramEditor({
 
             {selectedNode && (() => {
               const nd = selectedNode.data as unknown as NetworkNodeData;
+              const isShapeOrNote = isGeneralShapeType(nd.deviceType) || nd.deviceType === 'note';
+              const matchedDevice = isShapeOrNote
+                ? undefined
+                : findMatchingInventoryDevice(nd, inventoryDevices);
+              const isNodeAgentLive = Boolean(
+                !isShapeOrNote &&
+                  (nd.agentLive || (matchedDevice && isDeviceAgentLive(matchedDevice))),
+              );
+              const effectiveStatus = (matchedDevice?.status || nd.status || 'UNKNOWN') as DeviceStatus;
+              const effectiveLatency =
+                matchedDevice?.lastLatencyMs !== undefined
+                  ? matchedDevice.lastLatencyMs
+                  : (nd.lastLatencyMs ?? null);
+              const effectiveLastPing =
+                matchedDevice?.lastPingAt !== undefined
+                  ? matchedDevice.lastPingAt
+                  : (nd.lastPingAt ?? null);
+              const upDownBadgeClass =
+                effectiveStatus === 'ONLINE'
+                  ? 'bg-emerald-500/10 border-emerald-500/35 text-emerald-700 dark:bg-emerald-950/50 dark:border-emerald-500/40 dark:text-emerald-300 shadow-[0_0_14px_rgba(16,185,129,0.16)]'
+                  : effectiveStatus === 'OFFLINE'
+                  ? 'bg-red-500/10 border-red-500/40 text-red-700 dark:bg-red-950/50 dark:border-red-500/45 dark:text-red-300 shadow-[0_0_16px_rgba(239,68,68,0.2)]'
+                  : effectiveStatus === 'MAINTENANCE'
+                  ? 'bg-amber-500/10 border-amber-500/35 text-amber-700 dark:bg-amber-950/50 dark:border-amber-500/40 dark:text-amber-300'
+                  : 'bg-slate-500/10 border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-300';
+              const upDownText =
+                effectiveStatus === 'ONLINE'
+                  ? 'UP • ONLINE'
+                  : effectiveStatus === 'OFFLINE'
+                  ? 'DOWN • OFFLINE'
+                  : effectiveStatus;
+
               return (
                 <div className="space-y-3">
+                  {!isShapeOrNote && (
+                    <div className={`rounded-lg border p-2.5 space-y-1.5 ${upDownBadgeClass}`}>
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-2">
+                          <span
+                            className={getDeviceLedClass(effectiveStatus, isNodeAgentLive)}
+                            aria-hidden="true"
+                          />
+                          <span className="font-bold tracking-wide text-[11px]">{upDownText}</span>
+                        </div>
+                        {isNodeAgentLive && (
+                          <span className="px-1.5 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wider bg-white/75 dark:bg-slate-900/80 border border-current/20">
+                            Agent Live
+                          </span>
+                        )}
+                      </div>
+                      {isNodeAgentLive && (
+                        <div className="flex items-center justify-between text-[10px] opacity-85 font-mono">
+                          <span>
+                            {effectiveStatus === 'ONLINE' && effectiveLatency != null
+                              ? `Ping: ${effectiveLatency} ms`
+                              : effectiveStatus === 'OFFLINE'
+                              ? 'Ping timeout / unreachable'
+                              : 'Monitoring active'}
+                          </span>
+                          {effectiveLastPing && (
+                            <span>{new Date(effectiveLastPing).toLocaleTimeString()}</span>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
                   {nd.deviceId && (
                     <div className="rounded-lg bg-blue-50 dark:bg-blue-950/60 border border-blue-200 dark:border-blue-800 p-3 space-y-1">
                       <div className="font-bold text-blue-800 dark:text-blue-300">
@@ -2036,7 +2212,30 @@ function InnerDiagramEditor({
                           />
                         </div>
                         <div>
-                          <label className="block font-semibold text-slate-500 mb-1">Status</label>
+                          <label className="flex items-center justify-between font-semibold text-slate-500 mb-1">
+                            <span>Status</span>
+                            <span className="inline-flex items-center gap-1.5 text-[10px] font-bold">
+                              <span
+                                className={getDeviceLedClass(effectiveStatus, isNodeAgentLive)}
+                                aria-hidden="true"
+                              />
+                              <span
+                                className={
+                                  effectiveStatus === 'ONLINE'
+                                    ? 'text-emerald-600 dark:text-emerald-400'
+                                    : effectiveStatus === 'OFFLINE'
+                                    ? 'text-red-600 dark:text-red-400'
+                                    : 'text-slate-500'
+                                }
+                              >
+                                {effectiveStatus === 'ONLINE'
+                                  ? 'UP'
+                                  : effectiveStatus === 'OFFLINE'
+                                  ? 'DOWN'
+                                  : effectiveStatus}
+                              </span>
+                            </span>
+                          </label>
                           <select
                             disabled={!canEdit}
                             value={nd.status || 'ONLINE'}

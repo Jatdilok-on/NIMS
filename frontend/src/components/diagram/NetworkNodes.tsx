@@ -13,6 +13,7 @@ import {
   useNodes,
 } from '@xyflow/react';
 import { computeSmartOrthogonalEdgePath } from './edgeRouting';
+import { getDeviceLedClass } from '@/lib/deviceTelemetry';
 import {
   Cloud,
   Globe,
@@ -50,6 +51,9 @@ export interface NetworkNodeData {
   location?: string;
   vlan?: string;
   status?: string;
+  agentLive?: boolean;
+  lastLatencyMs?: number | null;
+  lastPingAt?: string | null;
   noteText?: string;
   customIconUrl?: string;
   fillColor?: string;
@@ -252,11 +256,16 @@ export function NetworkDeviceNode({ data, selected }: NodeProps) {
 
   const meta = NODE_META[nd.deviceType] || NODE_META.switch;
   const Icon = meta.icon;
+  const isAgentDown = Boolean(nd.agentLive && nd.status === 'OFFLINE');
 
   return (
     <div
       className={`min-w-[156px] max-w-[210px] rounded-xl bg-white dark:bg-slate-900 border-2 shadow-sm transition ${
-        selected ? 'border-blue-600 ring-2 ring-blue-500/30' : meta.border
+        selected
+          ? 'border-blue-600 ring-2 ring-blue-500/30'
+          : isAgentDown
+          ? 'border-red-500 ring-2 ring-red-500/40'
+          : meta.border
       }`}
     >
       <Handle type="target" position={Position.Top} className="!w-2.5 !h-2.5 !bg-blue-600" />
@@ -273,10 +282,20 @@ export function NetworkDeviceNode({ data, selected }: NodeProps) {
             {nd.deviceType?.replace('_', ' ')}
           </span>
         </div>
-        {nd.status && (
+        {(nd.status || nd.agentLive) && (
           <span
-            className={`h-2 w-2 rounded-full shrink-0 ${STATUS_DOT[nd.status] || 'bg-slate-400'}`}
-            title={nd.status}
+            className={
+              nd.agentLive
+                ? getDeviceLedClass(nd.status, true)
+                : `h-2 w-2 rounded-full shrink-0 ${STATUS_DOT[nd.status || 'UNKNOWN'] || 'bg-slate-400'}`
+            }
+            title={
+              nd.agentLive
+                ? `Agent Live • ${nd.status || 'UNKNOWN'}${
+                    nd.lastLatencyMs != null ? ` (${nd.lastLatencyMs}ms)` : ''
+                  }`
+                : nd.status
+            }
           />
         )}
       </div>
@@ -356,17 +375,92 @@ export function NetworkLinkEdge({
   const ports = [ed.sourcePort, ed.targetPort].filter(Boolean).join(' ↔ ');
   const summaryParts = [ed.label, ports, ed.speed, ed.vlan ? `VLAN ${ed.vlan}` : ''].filter(Boolean);
 
+  const sourceData = nodes.find((n) => n.id === source)?.data as NetworkNodeData | undefined;
+  const targetData = nodes.find((n) => n.id === target)?.data as NetworkNodeData | undefined;
+  const isTelemetryNode = (d?: NetworkNodeData) =>
+    Boolean(d && !isGeneralShapeType(d.deviceType) && d.deviceType !== 'note');
+  const srcLive = isTelemetryNode(sourceData) && Boolean(sourceData?.agentLive);
+  const tgtLive = isTelemetryNode(targetData) && Boolean(targetData?.agentLive);
+  const hasAgentLink = srcLive || tgtLive;
+  const isDownLink =
+    hasAgentLink &&
+    ((srcLive && sourceData?.status === 'OFFLINE') || (tgtLive && targetData?.status === 'OFFLINE'));
+  const isMaintLink =
+    hasAgentLink &&
+    !isDownLink &&
+    ((srcLive && sourceData?.status === 'MAINTENANCE') ||
+      (tgtLive && targetData?.status === 'MAINTENANCE'));
+  const linkState: 'STATIC' | 'UP' | 'DOWN' | 'MAINTENANCE' = !hasAgentLink
+    ? 'STATIC'
+    : isDownLink
+    ? 'DOWN'
+    : isMaintLink
+    ? 'MAINTENANCE'
+    : 'UP';
+
   return (
     <>
+      {linkState === 'UP' && (
+        <path
+          d={edgePath}
+          fill="none"
+          stroke="#10b981"
+          strokeWidth={selected ? 9 : 7}
+          strokeLinecap="round"
+          className="nims-edge-glow-up pointer-events-none"
+        />
+      )}
+      {linkState === 'DOWN' && (
+        <path
+          d={edgePath}
+          fill="none"
+          stroke="#ef4444"
+          strokeWidth={selected ? 9 : 7.5}
+          strokeLinecap="round"
+          className="nims-edge-glow-down pointer-events-none"
+        />
+      )}
+      {linkState === 'MAINTENANCE' && (
+        <path
+          d={edgePath}
+          fill="none"
+          stroke="#f59e0b"
+          strokeWidth={selected ? 8 : 6.5}
+          strokeLinecap="round"
+          className="nims-edge-glow-maint pointer-events-none"
+        />
+      )}
       <BaseEdge
         id={id}
         path={edgePath}
         style={{
-          stroke: strokeColor,
+          stroke: linkState === 'DOWN' ? '#ef4444' : strokeColor,
           strokeWidth: selected ? 3.5 : 2.2,
           strokeDasharray: ed.cableType === 'WIRELESS' ? '6 4' : undefined,
         }}
       />
+      {linkState === 'UP' && (
+        <path
+          d={edgePath}
+          fill="none"
+          stroke="#6ee7b7"
+          strokeWidth={selected ? 2.8 : 2.1}
+          strokeLinecap="round"
+          strokeDasharray="8 16"
+          className="nims-edge-flow-up pointer-events-none"
+        />
+      )}
+      {linkState === 'DOWN' && (
+        <path
+          d={edgePath}
+          fill="none"
+          stroke="#fca5a5"
+          strokeWidth={selected ? 2.6 : 2}
+          strokeLinecap="round"
+          strokeDasharray="6 10"
+          className="nims-edge-flow-down pointer-events-none"
+        />
+      )}
       {summaryParts.length > 0 && (
         <EdgeLabelRenderer>
           <div

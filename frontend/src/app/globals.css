@@ -269,8 +269,66 @@ body {
   box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.45);
 }
 
+/* Live Agent Network Diagram Cable Pulse / Blink */
+@keyframes nims-edge-dash-flow {
+  0% {
+    stroke-dashoffset: 48;
+  }
+  100% {
+    stroke-dashoffset: 0;
+  }
+}
+
+@keyframes nims-edge-glow-pulse {
+  0%, 100% {
+    opacity: 0.16;
+  }
+  50% {
+    opacity: 0.48;
+  }
+}
+
+@keyframes nims-edge-blink-alert {
+  0%, 100% {
+    opacity: 0.92;
+  }
+  50% {
+    opacity: 0.2;
+  }
+}
+
+.nims-edge-glow-up {
+  animation: nims-edge-glow-pulse 1.5s ease-in-out infinite;
+}
+
+.nims-edge-flow-up {
+  animation: nims-edge-dash-flow 1.3s linear infinite, nims-edge-blink-alert 1.5s ease-in-out infinite;
+}
+
+.nims-edge-glow-down {
+  animation: nims-edge-blink-alert 0.9s ease-in-out infinite;
+}
+
+.nims-edge-flow-down {
+  animation: nims-edge-blink-alert 0.9s ease-in-out infinite;
+}
+
+.nims-edge-glow-maint {
+  animation: nims-edge-glow-pulse 2.2s ease-in-out infinite;
+}
+
 @media (prefers-reduced-motion: reduce) {
-  .nims-pulse-ring::after {
+  .nims-pulse-ring::after,
+  .nims-led-online,
+  .nims-led-online::after,
+  .nims-led-offline,
+  .nims-led-offline::after,
+  .nims-led-maint,
+  .nims-edge-glow-up,
+  .nims-edge-flow-up,
+  .nims-edge-glow-down,
+  .nims-edge-flow-down,
+  .nims-edge-glow-maint {
     animation: none;
   }
   .nims-card {
