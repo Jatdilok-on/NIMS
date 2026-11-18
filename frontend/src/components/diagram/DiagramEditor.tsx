@@ -306,8 +306,9 @@ function InnerDiagramEditor({
   onSaved: (updated: DiagramItem) => void;
   onClose: () => void;
 }) {
-  const { screenToFlowPosition } = useReactFlow();
+  const { screenToFlowPosition, getNodes, getNodesBounds, getViewport } = useReactFlow();
   const canvasWrapperRef = useRef<HTMLDivElement>(null);
+  const [exportingPng, setExportingPng] = useState(false);
 
   const initialNodes = ((diagram.canvasData?.nodes as Node[]) || []).map((n) => ({
     ...n,
@@ -990,17 +991,131 @@ function InnerDiagramEditor({
   };
 
   const handleExportPng = async () => {
-    if (!canvasWrapperRef.current) return;
+    if (!canvasWrapperRef.current || exportingPng) return;
+    const viewportEl = canvasWrapperRef.current.querySelector(
+      '.react-flow__viewport',
+    ) as HTMLElement | null;
+    if (!viewportEl) return;
+
+    setExportingPng(true);
     try {
-      const dataUrl = await toPng(canvasWrapperRef.current, {
-        backgroundColor: backgroundColor || '#ffffff',
+      const currentNodes = getNodes();
+      const { zoom } = getViewport();
+      const safeZoom = zoom > 0 ? zoom : 1;
+      const vpRect = viewportEl.getBoundingClientRect();
+
+      let minX = Infinity;
+      let minY = Infinity;
+      let maxX = -Infinity;
+      let maxY = -Infinity;
+
+      const expand = (x1: number, y1: number, x2: number, y2: number) => {
+        if (![x1, y1, x2, y2].every(Number.isFinite)) return;
+        if (x1 < minX) minX = x1;
+        if (y1 < minY) minY = y1;
+        if (x2 > maxX) maxX = x2;
+        if (y2 > maxY) maxY = y2;
+      };
+
+      if (currentNodes.length > 0) {
+        const nb = getNodesBounds(currentNodes);
+        if (nb.width > 0 || nb.height > 0) {
+          expand(nb.x, nb.y, nb.x + nb.width, nb.y + nb.height);
+        }
+      }
+
+      // Measure rendered nodes, edge labels, and optional background image in flow coordinates
+      viewportEl
+        .querySelectorAll(
+          '.react-flow__node, .react-flow__edgelabel-renderer > *, .react-flow__viewport-portal img',
+        )
+        .forEach((el) => {
+          const r = (el as HTMLElement).getBoundingClientRect();
+          if (r.width <= 0 && r.height <= 0) return;
+          expand(
+            (r.left - vpRect.left) / safeZoom,
+            (r.top - vpRect.top) / safeZoom,
+            (r.right - vpRect.left) / safeZoom,
+            (r.bottom - vpRect.top) / safeZoom,
+          );
+        });
+
+      // Include full orthogonal/curved SVG cable paths (note: .react-flow__edge is <g> inside <svg>)
+      viewportEl.querySelectorAll('.react-flow__edge path').forEach((pathEl) => {
+        try {
+          const box = (pathEl as SVGPathElement).getBBox();
+          if (box.width > 0 || box.height > 0) {
+            expand(box.x - 10, box.y - 10, box.x + box.width + 10, box.y + box.height + 10);
+          }
+        } catch {
+          // Ignore unrendered SVG path
+        }
       });
+
+      if (
+        !Number.isFinite(minX) ||
+        !Number.isFinite(minY) ||
+        !Number.isFinite(maxX) ||
+        !Number.isFinite(maxY)
+      ) {
+        minX = 0;
+        minY = 0;
+        maxX = 1200;
+        maxY = 800;
+      }
+
+      const padding = 56;
+      const exportMinX = minX - padding;
+      const exportMinY = minY - padding;
+      const contentWidth = Math.max(320, Math.ceil(maxX - minX + padding * 2));
+      const contentHeight = Math.max(240, Math.ceil(maxY - minY + padding * 2));
+
+      // Export at 3x-4x resolution for razor-sharp text & icons, capped safely at 6000px longest side
+      const maxDim = Math.max(contentWidth, contentHeight);
+      const idealRatio = maxDim < 1000 ? 4 : 3;
+      const exportPixelRatio = Math.max(1.5, Math.min(idealRatio, 6000 / maxDim));
+
+      const isDarkMode = document.documentElement.classList.contains('dark');
+      const exportBg = backgroundColor || (isDarkMode ? '#020617' : '#ffffff');
+
+      const dataUrl = await toPng(viewportEl, {
+        backgroundColor: exportBg,
+        width: contentWidth,
+        height: contentHeight,
+        pixelRatio: exportPixelRatio,
+        skipAutoScale: true,
+        filter: (domNode) => {
+          if (domNode instanceof HTMLElement || domNode instanceof SVGElement) {
+            const cls = domNode.classList;
+            if (
+              cls?.contains('react-flow__minimap') ||
+              cls?.contains('react-flow__controls') ||
+              cls?.contains('react-flow__attribution') ||
+              cls?.contains('react-flow__panel') ||
+              cls?.contains('react-flow__resize-control')
+            ) {
+              return false;
+            }
+          }
+          return true;
+        },
+        style: {
+          width: `${contentWidth}px`,
+          height: `${contentHeight}px`,
+          transform: `translate(${-exportMinX}px, ${-exportMinY}px) scale(1)`,
+          transformOrigin: '0 0',
+          backgroundColor: 'transparent',
+        },
+      });
+
       const link = document.createElement('a');
       link.download = `${diagram.title.replace(/[^a-zA-Z0-9_-]/g, '_')}.png`;
       link.href = dataUrl;
       link.click();
     } catch {
       alert('Failed to export PNG');
+    } finally {
+      setExportingPng(false);
     }
   };
 
@@ -1556,10 +1671,11 @@ function InnerDiagramEditor({
 
           <button
             onClick={handleExportPng}
-            className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded border border-slate-200 dark:border-slate-700 text-xs font-medium cursor-pointer"
+            disabled={exportingPng}
+            className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded border border-slate-200 dark:border-slate-700 text-xs font-medium cursor-pointer disabled:opacity-50"
           >
             <Download className="h-3.5 w-3.5" />
-            PNG
+            {exportingPng ? 'Exporting...' : 'PNG'}
           </button>
           <a
             href={`/api/diagrams/${diagram.id}/export/drawio`}
