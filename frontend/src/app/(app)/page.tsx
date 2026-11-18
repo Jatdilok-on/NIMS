@@ -565,7 +565,7 @@ export default function DashboardPage() {
                 <Link
                   key={st.status}
                   href={buildInventoryHref({ status: st.status })}
-                  className="nims-card rounded-2xl px-4 py-3.5 space-y-2.5 group hover:border-[var(--nims-secondary)]/50 hover:-translate-y-0.5 transition-all cursor-pointer"
+                  className="block nims-card rounded-2xl px-4 py-3.5 space-y-2.5 group hover:border-[var(--nims-secondary)]/50 hover:-translate-y-0.5 transition-all cursor-pointer"
                 >
                   <div className="flex items-center justify-between gap-2">
                     <div className="flex items-center gap-2.5 min-w-0">
@@ -707,7 +707,11 @@ export default function DashboardPage() {
                       radius={[8, 8, 0, 0]}
                       className="cursor-pointer"
                       onClick={(entry) => {
-                        const siteId = (entry as unknown as { siteId?: string })?.siteId;
+                        const raw = entry as unknown as {
+                          siteId?: string;
+                          payload?: { siteId?: string };
+                        };
+                        const siteId = raw?.siteId ?? raw?.payload?.siteId;
                         if (siteId) router.push(buildInventoryHref({ siteId }));
                       }}
                     />
@@ -756,7 +760,11 @@ export default function DashboardPage() {
                       radius={[8, 8, 0, 0]}
                       className="cursor-pointer"
                       onClick={(entry) => {
-                        const category = (entry as unknown as { category?: string })?.category;
+                        const raw = entry as unknown as {
+                          category?: string;
+                          payload?: { category?: string };
+                        };
+                        const category = raw?.category ?? raw?.payload?.category;
                         if (category) router.push(buildInventoryHref({ category }));
                       }}
                     />
@@ -798,7 +806,11 @@ export default function DashboardPage() {
                       paddingAngle={4}
                       className="cursor-pointer"
                       onClick={(entry) => {
-                        const status = (entry as unknown as { status?: string })?.status;
+                        const raw = entry as unknown as {
+                          status?: string;
+                          payload?: { status?: string };
+                        };
+                        const status = raw?.status ?? raw?.payload?.status;
                         if (status) router.push(buildInventoryHref({ status }));
                       }}
                     >
@@ -814,7 +826,21 @@ export default function DashboardPage() {
                         color: 'var(--nims-text)',
                       }}
                     />
-                    <Legend />
+                    <Legend
+                      wrapperStyle={{ cursor: 'pointer' }}
+                      onClick={(entry) => {
+                        const raw = entry as unknown as {
+                          value?: string;
+                          payload?: { status?: string };
+                        };
+                        const status =
+                          raw?.payload?.status ??
+                          (typeof raw?.value === 'string' ? raw.value.toUpperCase() : undefined);
+                        if (status && STATUS_COLORS[status]) {
+                          router.push(buildInventoryHref({ status }));
+                        }
+                      }}
+                    />
                   </PieChart>
                 </ResponsiveContainer>
               </div>
