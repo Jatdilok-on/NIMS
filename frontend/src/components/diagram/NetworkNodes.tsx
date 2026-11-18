@@ -405,7 +405,7 @@ export function NetworkLinkEdge({
           d={edgePath}
           fill="none"
           stroke="#10b981"
-          strokeWidth={selected ? 9 : 7}
+          strokeWidth={selected ? 10 : 8}
           strokeLinecap="round"
           className="nims-edge-glow-up pointer-events-none"
         />
@@ -415,7 +415,7 @@ export function NetworkLinkEdge({
           d={edgePath}
           fill="none"
           stroke="#ef4444"
-          strokeWidth={selected ? 9 : 7.5}
+          strokeWidth={selected ? 11 : 9}
           strokeLinecap="round"
           className="nims-edge-glow-down pointer-events-none"
         />
@@ -435,29 +435,40 @@ export function NetworkLinkEdge({
         path={edgePath}
         style={{
           stroke: linkState === 'DOWN' ? '#ef4444' : strokeColor,
-          strokeWidth: selected ? 3.5 : 2.2,
+          strokeWidth: selected ? 3.5 : 2.3,
           strokeDasharray: ed.cableType === 'WIRELESS' ? '6 4' : undefined,
         }}
       />
       {linkState === 'UP' && (
-        <path
-          d={edgePath}
-          fill="none"
-          stroke="#6ee7b7"
-          strokeWidth={selected ? 2.8 : 2.1}
-          strokeLinecap="round"
-          strokeDasharray="8 16"
-          className="nims-edge-flow-up pointer-events-none"
-        />
+        <>
+          <path
+            d={edgePath}
+            fill="none"
+            stroke="#a7f3d0"
+            strokeWidth={selected ? 2.8 : 2.1}
+            strokeLinecap="round"
+            strokeDasharray="10 18"
+            className="nims-edge-flow-up pointer-events-none"
+          />
+          <circle
+            r={selected ? 4.5 : 3.8}
+            fill="#ecfdf5"
+            stroke="#10b981"
+            strokeWidth={1.75}
+            className="pointer-events-none"
+          >
+            <animateMotion dur="1.7s" repeatCount="indefinite" path={edgePath} />
+          </circle>
+        </>
       )}
       {linkState === 'DOWN' && (
         <path
           d={edgePath}
           fill="none"
-          stroke="#fca5a5"
-          strokeWidth={selected ? 2.6 : 2}
+          stroke="#fecaca"
+          strokeWidth={selected ? 2.8 : 2.2}
           strokeLinecap="round"
-          strokeDasharray="6 10"
+          strokeDasharray="8 10"
           className="nims-edge-flow-down pointer-events-none"
         />
       )}

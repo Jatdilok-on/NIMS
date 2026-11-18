@@ -281,54 +281,70 @@ body {
 
 @keyframes nims-edge-glow-pulse {
   0%, 100% {
-    opacity: 0.16;
+    opacity: 0.14;
   }
   50% {
-    opacity: 0.48;
+    opacity: 0.68;
   }
 }
 
 @keyframes nims-edge-blink-alert {
   0%, 100% {
-    opacity: 0.92;
+    opacity: 0.96;
   }
   50% {
-    opacity: 0.2;
+    opacity: 0.12;
+  }
+}
+
+@keyframes nims-inspector-glow-up {
+  0%, 100% {
+    box-shadow: 0 0 8px rgba(16, 185, 129, 0.14);
+  }
+  50% {
+    box-shadow: 0 0 18px rgba(16, 185, 129, 0.42);
+  }
+}
+
+@keyframes nims-inspector-glow-down {
+  0%, 100% {
+    box-shadow: 0 0 18px rgba(239, 68, 68, 0.48);
+  }
+  50% {
+    box-shadow: 0 0 4px rgba(239, 68, 68, 0.12);
   }
 }
 
 .nims-edge-glow-up {
-  animation: nims-edge-glow-pulse 1.5s ease-in-out infinite;
+  animation: nims-edge-glow-pulse 1.2s ease-in-out infinite;
 }
 
 .nims-edge-flow-up {
-  animation: nims-edge-dash-flow 1.3s linear infinite, nims-edge-blink-alert 1.5s ease-in-out infinite;
+  animation: nims-edge-dash-flow 1s linear infinite;
 }
 
 .nims-edge-glow-down {
-  animation: nims-edge-blink-alert 0.9s ease-in-out infinite;
+  animation: nims-edge-blink-alert 0.75s ease-in-out infinite;
 }
 
 .nims-edge-flow-down {
-  animation: nims-edge-blink-alert 0.9s ease-in-out infinite;
+  animation: nims-edge-blink-alert 0.75s ease-in-out infinite;
 }
 
 .nims-edge-glow-maint {
-  animation: nims-edge-glow-pulse 2.2s ease-in-out infinite;
+  animation: nims-edge-glow-pulse 2s ease-in-out infinite;
+}
+
+.nims-inspector-up {
+  animation: nims-inspector-glow-up 1.4s ease-in-out infinite;
+}
+
+.nims-inspector-down {
+  animation: nims-inspector-glow-down 0.85s ease-in-out infinite;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .nims-pulse-ring::after,
-  .nims-led-online,
-  .nims-led-online::after,
-  .nims-led-offline,
-  .nims-led-offline::after,
-  .nims-led-maint,
-  .nims-edge-glow-up,
-  .nims-edge-flow-up,
-  .nims-edge-glow-down,
-  .nims-edge-flow-down,
-  .nims-edge-glow-maint {
+  .nims-pulse-ring::after {
     animation: none;
   }
   .nims-card {

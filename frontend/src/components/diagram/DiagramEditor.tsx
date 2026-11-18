@@ -1838,9 +1838,13 @@ function InnerDiagramEditor({
                   : (nd.lastPingAt ?? null);
               const upDownBadgeClass =
                 effectiveStatus === 'ONLINE'
-                  ? 'bg-emerald-500/10 border-emerald-500/35 text-emerald-700 dark:bg-emerald-950/50 dark:border-emerald-500/40 dark:text-emerald-300 shadow-[0_0_14px_rgba(16,185,129,0.16)]'
+                  ? `bg-emerald-500/10 border-emerald-500/35 text-emerald-700 dark:bg-emerald-950/50 dark:border-emerald-500/40 dark:text-emerald-300 ${
+                      isNodeAgentLive ? 'nims-inspector-up' : ''
+                    }`
                   : effectiveStatus === 'OFFLINE'
-                  ? 'bg-red-500/10 border-red-500/40 text-red-700 dark:bg-red-950/50 dark:border-red-500/45 dark:text-red-300 shadow-[0_0_16px_rgba(239,68,68,0.2)]'
+                  ? `bg-red-500/10 border-red-500/40 text-red-700 dark:bg-red-950/50 dark:border-red-500/45 dark:text-red-300 ${
+                      isNodeAgentLive ? 'nims-inspector-down' : ''
+                    }`
                   : effectiveStatus === 'MAINTENANCE'
                   ? 'bg-amber-500/10 border-amber-500/35 text-amber-700 dark:bg-amber-950/50 dark:border-amber-500/40 dark:text-amber-300'
                   : 'bg-slate-500/10 border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-300';
