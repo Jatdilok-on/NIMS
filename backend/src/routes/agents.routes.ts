@@ -156,6 +156,8 @@ router.get('/runtime/targets', authenticateAgent, async (req, res, next) => {
         ? req.headers['x-agent-local-ip'].slice(0, 64)
         : extractClientIp(req) ?? undefined;
 
+    const isRelaySync = req.headers['x-relay-sync'] === '1';
+
     const [site, devices] = await Promise.all([
       prisma.site.findUnique({
         where: { id: agent.siteId },
@@ -176,16 +178,20 @@ router.get('/runtime/targets', authenticateAgent, async (req, res, next) => {
         },
         orderBy: { name: 'asc' },
       }),
-      prisma.siteAgent.update({
-        where: { id: agent.id },
-        data: {
-          lastHeartbeatAt: now,
-          ...(hostname ? { hostname } : {}),
-          ...(platform ? { platform } : {}),
-          ...(agentVersion ? { agentVersion } : {}),
-          ...(localIp ? { localIp } : {}),
-        },
-      }),
+      ...(isRelaySync
+        ? []
+        : [
+            prisma.siteAgent.update({
+              where: { id: agent.id },
+              data: {
+                lastHeartbeatAt: now,
+                ...(hostname ? { hostname } : {}),
+                ...(platform ? { platform } : {}),
+                ...(agentVersion ? { agentVersion } : {}),
+                ...(localIp ? { localIp } : {}),
+              },
+            }),
+          ]),
     ]);
 
     const targets = devices
