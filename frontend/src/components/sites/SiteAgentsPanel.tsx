@@ -279,7 +279,6 @@ export function SiteAgentsPanel({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
-  const [formDefaultMode, setFormDefaultMode] = useState<'LAN' | 'REMOTE'>('LAN');
   const [editingAgent, setEditingAgent] = useState<SiteAgent | null>(null);
   const [tokenReveal, setTokenReveal] = useState<{
     agentName: string;
@@ -491,33 +490,17 @@ export function SiteAgentsPanel({
             Download nims-agent.mjs
           </a>
           {canManage && (
-            <>
-              <button
-                type="button"
-                onClick={() => {
-                  setEditingAgent(null);
-                  setFormDefaultMode('LAN');
-                  setShowForm(true);
-                }}
-                className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold cursor-pointer"
-              >
-                <Plus className="h-4 w-4" />
-                Add Site Agent
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setEditingAgent(null);
-                  setFormDefaultMode('REMOTE');
-                  setShowForm(true);
-                }}
-                title="เพิ่ม Site Agent สำหรับ Site ที่อยู่คนละวง Network / ออกอินเทอร์เน็ตผ่าน Cloudflare Relay"
-                className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold shadow-xs cursor-pointer"
-              >
-                <Globe className="h-4 w-4" />
-                Add Remote Agent (คนละวง)
-              </button>
-            </>
+            <button
+              type="button"
+              onClick={() => {
+                setEditingAgent(null);
+                setShowForm(true);
+              }}
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold cursor-pointer"
+            >
+              <Plus className="h-4 w-4" />
+              Add Site Agent
+            </button>
           )}
         </div>
       </div>
@@ -729,32 +712,17 @@ export function SiteAgentsPanel({
             </p>
           </div>
           {canManage && (
-            <div className="flex flex-wrap items-center justify-center gap-2">
-              <button
-                type="button"
-                onClick={() => {
-                  setEditingAgent(null);
-                  setFormDefaultMode('LAN');
-                  setShowForm(true);
-                }}
-                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold cursor-pointer"
-              >
-                <Plus className="h-4 w-4" />
-                Create First Site Agent
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setEditingAgent(null);
-                  setFormDefaultMode('REMOTE');
-                  setShowForm(true);
-                }}
-                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold cursor-pointer"
-              >
-                <Globe className="h-4 w-4" />
-                Add Remote Agent (คนละวง)
-              </button>
-            </div>
+            <button
+              type="button"
+              onClick={() => {
+                setEditingAgent(null);
+                setShowForm(true);
+              }}
+              className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold cursor-pointer"
+            >
+              <Plus className="h-4 w-4" />
+              Create First Site Agent
+            </button>
           )}
         </div>
       ) : (
@@ -895,7 +863,6 @@ export function SiteAgentsPanel({
         <AgentFormModal
           siteId={siteId}
           editing={editingAgent}
-          initialMode={formDefaultMode}
           initialRelayUrl={savedRelayUrl}
           onClose={() => {
             setShowForm(false);
