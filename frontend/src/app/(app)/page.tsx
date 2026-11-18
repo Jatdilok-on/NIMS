@@ -2,6 +2,7 @@
 
 import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import {
   Activity,
   ArrowUpRight,
@@ -131,12 +132,27 @@ function getActionBadgeClass(action: string): string {
 }
 
 export default function DashboardPage() {
+  const router = useRouter();
   const { user } = useAuth();
   const { t } = useI18n();
   const [sites, setSites] = useState<Site[]>([]);
   const [selectedSiteId, setSelectedSiteId] = useState<string>('');
   const [summary, setSummary] = useState<DashboardSummary | null>(null);
   const [loading, setLoading] = useState(true);
+
+  const buildInventoryHref = (opts: {
+    status?: string;
+    category?: string;
+    siteId?: string;
+  }) => {
+    const params = new URLSearchParams();
+    const effectiveSiteId = opts.siteId !== undefined ? opts.siteId : selectedSiteId;
+    if (effectiveSiteId) params.set('siteId', effectiveSiteId);
+    if (opts.category) params.set('category', opts.category);
+    if (opts.status) params.set('status', opts.status);
+    const qs = params.toString();
+    return qs ? `/inventory?${qs}` : '/inventory';
+  };
 
   useEffect(() => {
     apiFetch<{ sites: Site[] }>('/sites')
@@ -167,7 +183,7 @@ export default function DashboardPage() {
         {
           label: t('dashboard.totalDevices'),
           value: summary.kpis.totalNetworkDevices,
-          href: '/inventory',
+          href: buildInventoryHref({}),
           icon: TechDeviceAllIcon,
           orb: 'from-indigo-400 via-blue-600 to-violet-600 shadow-indigo-500/30',
           bar: 'from-indigo-400 to-violet-600',
@@ -197,6 +213,7 @@ export default function DashboardPage() {
   const categoryCards = summary
     ? [
         {
+          category: 'SWITCH',
           label: t('dashboard.switches'),
           value: summary.kpis.totalSwitches,
           icon: TechSwitchIcon,
@@ -204,6 +221,7 @@ export default function DashboardPage() {
           bar: 'bg-indigo-500',
         },
         {
+          category: 'ACCESS_POINT',
           label: t('dashboard.accessPoints'),
           value: summary.kpis.totalAccessPoints,
           icon: TechAccessPointIcon,
@@ -211,6 +229,7 @@ export default function DashboardPage() {
           bar: 'bg-cyan-500',
         },
         {
+          category: 'AP_CLIENT',
           label: t('dashboard.apClients'),
           value: summary.kpis.totalApClients,
           icon: TechApClientIcon,
@@ -218,6 +237,7 @@ export default function DashboardPage() {
           bar: 'bg-teal-500',
         },
         {
+          category: 'WLC',
           label: t('dashboard.wlc'),
           value: summary.kpis.totalWlc,
           icon: TechWlcIcon,
@@ -225,6 +245,7 @@ export default function DashboardPage() {
           bar: 'bg-violet-500',
         },
         {
+          category: 'SERVER',
           label: t('dashboard.servers'),
           value: summary.kpis.totalServers,
           icon: TechServerIcon,
@@ -232,6 +253,7 @@ export default function DashboardPage() {
           bar: 'bg-slate-600',
         },
         {
+          category: 'PLC',
           label: 'PLC',
           value: summary.kpis.totalPlc,
           icon: TechPlcIcon,
@@ -239,6 +261,7 @@ export default function DashboardPage() {
           bar: 'bg-amber-500',
         },
         {
+          category: 'ESXI',
           label: 'ESXi Hosts',
           value: summary.kpis.totalEsxi,
           icon: TechEsxiIcon,
@@ -246,6 +269,7 @@ export default function DashboardPage() {
           bar: 'bg-emerald-500',
         },
         {
+          category: 'VM',
           label: 'VMs',
           value: summary.kpis.totalVm,
           icon: TechVmIcon,
@@ -253,6 +277,7 @@ export default function DashboardPage() {
           bar: 'bg-purple-500',
         },
         {
+          category: 'NAS',
           label: 'NAS Storage',
           value: summary.kpis.totalNas,
           icon: TechNasIcon,
@@ -260,6 +285,7 @@ export default function DashboardPage() {
           bar: 'bg-sky-500',
         },
         {
+          category: 'UPS',
           label: 'UPS',
           value: summary.kpis.totalUps,
           icon: TechUpsIcon,
@@ -267,6 +293,7 @@ export default function DashboardPage() {
           bar: 'bg-lime-500',
         },
         {
+          category: 'IP_CAM',
           label: 'IP Cameras',
           value: summary.kpis.totalIpCams ?? 0,
           icon: TechIpCamIcon,
@@ -274,6 +301,7 @@ export default function DashboardPage() {
           bar: 'bg-rose-500',
         },
         {
+          category: 'PC',
           label: 'PC / Workstations',
           value: summary.kpis.totalPc ?? 0,
           icon: TechPcIcon,
@@ -281,6 +309,7 @@ export default function DashboardPage() {
           bar: 'bg-violet-500',
         },
         {
+          category: 'NVR',
           label: 'NVR Recorders',
           value: summary.kpis.totalNvr ?? 0,
           icon: TechNvrIcon,
@@ -288,6 +317,7 @@ export default function DashboardPage() {
           bar: 'bg-orange-500',
         },
         {
+          category: 'TV',
           label: 'TV / Displays',
           value: summary.kpis.totalTv ?? 0,
           icon: TechTvIcon,
@@ -295,6 +325,7 @@ export default function DashboardPage() {
           bar: 'bg-cyan-500',
         },
         {
+          category: 'PRINTER',
           label: 'Printers',
           value: summary.kpis.totalPrinter ?? 0,
           icon: TechPrinterIcon,
@@ -302,6 +333,7 @@ export default function DashboardPage() {
           bar: 'bg-sky-500',
         },
         {
+          category: 'BARCODE',
           label: 'Barcode Scanners',
           value: summary.kpis.totalBarcode ?? 0,
           icon: TechBarcodeIcon,
@@ -486,6 +518,7 @@ export default function DashboardPage() {
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
             {[
               {
+                status: 'ONLINE',
                 label: t('dashboard.statusOnline'),
                 value: summary.statusSummary.ONLINE,
                 icon: Wifi,
@@ -495,6 +528,7 @@ export default function DashboardPage() {
                 bar: 'from-emerald-400 to-emerald-600',
               },
               {
+                status: 'OFFLINE',
                 label: t('dashboard.statusOffline'),
                 value: summary.statusSummary.OFFLINE,
                 icon: WifiOff,
@@ -504,6 +538,7 @@ export default function DashboardPage() {
                 bar: 'from-rose-400 to-red-600',
               },
               {
+                status: 'MAINTENANCE',
                 label: t('dashboard.statusMaintenance'),
                 value: summary.statusSummary.MAINTENANCE,
                 icon: Wrench,
@@ -513,6 +548,7 @@ export default function DashboardPage() {
                 bar: 'from-amber-400 to-orange-500',
               },
               {
+                status: 'UNKNOWN',
                 label: t('dashboard.statusUnknown'),
                 value: summary.statusSummary.UNKNOWN,
                 icon: HelpCircle,
@@ -526,9 +562,10 @@ export default function DashboardPage() {
               const ratio =
                 totalStatusDevices > 0 ? Math.round((st.value / totalStatusDevices) * 100) : 0;
               return (
-                <div
-                  key={st.label}
-                  className="nims-card rounded-2xl px-4 py-3.5 space-y-2.5 hover:border-[var(--nims-secondary)]/50 transition"
+                <Link
+                  key={st.status}
+                  href={buildInventoryHref({ status: st.status })}
+                  className="nims-card rounded-2xl px-4 py-3.5 space-y-2.5 group hover:border-[var(--nims-secondary)]/50 hover:-translate-y-0.5 transition-all cursor-pointer"
                 >
                   <div className="flex items-center justify-between gap-2">
                     <div className="flex items-center gap-2.5 min-w-0">
@@ -543,6 +580,7 @@ export default function DashboardPage() {
                           <span className="text-xs sm:text-sm font-semibold truncate">
                             {st.label}
                           </span>
+                          <ArrowUpRight className="h-3.5 w-3.5 opacity-0 -translate-x-1 group-hover:opacity-100 group-hover:translate-x-0 transition-all text-[var(--nims-secondary)] shrink-0" />
                         </div>
                         <div className="text-[10px] font-mono text-[var(--nims-muted)]">
                           {ratio}% OF FLEET
@@ -559,7 +597,7 @@ export default function DashboardPage() {
                       style={{ width: `${ratio}%` }}
                     />
                   </div>
-                </div>
+                </Link>
               );
             })}
           </div>
@@ -576,7 +614,7 @@ export default function DashboardPage() {
                 </h2>
               </div>
               <Link
-                href="/inventory"
+                href={buildInventoryHref({})}
                 className="inline-flex items-center gap-1 text-xs font-semibold text-[var(--nims-secondary)] hover:underline"
               >
                 <span>{t('inventory.allDevices')}</span>
@@ -593,9 +631,9 @@ export default function DashboardPage() {
                     : 0;
                 return (
                   <Link
-                    key={card.label}
-                    href="/inventory"
-                    className="nims-card rounded-2xl p-3.5 relative overflow-hidden flex flex-col justify-between gap-2.5 group hover:-translate-y-0.5 transition-all"
+                    key={card.category}
+                    href={buildInventoryHref({ category: card.category })}
+                    className="nims-card rounded-2xl p-3.5 relative overflow-hidden flex flex-col justify-between gap-2.5 group hover:-translate-y-0.5 transition-all cursor-pointer"
                   >
                     <div className="flex items-start justify-between gap-2">
                       <div
@@ -662,7 +700,17 @@ export default function DashboardPage() {
                         color: 'var(--nims-text)',
                       }}
                     />
-                    <Bar dataKey="count" name="Devices" fill="url(#nimsSiteBar)" radius={[8, 8, 0, 0]} />
+                    <Bar
+                      dataKey="count"
+                      name="Devices"
+                      fill="url(#nimsSiteBar)"
+                      radius={[8, 8, 0, 0]}
+                      className="cursor-pointer"
+                      onClick={(entry) => {
+                        const siteId = (entry as unknown as { siteId?: string })?.siteId;
+                        if (siteId) router.push(buildInventoryHref({ siteId }));
+                      }}
+                    />
                   </BarChart>
                 </ResponsiveContainer>
               </div>
@@ -701,7 +749,17 @@ export default function DashboardPage() {
                         color: 'var(--nims-text)',
                       }}
                     />
-                    <Bar dataKey="count" name="Count" fill="url(#nimsTypeBar)" radius={[8, 8, 0, 0]} />
+                    <Bar
+                      dataKey="count"
+                      name="Count"
+                      fill="url(#nimsTypeBar)"
+                      radius={[8, 8, 0, 0]}
+                      className="cursor-pointer"
+                      onClick={(entry) => {
+                        const category = (entry as unknown as { category?: string })?.category;
+                        if (category) router.push(buildInventoryHref({ category }));
+                      }}
+                    />
                   </BarChart>
                 </ResponsiveContainer>
               </div>
@@ -738,6 +796,11 @@ export default function DashboardPage() {
                       innerRadius={58}
                       outerRadius={88}
                       paddingAngle={4}
+                      className="cursor-pointer"
+                      onClick={(entry) => {
+                        const status = (entry as unknown as { status?: string })?.status;
+                        if (status) router.push(buildInventoryHref({ status }));
+                      }}
                     >
                       {summary.charts.devicesByStatus.map((entry) => (
                         <Cell key={entry.status} fill={STATUS_COLORS[entry.status] || '#64748b'} />

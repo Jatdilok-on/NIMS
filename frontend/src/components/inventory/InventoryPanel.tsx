@@ -25,7 +25,12 @@ interface InventoryPanelProps {
   fixedSiteId?: string;
   canEdit?: boolean;
   initialDeviceId?: string | null;
+  initialSiteId?: string | null;
+  initialCategory?: string | null;
+  initialStatus?: string | null;
 }
+
+const VALID_STATUSES = new Set<string>(['ONLINE', 'OFFLINE', 'MAINTENANCE', 'UNKNOWN']);
 
 const CATEGORY_LABELS: Record<DeviceCategory, string> = {
   SWITCH: 'Switch',
@@ -105,7 +110,15 @@ export function InventoryPanel({
   fixedSiteId,
   canEdit = true,
   initialDeviceId,
+  initialSiteId,
+  initialCategory,
+  initialStatus,
 }: InventoryPanelProps) {
+  const normalizedInitialCategory =
+    initialCategory && initialCategory in CATEGORY_LABELS ? initialCategory : '';
+  const normalizedInitialStatus =
+    initialStatus && VALID_STATUSES.has(initialStatus) ? initialStatus : '';
+
   const { t } = useI18n();
   const [sites, setSites] = useState<Site[]>([]);
   const [devices, setDevices] = useState<Device[]>([]);
@@ -115,9 +128,9 @@ export function InventoryPanel({
   const [totalPages, setTotalPages] = useState(1);
   const [loading, setLoading] = useState(true);
 
-  const [siteFilter, setSiteFilter] = useState(fixedSiteId || '');
-  const [categoryFilter, setCategoryFilter] = useState<string>('');
-  const [statusFilter, setStatusFilter] = useState<string>('');
+  const [siteFilter, setSiteFilter] = useState(fixedSiteId || initialSiteId || '');
+  const [categoryFilter, setCategoryFilter] = useState<string>(normalizedInitialCategory);
+  const [statusFilter, setStatusFilter] = useState<string>(normalizedInitialStatus);
   const [search, setSearch] = useState('');
   const [vlanFilter, setVlanFilter] = useState('');
   const [locationFilter, setLocationFilter] = useState('');
@@ -139,8 +152,19 @@ export function InventoryPanel({
   const [applyingBulk, setApplyingBulk] = useState(false);
 
   useEffect(() => {
-    if (fixedSiteId) setSiteFilter(fixedSiteId);
-  }, [fixedSiteId]);
+    if (fixedSiteId) {
+      setSiteFilter(fixedSiteId);
+    } else if (initialSiteId !== undefined) {
+      setSiteFilter(initialSiteId || '');
+    }
+    if (initialCategory !== undefined) {
+      setCategoryFilter(initialCategory && initialCategory in CATEGORY_LABELS ? initialCategory : '');
+    }
+    if (initialStatus !== undefined) {
+      setStatusFilter(initialStatus && VALID_STATUSES.has(initialStatus) ? initialStatus : '');
+    }
+    setPage(1);
+  }, [fixedSiteId, initialSiteId, initialCategory, initialStatus]);
 
   useEffect(() => {
     apiFetch<{ sites: Site[] }>('/sites')
