@@ -45,42 +45,54 @@ router.get('/global-search', async (req, res, next) => {
       return;
     }
 
-    const permittedSiteIds = getPermittedSiteIds(req.user!, 'canViewInventory');
-    const siteScope = permittedSiteIds !== null ? { siteId: { in: permittedSiteIds } } : {};
+    const permittedInventorySiteIds = getPermittedSiteIds(req.user!, 'canViewInventory');
+    const permittedIpamSiteIds = getPermittedSiteIds(req.user!, 'canViewIpam');
+
+    const canQueryDevices = permittedInventorySiteIds === null || permittedInventorySiteIds.length > 0;
+    const canQuerySubnets = permittedIpamSiteIds === null || permittedIpamSiteIds.length > 0;
+
+    const deviceSiteScope =
+      permittedInventorySiteIds !== null ? { siteId: { in: permittedInventorySiteIds } } : {};
+    const subnetSiteScope =
+      permittedIpamSiteIds !== null ? { siteId: { in: permittedIpamSiteIds } } : {};
 
     const [devices, subnets] = await Promise.all([
-      prisma.device.findMany({
-        where: {
-          ...siteScope,
-          OR: [
-            { managementIp: { contains: q, mode: 'insensitive' } },
-            { macAddress: { contains: q, mode: 'insensitive' } },
-            { serialNumber: { contains: q, mode: 'insensitive' } },
-            { name: { contains: q, mode: 'insensitive' } },
-            { model: { contains: q, mode: 'insensitive' } },
-            { location: { contains: q, mode: 'insensitive' } },
-          ],
-        },
-        include: {
-          site: { select: { id: true, siteCode: true, siteName: true } },
-        },
-        take: 30,
-        orderBy: { name: 'asc' },
-      }),
-      prisma.subnet.findMany({
-        where: {
-          ...siteScope,
-          OR: [
-            { cidr: { contains: q, mode: 'insensitive' } },
-            { gateway: { contains: q, mode: 'insensitive' } },
-            { description: { contains: q, mode: 'insensitive' } },
-          ],
-        },
-        include: {
-          site: { select: { id: true, siteCode: true, siteName: true } },
-        },
-        take: 15,
-      }),
+      canQueryDevices
+        ? prisma.device.findMany({
+            where: {
+              ...deviceSiteScope,
+              OR: [
+                { managementIp: { contains: q, mode: 'insensitive' } },
+                { macAddress: { contains: q, mode: 'insensitive' } },
+                { serialNumber: { contains: q, mode: 'insensitive' } },
+                { name: { contains: q, mode: 'insensitive' } },
+                { model: { contains: q, mode: 'insensitive' } },
+                { location: { contains: q, mode: 'insensitive' } },
+              ],
+            },
+            include: {
+              site: { select: { id: true, siteCode: true, siteName: true } },
+            },
+            take: 30,
+            orderBy: { name: 'asc' },
+          })
+        : Promise.resolve([]),
+      canQuerySubnets
+        ? prisma.subnet.findMany({
+            where: {
+              ...subnetSiteScope,
+              OR: [
+                { cidr: { contains: q, mode: 'insensitive' } },
+                { gateway: { contains: q, mode: 'insensitive' } },
+                { description: { contains: q, mode: 'insensitive' } },
+              ],
+            },
+            include: {
+              site: { select: { id: true, siteCode: true, siteName: true } },
+            },
+            take: 15,
+          })
+        : Promise.resolve([]),
     ]);
 
     res.json({ devices, subnets });
@@ -114,7 +126,8 @@ router.get('/', async (req, res, next) => {
     const vlan = typeof req.query.vlan === 'string' ? req.query.vlan.trim() : '';
     const ip = typeof req.query.ip === 'string' ? req.query.ip.trim() : '';
 
-    const page = Math.max(1, parseInt(String(req.query.page || '1'), 10));
+    const rawPage = parseInt(String(req.query.page || '1'), 10);
+    const page = Math.max(1, Number.isFinite(rawPage) ? rawPage : 1);
     const rawPageSize = String(req.query.pageSize || '25').toLowerCase();
     const isAllPageSize = rawPageSize === 'all';
     const pageSize = isAllPageSize
@@ -346,6 +359,12 @@ router.put('/:id', async (req, res, next) => {
     }
 
     const body = deviceInputSchema.partial().parse(req.body);
+    if (body.siteId && body.siteId !== existing.siteId) {
+      if (!hasSitePermission(req.user!, body.siteId, 'canEditInventory')) {
+        res.status(403).json({ error: 'Permission denied for target site' });
+        return;
+      }
+    }
     const device = await updateDeviceWithDetails(req.params.id, body);
 
     await recordAuditLog({

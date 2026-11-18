@@ -171,7 +171,13 @@ router.post(
   async (req, res, next) => {
     try {
       const body = subnetSchema.parse(req.body);
-      const cidrInfo = parseCidr(body.cidr);
+      let cidrInfo;
+      try {
+        cidrInfo = parseCidr(body.cidr);
+      } catch (e) {
+        res.status(400).json({ error: e instanceof Error ? e.message : 'Invalid CIDR notation' });
+        return;
+      }
 
       for (const ipField of [body.gateway, body.dns1, body.dns2, body.dhcpServer]) {
         if (ipField && ipField.trim() && !isValidIpv4(ipField.trim())) {
@@ -292,7 +298,13 @@ router.put('/subnets/:id', async (req, res, next) => {
 
     const body = updateSubnetSchema.parse(req.body ?? {});
     const nextCidrInput = body.cidr !== undefined ? body.cidr : existing.cidr;
-    const cidrInfo = parseCidr(nextCidrInput);
+    let cidrInfo;
+    try {
+      cidrInfo = parseCidr(nextCidrInput);
+    } catch (e) {
+      res.status(400).json({ error: e instanceof Error ? e.message : 'Invalid CIDR notation' });
+      return;
+    }
 
     const nextGateway =
       body.gateway !== undefined ? body.gateway?.trim() || null : existing.gateway;
@@ -613,8 +625,27 @@ router.post('/ips/allocate', async (req, res, next) => {
       await prisma.ipAddress.deleteMany({
         where: { subnetId: subnet.id, ipAddress: body.ipAddress },
       });
+      await recordAuditLog({
+        req,
+        userId: req.user!.id,
+        username: req.user!.username,
+        action: 'RELEASE_IP_ALLOCATION',
+        module: 'IPAM',
+        siteId: subnet.siteId,
+        details: { ipAddress: body.ipAddress },
+      });
       res.json({ message: 'IP released to AVAILABLE' });
       return;
+    }
+
+    if (body.deviceId) {
+      const targetDevice = await prisma.device.findFirst({
+        where: { id: body.deviceId, siteId: subnet.siteId },
+      });
+      if (!targetDevice) {
+        res.status(400).json({ error: 'Referenced deviceId does not belong to this subnet site' });
+        return;
+      }
     }
 
     const existingIp = await prisma.ipAddress.findUnique({

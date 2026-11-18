@@ -57,6 +57,15 @@ export interface JwtPayload {
   role: RoleCode;
 }
 
+function isAllowedDuringPasswordChange(req: Request): boolean {
+  const fullPath = `${req.baseUrl}${req.path}`.replace(/\/+$/, '');
+  return (
+    fullPath === '/api/auth/me' ||
+    fullPath === '/api/auth/logout' ||
+    fullPath === '/api/auth/change-password'
+  );
+}
+
 export async function authenticate(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
     const cookieToken = req.cookies?.[SESSION_COOKIE_NAME] as string | undefined;
@@ -70,9 +79,9 @@ export async function authenticate(req: Request, res: Response, next: NextFuncti
       return;
     }
 
-    // CSRF verification for cookie-based state-changing requests
+    // CSRF verification whenever the cookie-backed session is used on state-changing requests
     const isMutating = ['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method.toUpperCase());
-    if (cookieToken && !bearerToken && isMutating) {
+    if (cookieToken && isMutating) {
       const csrfCookie = req.cookies?.[CSRF_COOKIE_NAME];
       const csrfHeader = req.headers['x-csrf-token'];
       if (!csrfCookie || !csrfHeader || csrfCookie !== csrfHeader) {
@@ -92,6 +101,13 @@ export async function authenticate(req: Request, res: Response, next: NextFuncti
       cached.sessionExpiresAt > nowMs &&
       cached.user.id === decoded.sub
     ) {
+      if (cached.user.mustChangePassword && !isAllowedDuringPasswordChange(req)) {
+        res.status(403).json({
+          error: 'Password change required before accessing this resource',
+          code: 'MUST_CHANGE_PASSWORD',
+        });
+        return;
+      }
       req.user = cached.user;
       next();
       return;
@@ -143,6 +159,14 @@ export async function authenticate(req: Request, res: Response, next: NextFuncti
       sessionExpiresAt: session.expiresAt.getTime(),
       cachedUntil: nowMs + SESSION_CACHE_TTL_MS,
     });
+
+    if (authenticatedUser.mustChangePassword && !isAllowedDuringPasswordChange(req)) {
+      res.status(403).json({
+        error: 'Password change required before accessing this resource',
+        code: 'MUST_CHANGE_PASSWORD',
+      });
+      return;
+    }
 
     req.user = authenticatedUser;
 

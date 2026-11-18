@@ -7,7 +7,14 @@ import { BackupSchedule, RoleCode } from '@prisma/client';
 import { prisma } from '../lib/prisma';
 import { authenticate } from '../middleware/auth';
 import { requireRoles } from '../middleware/rbac';
-import { readStoredFile, saveSiteFile } from '../lib/storage';
+import {
+  ALLOWED_LOGO_EXTENSIONS,
+  deleteStoredFile,
+  isAllowedExtension,
+  readStoredFile,
+  resolveSafeMimeType,
+  saveSiteFile,
+} from '../lib/storage';
 import { refreshBackupScheduler } from '../lib/backup';
 import { recordAuditLog } from '../lib/audit';
 
@@ -49,14 +56,10 @@ router.get('/logo', async (_req, res, next) => {
       return;
     }
     const buf = readStoredFile(s.logoPath);
-    const ext = s.logoPath.toLowerCase().split('.').pop();
-    const mime =
-      ext === 'svg'
-        ? 'image/svg+xml'
-        : ext === 'jpg' || ext === 'jpeg'
-          ? 'image/jpeg'
-          : 'image/png';
+    const mime = resolveSafeMimeType(s.logoPath);
     res.setHeader('Content-Type', mime);
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('Content-Security-Policy', "default-src 'none'; sandbox; style-src 'unsafe-inline'");
     res.send(buf);
   } catch (err) {
     next(err);
@@ -113,10 +116,30 @@ router.post('/logo', upload.single('file'), async (req, res, next) => {
       res.status(400).json({ error: 'Logo file is required' });
       return;
     }
+    if (!isAllowedExtension(req.file.originalname, ALLOWED_LOGO_EXTENSIONS)) {
+      res.status(400).json({ error: 'Logo must be a PNG, JPG, WEBP, GIF, or ICO image' });
+      return;
+    }
+    const existingSetting = await prisma.systemSetting.findUnique({ where: { key: 'default' } });
     const saved = saveSiteFile('global', 'branding', req.file.originalname, req.file.buffer);
-    const settings = await prisma.systemSetting.update({
-      where: { key: 'default' },
-      data: { logoPath: saved.relativePath },
+    const settings = existingSetting
+      ? await prisma.systemSetting.update({
+          where: { id: existingSetting.id },
+          data: { logoPath: saved.relativePath },
+        })
+      : await prisma.systemSetting.create({
+          data: { key: 'default', logoPath: saved.relativePath },
+        });
+    if (existingSetting?.logoPath && existingSetting.logoPath !== saved.relativePath) {
+      deleteStoredFile(existingSetting.logoPath);
+    }
+    await recordAuditLog({
+      req,
+      userId: req.user!.id,
+      username: req.user!.username,
+      action: 'UPDATE_SYSTEM_LOGO',
+      module: 'SETTINGS',
+      details: { fileName: req.file.originalname },
     });
     res.json({ settings });
   } catch (err) {

@@ -89,6 +89,10 @@ router.post('/:id/restore', async (req, res, next) => {
       res.status(404).json({ error: 'Backup archive not found' });
       return;
     }
+    if (job.status !== BackupStatus.COMPLETED && job.status !== BackupStatus.RESTORED) {
+      res.status(400).json({ error: `Cannot restore backup job with status ${job.status}` });
+      return;
+    }
 
     const result = await restoreFromBackupArchive(job.filePath);
 
@@ -123,7 +127,16 @@ router.post('/upload-restore', upload.single('file'), async (req, res, next) => 
     const tempPath = path.join(env.backupRoot, `restore-upload-${Date.now()}.zip`);
     fs.writeFileSync(tempPath, req.file.buffer);
 
-    const result = await restoreFromBackupArchive(tempPath);
+    let result;
+    try {
+      result = await restoreFromBackupArchive(tempPath);
+    } finally {
+      try {
+        if (fs.existsSync(tempPath)) fs.unlinkSync(tempPath);
+      } catch {
+        // ignore temp cleanup failure
+      }
+    }
 
     await recordAuditLog({
       req,

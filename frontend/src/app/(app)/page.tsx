@@ -56,7 +56,7 @@ import {
   TechVmIcon,
   TechWlcIcon,
 } from '@/components/icons/TechIcons';
-import { apiFetch } from '@/lib/api';
+import { apiFetch, ApiError } from '@/lib/api';
 import { useAuth } from '@/lib/auth-context';
 import { useI18n } from '@/lib/i18n';
 import { Site } from '@/lib/types';
@@ -139,6 +139,8 @@ export default function DashboardPage() {
   const [selectedSiteId, setSelectedSiteId] = useState<string>('');
   const [summary, setSummary] = useState<DashboardSummary | null>(null);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [reloadSeq, setReloadSeq] = useState(0);
 
   const buildInventoryHref = (opts: {
     status?: string;
@@ -161,13 +163,26 @@ export default function DashboardPage() {
   }, []);
 
   useEffect(() => {
+    let cancelled = false;
     setLoading(true);
+    setLoadError(null);
     const q = selectedSiteId ? `?siteId=${encodeURIComponent(selectedSiteId)}` : '';
     apiFetch<DashboardSummary>(`/dashboard/summary${q}`)
-      .then((res) => setSummary(res))
-      .catch(() => {})
-      .finally(() => setLoading(false));
-  }, [selectedSiteId]);
+      .then((res) => {
+        if (!cancelled) setSummary(res);
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          setLoadError(err instanceof ApiError ? err.message : 'Failed to load dashboard summary');
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedSiteId, reloadSeq]);
 
   const heroCards = summary
     ? [
@@ -450,7 +465,17 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {loading || !summary ? (
+      {loadError && !loading ? (
+        <div className="p-6 rounded-2xl border border-red-200 dark:border-red-900 bg-red-50/70 dark:bg-red-950/30 text-center space-y-3">
+          <div className="text-sm text-red-700 dark:text-red-300 font-medium">{loadError}</div>
+          <button
+            onClick={() => setReloadSeq((c) => c + 1)}
+            className="px-3 py-1.5 rounded-lg bg-blue-600 text-white text-xs font-medium cursor-pointer"
+          >
+            Retry
+          </button>
+        </div>
+      ) : loading || !summary ? (
         <div className="space-y-4">
           <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
             {Array.from({ length: 4 }).map((_, i) => (

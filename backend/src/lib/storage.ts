@@ -99,6 +99,46 @@ export function deleteStoredFile(relativePath: string, root = env.storageRoot): 
   }
 }
 
+export const ALLOWED_LOGO_EXTENSIONS = new Set([
+  '.png',
+  '.jpg',
+  '.jpeg',
+  '.webp',
+  '.gif',
+  '.ico',
+]);
+
+const EXTENSION_MIME_MAP: Record<string, string> = {
+  '.pdf': 'application/pdf',
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.webp': 'image/webp',
+  '.gif': 'image/gif',
+  '.ico': 'image/x-icon',
+  '.svg': 'image/svg+xml',
+  '.txt': 'text/plain; charset=utf-8',
+  '.csv': 'text/csv; charset=utf-8',
+  '.cfg': 'text/plain; charset=utf-8',
+  '.conf': 'text/plain; charset=utf-8',
+  '.json': 'application/json; charset=utf-8',
+  '.xml': 'text/plain; charset=utf-8',
+  '.drawio': 'application/xml; charset=utf-8',
+  '.doc': 'application/msword',
+  '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  '.xls': 'application/vnd.ms-excel',
+  '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  '.ppt': 'application/vnd.ms-powerpoint',
+  '.pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  '.zip': 'application/zip',
+  '.vsdx': 'application/vnd.ms-visio.drawing.main+xml',
+};
+
+export function resolveSafeMimeType(filename: string): string {
+  const ext = path.extname(filename).toLowerCase();
+  return EXTENSION_MIME_MAP[ext] || 'application/octet-stream';
+}
+
 export function isAllowedExtension(filename: string, allowed: Set<string>): boolean {
   const ext = path.extname(filename).toLowerCase();
   return allowed.has(ext);

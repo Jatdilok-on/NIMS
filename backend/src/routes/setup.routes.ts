@@ -27,10 +27,19 @@ router.get('/status', async (_req, res, next) => {
     });
   } catch (err) {
     next(err);
+  } finally {
+    setupInitInProgress = false;
   }
 });
 
+let setupInitInProgress = false;
+
 router.post('/init', async (req, res, next) => {
+  if (setupInitInProgress) {
+    res.status(409).json({ error: 'System initialization is already in progress.' });
+    return;
+  }
+  setupInitInProgress = true;
   try {
     const existingUsers = await prisma.user.count();
     if (existingUsers > 0) {
@@ -46,6 +55,12 @@ router.post('/init', async (req, res, next) => {
     });
 
     const passwordHash = await hashPassword(body.password);
+
+    const recheckUsers = await prisma.user.count();
+    if (recheckUsers > 0) {
+      res.status(403).json({ error: 'System is already initialized. Setup endpoint is locked.' });
+      return;
+    }
 
     const admin = await prisma.user.create({
       data: {
@@ -117,6 +132,8 @@ router.post('/init', async (req, res, next) => {
     });
   } catch (err) {
     next(err);
+  } finally {
+    setupInitInProgress = false;
   }
 });
 

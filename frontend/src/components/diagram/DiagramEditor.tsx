@@ -545,15 +545,23 @@ function InnerDiagramEditor({
 
       const paletteJson = event.dataTransfer.getData('application/nims-palette');
       if (paletteJson) {
-        const p = JSON.parse(paletteJson) as { type: string; label: string };
-        addPaletteNode(p.type, p.label, position);
+        try {
+          const p = JSON.parse(paletteJson) as { type: string; label: string };
+          if (p?.type) addPaletteNode(p.type, p.label || p.type, position);
+        } catch {
+          // ignore malformed drag payload
+        }
         return;
       }
 
       const deviceJson = event.dataTransfer.getData('application/nims-device');
       if (deviceJson) {
-        const dev = JSON.parse(deviceJson) as Device;
-        addInventoryDeviceNode(dev, position);
+        try {
+          const dev = JSON.parse(deviceJson) as Device;
+          if (dev?.id) addInventoryDeviceNode(dev, position);
+        } catch {
+          // ignore malformed drag payload
+        }
       }
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -690,10 +698,12 @@ function InnerDiagramEditor({
   };
 
   const handleSave = async () => {
+    const promptNote = prompt('Optional version note:', 'Updated network topology');
+    if (promptNote === null) return;
+    const changeNote = promptNote.trim() || undefined;
     setSaving(true);
     setEditorNotice(null);
     try {
-      const changeNote = prompt('Optional version note:', 'Updated network topology') || undefined;
       const serializableNodes = nodes.map((n) => {
         const d = { ...(n.data as Record<string, unknown>) };
         delete d.agentLive;
@@ -1161,14 +1171,19 @@ function InnerDiagramEditor({
   }, []);
 
   // Keyboard shortcuts (Ctrl+C, Ctrl+D, Ctrl+Z, Ctrl+Y, Ctrl+A, Ctrl+S, Delete, Arrow nudge)
-  useEffect(() => {
-    const isTypingTarget = (target: EventTarget | null) =>
-      target instanceof HTMLInputElement ||
-      target instanceof HTMLTextAreaElement ||
-      target instanceof HTMLSelectElement ||
-      (target instanceof HTMLElement && target.isContentEditable);
+  const shortcutHandlersRef = useRef<{
+    onKey: (e: KeyboardEvent) => void;
+    onPaste: (e: ClipboardEvent) => void;
+  } | null>(null);
 
-    const onKey = (e: KeyboardEvent) => {
+  const isTypingTarget = (target: EventTarget | null) =>
+    target instanceof HTMLInputElement ||
+    target instanceof HTMLTextAreaElement ||
+    target instanceof HTMLSelectElement ||
+    (target instanceof HTMLElement && target.isContentEditable);
+
+  shortcutHandlersRef.current = {
+    onKey: (e: KeyboardEvent) => {
       if (isTypingTarget(e.target)) return;
       const key = e.key.toLowerCase();
       const mod = e.ctrlKey || e.metaKey;
@@ -1230,9 +1245,8 @@ function InnerDiagramEditor({
           ),
         );
       }
-    };
-
-    const onPaste = (e: ClipboardEvent) => {
+    },
+    onPaste: (e: ClipboardEvent) => {
       if (!canEdit || isTypingTarget(e.target)) return;
       const items = e.clipboardData?.items;
       if (items) {
@@ -1285,15 +1299,19 @@ function InnerDiagramEditor({
         e.preventDefault();
         handlePasteCopied();
       }
-    };
+    },
+  };
 
-    window.addEventListener('keydown', onKey);
-    window.addEventListener('paste', onPaste);
+  useEffect(() => {
+    const keyListener = (e: KeyboardEvent) => shortcutHandlersRef.current?.onKey(e);
+    const pasteListener = (e: ClipboardEvent) => shortcutHandlersRef.current?.onPaste(e);
+    window.addEventListener('keydown', keyListener);
+    window.addEventListener('paste', pasteListener);
     return () => {
-      window.removeEventListener('keydown', onKey);
-      window.removeEventListener('paste', onPaste);
+      window.removeEventListener('keydown', keyListener);
+      window.removeEventListener('paste', pasteListener);
     };
-  });
+  }, []);
 
   return (
     <div className="rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 overflow-hidden flex flex-col h-[82vh]">

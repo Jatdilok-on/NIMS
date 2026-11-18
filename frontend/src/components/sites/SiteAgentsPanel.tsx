@@ -20,7 +20,7 @@ import {
   X,
 } from 'lucide-react';
 import { ConfirmActionModal } from '@/components/common/ConfirmActionModal';
-import { apiFetch, ApiError } from '@/lib/api';
+import { apiFetch, ApiError, copyTextSafe } from '@/lib/api';
 import { AgentConnectionState, SiteAgent } from '@/lib/types';
 
 const STATE_BADGE: Record<AgentConnectionState, { label: string; className: string; dot: string }> = {
@@ -571,7 +571,7 @@ export function SiteAgentsPanel({
 
   const copyText = async (key: string, text: string) => {
     try {
-      await navigator.clipboard.writeText(text);
+      await copyTextSafe(text);
       setCopiedKey(key);
       setTimeout(() => setCopiedKey(null), 2000);
     } catch {

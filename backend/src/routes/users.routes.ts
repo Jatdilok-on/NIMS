@@ -799,6 +799,8 @@ router.delete('/:id', async (req, res, next) => {
       return;
     }
     const deleted = await prisma.user.delete({ where: { id: req.params.id } });
+    await prisma.session.deleteMany({ where: { userId: req.params.id } }).catch(() => undefined);
+    invalidateSessionCacheForUser(req.params.id);
     await recordAuditLog({
       req,
       userId: req.user!.id,

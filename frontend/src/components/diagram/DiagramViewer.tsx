@@ -115,21 +115,24 @@ export function DiagramViewer({
     setPreviewVersion(null);
   }, [diagram.currentVersion]);
 
-  useEffect(() => {
+  const keyHandlerRef = useRef<(e: KeyboardEvent) => void>(null);
+  keyHandlerRef.current = (e: KeyboardEvent) => {
     if (!hasMultiple || showEditInfoModal || showNewVersionModal) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
-      if (e.key === 'ArrowLeft') {
-        e.preventDefault();
-        goPrev();
-      } else if (e.key === 'ArrowRight') {
-        e.preventDefault();
-        goNext();
-      }
-    };
+    if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+    if (e.key === 'ArrowLeft') {
+      e.preventDefault();
+      goPrev();
+    } else if (e.key === 'ArrowRight') {
+      e.preventDefault();
+      goNext();
+    }
+  };
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => keyHandlerRef.current?.(e);
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  });
+  }, []);
 
   const toggleFullscreen = async () => {
     if (!containerRef.current) return;

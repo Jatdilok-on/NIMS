@@ -19,15 +19,22 @@ router.get('/', async (req, res, next) => {
         ? (req.query.result as AuditResult)
         : undefined;
 
-    const page = Math.max(1, parseInt(String(req.query.page || '1'), 10));
-    const pageSize = Math.min(200, Math.max(1, parseInt(String(req.query.pageSize || '50'), 10)));
+    const rawPage = parseInt(String(req.query.page || '1'), 10);
+    const rawPageSize = parseInt(String(req.query.pageSize || '50'), 10);
+    const page = Math.max(1, Number.isFinite(rawPage) ? rawPage : 1);
+    const pageSize = Math.min(200, Math.max(1, Number.isFinite(rawPageSize) ? rawPageSize : 50));
 
     const where: Prisma.AuditLogWhereInput = {};
     if (user.roleCode !== RoleCode.SUPER_ADMIN) {
       const permittedSites = user.sitePermissions.map((p) => p.siteId);
-      where.siteId = { in: permittedSites };
+      if (siteId && !permittedSites.includes(siteId)) {
+        res.status(403).json({ error: 'Access denied to requested site audit logs' });
+        return;
+      }
+      where.siteId = siteId ? siteId : { in: permittedSites };
+    } else if (siteId) {
+      where.siteId = siteId;
     }
-    if (siteId) where.siteId = siteId;
     if (action) where.action = { contains: action, mode: 'insensitive' };
     if (module) where.module = { contains: module, mode: 'insensitive' };
     if (username) where.username = { contains: username, mode: 'insensitive' };

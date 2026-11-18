@@ -200,6 +200,16 @@ router.post('/change-password', authenticate, async (req, res, next) => {
       data: { passwordHash: newHash, mustChangePassword: false },
     });
 
+    // Revoke all other active sessions so leaked tokens cannot survive a password rotation
+    await prisma.session.updateMany({
+      where: {
+        userId: user.id,
+        id: { not: req.user!.sessionId },
+        revokedAt: null,
+      },
+      data: { revokedAt: new Date() },
+    });
+
     invalidateSessionCacheForUser(user.id);
 
     await recordAuditLog({

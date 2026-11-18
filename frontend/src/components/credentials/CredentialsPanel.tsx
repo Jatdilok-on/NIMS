@@ -21,7 +21,7 @@ import {
   X,
 } from 'lucide-react';
 import { ConfirmActionModal } from '@/components/common/ConfirmActionModal';
-import { apiFetch, ApiError } from '@/lib/api';
+import { apiFetch, ApiError, copyTextSafe, getSafeExternalUrl } from '@/lib/api';
 import { useAuth } from '@/lib/auth-context';
 import { CredentialItem, LoginType, Site } from '@/lib/types';
 import { ImportCredentialsModal } from './ImportCredentialsModal';
@@ -124,7 +124,7 @@ export function CredentialsPanel({
         method: 'POST',
         body: JSON.stringify({ field }),
       });
-      await navigator.clipboard.writeText(res.value);
+      await copyTextSafe(res.value);
       notify(`${field === 'username' ? 'Username' : 'Password'} copied (audit logged)`);
     } catch (err) {
       alert(err instanceof ApiError ? err.message : 'Failed to copy');
@@ -135,7 +135,7 @@ export function CredentialsPanel({
     const str = value !== null && value !== undefined ? String(value).trim() : '';
     if (!str) return;
     try {
-      await navigator.clipboard.writeText(str);
+      await copyTextSafe(str);
       notify(`${label} copied`);
     } catch {
       alert('Unable to copy to clipboard');
@@ -169,7 +169,7 @@ export function CredentialsPanel({
         firstInst?.notes ? `Notes: ${firstInst.notes}` : null,
         cred.remark ? `Remark: ${cred.remark}` : null,
       ].filter(Boolean);
-      await navigator.clipboard.writeText(lines.join('\n'));
+      await copyTextSafe(lines.join('\n'));
       notify('All login/VPN parameters copied (audit logged)');
     } catch (err) {
       alert(err instanceof ApiError ? err.message : 'Failed to copy parameters');
@@ -393,9 +393,9 @@ export function CredentialsPanel({
                         >
                           <div className="min-w-0 flex-1">
                             <div className="text-[10px] text-slate-400">{p.label}</div>
-                            {p.isUrl && hasVal ? (
+                            {p.isUrl && hasVal && getSafeExternalUrl(String(p.value)) ? (
                               <a
-                                href={String(p.value)}
+                                href={getSafeExternalUrl(String(p.value))!}
                                 target="_blank"
                                 rel="noopener noreferrer"
                                 className="font-mono text-sky-600 dark:text-sky-400 hover:underline truncate block select-all"
@@ -520,9 +520,9 @@ export function CredentialsPanel({
                     Updated: {new Date(cred.passwordUpdatedAt).toLocaleDateString()}
                   </div>
                   <div className="flex flex-wrap items-center gap-1.5">
-                    {cred.url && (
+                    {getSafeExternalUrl(cred.url) && (
                       <a
-                        href={cred.url}
+                        href={getSafeExternalUrl(cred.url)!}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="inline-flex items-center gap-1 px-2.5 py-1 rounded border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800"

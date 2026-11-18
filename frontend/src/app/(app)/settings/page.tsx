@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import { ConfirmActionModal } from '@/components/common/ConfirmActionModal';
 import { apiFetch, ApiError, formatBytes } from '@/lib/api';
+import { useAuth } from '@/lib/auth-context';
 import { useI18n } from '@/lib/i18n';
 import { NIMS_THEMES, ThemeId } from '@/lib/themes';
 
@@ -57,9 +58,11 @@ interface SystemInfo {
 
 export default function SettingsAndBackupPage() {
   const { t } = useI18n();
+  const { refreshUser } = useAuth();
   const [settings, setSettings] = useState<SystemSettings | null>(null);
   const [backups, setBackups] = useState<BackupJob[]>([]);
   const [sysInfo, setSysInfo] = useState<SystemInfo | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [runningBackup, setRunningBackup] = useState(false);
   const [msg, setMsg] = useState('');
@@ -72,18 +75,23 @@ export default function SettingsAndBackupPage() {
   const [restoreError, setRestoreError] = useState<string | null>(null);
 
   const loadAll = useCallback(async () => {
-    const [sRes, bRes, iRes] = await Promise.all([
-      apiFetch<{ settings: SystemSettings }>('/settings'),
-      apiFetch<{ jobs: BackupJob[] }>('/backups'),
-      apiFetch<{ systemInfo: SystemInfo }>('/settings/system-info'),
-    ]);
-    setSettings(sRes.settings);
-    setBackups(bRes.jobs);
-    setSysInfo(iRes.systemInfo);
+    setLoadError(null);
+    try {
+      const [sRes, bRes, iRes] = await Promise.all([
+        apiFetch<{ settings: SystemSettings }>('/settings'),
+        apiFetch<{ jobs: BackupJob[] }>('/backups'),
+        apiFetch<{ systemInfo: SystemInfo }>('/settings/system-info'),
+      ]);
+      setSettings(sRes.settings);
+      setBackups(bRes.jobs);
+      setSysInfo(iRes.systemInfo);
+    } catch (err) {
+      setLoadError(err instanceof ApiError ? err.message : 'Failed to load system settings');
+    }
   }, []);
 
   useEffect(() => {
-    loadAll().catch(() => {});
+    loadAll();
   }, [loadAll]);
 
   const handleSaveSettings = async (e: React.FormEvent) => {
@@ -96,6 +104,7 @@ export default function SettingsAndBackupPage() {
         method: 'PUT',
         body: JSON.stringify(settings),
       });
+      await refreshUser();
       setMsg('System settings saved and backup schedule refreshed.');
     } catch (err) {
       alert(err instanceof ApiError ? err.message : 'Save failed');
@@ -153,6 +162,19 @@ export default function SettingsAndBackupPage() {
   };
 
   if (!settings) {
+    if (loadError) {
+      return (
+        <div className="p-8 text-center space-y-3">
+          <div className="text-sm text-red-600 dark:text-red-400">{loadError}</div>
+          <button
+            onClick={() => loadAll()}
+            className="px-3 py-1.5 rounded-lg bg-blue-600 text-white text-xs font-medium cursor-pointer"
+          >
+            Retry
+          </button>
+        </div>
+      );
+    }
     return <div className="p-8 text-center text-sm text-slate-500">Loading settings...</div>;
   }
 

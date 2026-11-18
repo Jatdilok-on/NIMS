@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import { ZodError } from 'zod';
 import { Prisma } from '@prisma/client';
+import multer from 'multer';
 
 export class HttpError extends Error {
   status: number;
@@ -29,6 +30,12 @@ export function errorHandler(
       error: 'Validation failed',
       details: err.errors.map((e) => ({ path: e.path.join('.'), message: e.message })),
     });
+    return;
+  }
+
+  if (err instanceof multer.MulterError) {
+    const status = err.code === 'LIMIT_FILE_SIZE' ? 413 : 400;
+    res.status(status).json({ error: `File upload error: ${err.message}` });
     return;
   }
 

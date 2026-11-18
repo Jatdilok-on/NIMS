@@ -76,8 +76,10 @@ if (process.env.NIMS_ALLOW_INSECURE_TLS === 'true') {
 
 const NIMS_URL = (process.env.NIMS_URL || '').replace(/\/+$/, '');
 const NIMS_AGENT_TOKEN = (process.env.NIMS_AGENT_TOKEN || '').trim();
-const PING_TIMEOUT_MS = Math.max(500, parseInt(process.env.NIMS_PING_TIMEOUT_MS || '2000', 10));
-const CONCURRENCY = Math.max(1, Math.min(50, parseInt(process.env.NIMS_CONCURRENCY || '15', 10)));
+const rawPingTimeout = parseInt(process.env.NIMS_PING_TIMEOUT_MS || '2000', 10);
+const rawConcurrency = parseInt(process.env.NIMS_CONCURRENCY || '15', 10);
+const PING_TIMEOUT_MS = Math.max(500, Number.isFinite(rawPingTimeout) ? rawPingTimeout : 2000);
+const CONCURRENCY = Math.max(1, Math.min(50, Number.isFinite(rawConcurrency) ? rawConcurrency : 15));
 const FALLBACK_TCP_PORTS = (process.env.NIMS_FALLBACK_TCP_PORTS || '')
   .split(',')
   .map((s) => parseInt(s.trim(), 10))

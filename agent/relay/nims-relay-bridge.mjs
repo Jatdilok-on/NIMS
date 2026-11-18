@@ -11,6 +11,8 @@
 
 import crypto from 'node:crypto';
 import fs from 'node:fs';
+import http from 'node:http';
+import https from 'node:https';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -60,15 +62,15 @@ for (const p of candidates) {
   loadEnvFile(p);
 }
 
-if (process.env.NIMS_ALLOW_INSECURE_TLS === 'true') {
-  process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
-}
+const ALLOW_INSECURE_NIMS_TLS = process.env.NIMS_ALLOW_INSECURE_TLS === 'true';
 
 const NIMS_URL = (process.env.NIMS_URL || '').replace(/\/+$/, '');
 const RELAY_URL = (process.env.RELAY_URL || '').replace(/\/+$/, '');
 const BRIDGE_SECRET = (process.env.BRIDGE_SECRET || '').trim();
-const BRIDGE_POLL_SEC = Math.max(5, parseInt(process.env.BRIDGE_POLL_SEC || '15', 10));
-const TARGETS_SYNC_SEC = Math.max(30, parseInt(process.env.TARGETS_SYNC_SEC || '120', 10));
+const rawPollSec = parseInt(process.env.BRIDGE_POLL_SEC || '15', 10);
+const rawTargetsSec = parseInt(process.env.TARGETS_SYNC_SEC || '120', 10);
+const BRIDGE_POLL_SEC = Math.max(5, Number.isFinite(rawPollSec) ? rawPollSec : 15);
+const TARGETS_SYNC_SEC = Math.max(30, Number.isFinite(rawTargetsSec) ? rawTargetsSec : 120);
 
 function parseTokenList(raw) {
   return (raw || '')
@@ -122,7 +124,57 @@ function reloadTokensIfEnvChanged() {
   }
 }
 
+function fetchNimsJson(urlString, options = {}) {
+  return new Promise((resolve, reject) => {
+    const parsed = new URL(urlString);
+    const isHttps = parsed.protocol === 'https:';
+    const transport = isHttps ? https : http;
+    const req = transport.request(
+      parsed,
+      {
+        method: options.method || 'GET',
+        headers: {
+          'content-type': 'application/json',
+          ...(options.headers || {}),
+        },
+        ...(isHttps ? { rejectUnauthorized: !ALLOW_INSECURE_NIMS_TLS } : {}),
+        timeout: 15000,
+      },
+      (res) => {
+        const chunks = [];
+        res.on('data', (chunk) => chunks.push(chunk));
+        res.on('end', () => {
+          const text = Buffer.concat(chunks).toString('utf8');
+          let data = {};
+          try {
+            data = text ? JSON.parse(text) : {};
+          } catch {
+            data = { raw: text };
+          }
+          const status = res.statusCode || 0;
+          if (status < 200 || status >= 300) {
+            reject(new Error(`HTTP ${status} (${urlString}): ${data.error || text || res.statusMessage}`));
+            return;
+          }
+          resolve(data);
+        });
+      },
+    );
+    req.on('timeout', () => {
+      req.destroy(new Error(`Request timeout (${urlString})`));
+    });
+    req.on('error', reject);
+    if (options.body) {
+      req.write(options.body);
+    }
+    req.end();
+  });
+}
+
 async function fetchJson(url, options = {}) {
+  if (NIMS_URL && url.startsWith(NIMS_URL)) {
+    return fetchNimsJson(url, options);
+  }
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 15000);
   try {
@@ -156,7 +208,6 @@ let lastTargetsSyncAt = 0;
 async function syncTargetsIfDue() {
   const now = Date.now();
   if (now - lastTargetsSyncAt < TARGETS_SYNC_SEC * 1000) return;
-  lastTargetsSyncAt = now;
 
   const changedItems = [];
   for (const [tokenHash, token] of tokenByHash.entries()) {
@@ -177,7 +228,10 @@ async function syncTargetsIfDue() {
     }
   }
 
-  if (changedItems.length === 0) return;
+  if (changedItems.length === 0) {
+    lastTargetsSyncAt = Date.now();
+    return;
+  }
 
   await fetchJson(`${RELAY_URL}/bridge/targets`, {
     method: 'POST',
@@ -186,6 +240,8 @@ async function syncTargetsIfDue() {
       items: changedItems.map(({ tokenHash, payload }) => ({ tokenHash, payload })),
     }),
   });
+
+  lastTargetsSyncAt = Date.now();
 
   for (const item of changedItems) {
     lastTargetDigestByHash.set(item.tokenHash, item.digest);

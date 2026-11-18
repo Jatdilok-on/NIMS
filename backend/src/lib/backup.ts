@@ -4,7 +4,7 @@ import crypto from 'crypto';
 import archiver from 'archiver';
 import unzipper from 'unzipper';
 import cron, { ScheduledTask } from 'node-cron';
-import { BackupSchedule, BackupStatus, BackupType } from '@prisma/client';
+import { BackupSchedule, BackupStatus, BackupType, Prisma } from '@prisma/client';
 import { prisma } from './prisma';
 import { env } from '../config/env';
 import { ensureDir } from './storage';
@@ -14,9 +14,23 @@ let activeCronTask: ScheduledTask | null = null;
 async function getStorageAndBackupDirs(): Promise<{ storageDir: string; backupDir: string }> {
   const settings = await prisma.systemSetting.findUnique({ where: { key: 'default' } });
   return {
-    storageDir: settings?.storageLocation || env.storageRoot,
+    storageDir: env.storageRoot,
     backupDir: settings?.backupLocation || env.backupRoot,
   };
+}
+
+function hashFileStream(targetPath: string): Promise<{ size: number; sha256: string }> {
+  return new Promise((resolve, reject) => {
+    const hash = crypto.createHash('sha256');
+    let size = 0;
+    const stream = fs.createReadStream(targetPath);
+    stream.on('data', (chunk) => {
+      size += chunk.length;
+      hash.update(chunk);
+    });
+    stream.on('end', () => resolve({ size, sha256: hash.digest('hex') }));
+    stream.on('error', reject);
+  });
 }
 
 export async function createSystemBackup(options: {
@@ -47,70 +61,74 @@ export async function createSystemBackup(options: {
   });
 
   try {
-    await new Promise<void>(async (resolve, reject) => {
+    const manifest: Record<string, unknown> = {
+      version: '1.1',
+      createdAt: new Date().toISOString(),
+      includesDb: job.includesDb,
+      includesFiles: job.includesFiles,
+    };
+
+    let dbBuffer: Buffer | null = null;
+    if (job.includesDb) {
+      const dbSnapshot = {
+        roles: await prisma.role.findMany(),
+        permissions: await prisma.permission.findMany(),
+        rolePermissions: await prisma.rolePermission.findMany(),
+        users: await prisma.user.findMany(),
+        sites: await prisma.site.findMany(),
+        siteAgents: await prisma.siteAgent.findMany(),
+        userSitePermissions: await prisma.userSitePermission.findMany(),
+        deviceTypes: await prisma.deviceType.findMany(),
+        devices: await prisma.device.findMany(),
+        switches: await prisma.switchDetail.findMany(),
+        accessPoints: await prisma.accessPointDetail.findMany(),
+        apClients: await prisma.apClientDetail.findMany(),
+        controllers: await prisma.controllerDetail.findMany(),
+        servers: await prisma.serverDetail.findMany(),
+        vlans: await prisma.vlan.findMany(),
+        subnets: await prisma.subnet.findMany(),
+        ipAddresses: await prisma.ipAddress.findMany(),
+        credentials: await prisma.credential.findMany(),
+        accessInstructions: await prisma.accessInstruction.findMany(),
+        diagrams: await prisma.diagram.findMany(),
+        diagramVersions: await prisma.diagramVersion.findMany(),
+        projects: await prisma.project.findMany(),
+        documents: await prisma.document.findMany(),
+        documentVersions: await prisma.documentVersion.findMany(),
+        maintenanceRecords: await prisma.maintenanceRecord.findMany(),
+        systemSettings: await prisma.systemSetting.findMany(),
+      };
+      dbBuffer = Buffer.from(JSON.stringify(dbSnapshot, null, 2), 'utf8');
+      manifest.dbChecksum = crypto.createHash('sha256').update(dbBuffer).digest('hex');
+    }
+
+    await new Promise<void>((resolve, reject) => {
       const output = fs.createWriteStream(filePath);
       const archive = archiver('zip', { zlib: { level: 9 } });
 
       output.on('close', () => resolve());
+      output.on('error', (err) => reject(err));
       archive.on('error', (err) => reject(err));
       archive.pipe(output);
 
-      const manifest: Record<string, unknown> = {
-        version: '1.0',
-        createdAt: new Date().toISOString(),
-        includesDb: job.includesDb,
-        includesFiles: job.includesFiles,
-      };
-
-      if (job.includesDb) {
-        const dbSnapshot = {
-          roles: await prisma.role.findMany(),
-          permissions: await prisma.permission.findMany(),
-          rolePermissions: await prisma.rolePermission.findMany(),
-          users: await prisma.user.findMany(),
-          sites: await prisma.site.findMany(),
-          userSitePermissions: await prisma.userSitePermission.findMany(),
-          deviceTypes: await prisma.deviceType.findMany(),
-          devices: await prisma.device.findMany(),
-          switches: await prisma.switchDetail.findMany(),
-          accessPoints: await prisma.accessPointDetail.findMany(),
-          apClients: await prisma.apClientDetail.findMany(),
-          controllers: await prisma.controllerDetail.findMany(),
-          servers: await prisma.serverDetail.findMany(),
-          vlans: await prisma.vlan.findMany(),
-          subnets: await prisma.subnet.findMany(),
-          ipAddresses: await prisma.ipAddress.findMany(),
-          credentials: await prisma.credential.findMany(),
-          accessInstructions: await prisma.accessInstruction.findMany(),
-          diagrams: await prisma.diagram.findMany(),
-          diagramVersions: await prisma.diagramVersion.findMany(),
-          projects: await prisma.project.findMany(),
-          documents: await prisma.document.findMany(),
-          documentVersions: await prisma.documentVersion.findMany(),
-          maintenanceRecords: await prisma.maintenanceRecord.findMany(),
-          systemSettings: await prisma.systemSetting.findMany(),
-        };
-        const dbBuffer = Buffer.from(JSON.stringify(dbSnapshot, null, 2), 'utf8');
-        manifest.dbChecksum = crypto.createHash('sha256').update(dbBuffer).digest('hex');
+      if (dbBuffer) {
         archive.append(dbBuffer, { name: 'database.json' });
       }
-
       if (job.includesFiles && fs.existsSync(storageDir)) {
         archive.directory(storageDir, 'storage');
       }
 
       archive.append(JSON.stringify(manifest, null, 2), { name: 'manifest.json' });
-      await archive.finalize();
+      archive.finalize().catch(reject);
     });
 
-    const fileBuffer = fs.readFileSync(filePath);
-    const checksum = crypto.createHash('sha256').update(fileBuffer).digest('hex');
+    const { size, sha256: checksum } = await hashFileStream(filePath);
 
     const completed = await prisma.backupJob.update({
       where: { id: job.id },
       data: {
         status: BackupStatus.COMPLETED,
-        fileSize: fileBuffer.length,
+        fileSize: size,
         checksum,
         completedAt: new Date(),
       },
@@ -164,12 +182,33 @@ export async function restoreFromBackupArchive(backupFilePath: string): Promise<
   }
 
   const directory = await unzipper.Open.file(backupFilePath);
+  const manifestEntry = directory.files.find((f) => f.path === 'manifest.json');
   const dbEntry = directory.files.find((f) => f.path === 'database.json');
   let restoredTables = 0;
   let restoredFiles = 0;
 
+  let expectedDbChecksum: string | null = null;
+  if (manifestEntry) {
+    try {
+      const manifestRaw = (await manifestEntry.buffer()).toString('utf8');
+      const manifest = JSON.parse(manifestRaw) as { dbChecksum?: unknown };
+      if (typeof manifest.dbChecksum === 'string') {
+        expectedDbChecksum = manifest.dbChecksum;
+      }
+    } catch {
+      throw new Error('Corrupted backup manifest.json');
+    }
+  }
+
   if (dbEntry) {
-    const raw = (await dbEntry.buffer()).toString('utf8');
+    const dbBuffer = await dbEntry.buffer();
+    if (expectedDbChecksum) {
+      const actualChecksum = crypto.createHash('sha256').update(dbBuffer).digest('hex');
+      if (actualChecksum !== expectedDbChecksum) {
+        throw new Error('Backup database.json checksum verification failed');
+      }
+    }
+    const raw = dbBuffer.toString('utf8');
     const data = JSON.parse(raw);
 
     // Clear operational collections in reverse dependency order (MongoDB-compatible without multi-doc transactions)
@@ -190,6 +229,7 @@ export async function restoreFromBackupArchive(backupFilePath: string): Promise<
     await prisma.controllerDetail.deleteMany();
     await prisma.serverDetail.deleteMany();
     await prisma.device.deleteMany();
+    await prisma.siteAgent.deleteMany();
     await prisma.userSitePermission.deleteMany();
     await prisma.site.deleteMany();
 
@@ -197,15 +237,41 @@ export async function restoreFromBackupArchive(backupFilePath: string): Promise<
       await prisma.site.createMany({ data: data.sites });
       restoredTables++;
     }
+    if (Array.isArray(data.siteAgents) && data.siteAgents.length) {
+      await prisma.siteAgent.createMany({ data: data.siteAgents });
+      restoredTables++;
+    }
+    // Build roleId and deviceTypeId remapping tables so restored users/devices match target DB reference ObjectIds
+    const backupRoleCodeById = new Map<string, string>();
+    if (Array.isArray(data.roles)) {
+      for (const r of data.roles as Array<{ id?: string; code?: string }>) {
+        if (r?.id && r?.code) backupRoleCodeById.set(r.id, r.code);
+      }
+    }
+    const currentRoles = await prisma.role.findMany();
+    const currentRoleIdByCode = new Map(currentRoles.map((r) => [String(r.code), r.id]));
+
     if (Array.isArray(data.deviceTypes) && data.deviceTypes.length) {
       for (const dt of data.deviceTypes) {
         await prisma.deviceType.create({ data: dt }).catch(() => undefined);
       }
       restoredTables++;
     }
+    const currentDeviceTypes = await prisma.deviceType.findMany();
+    const currentDtIdByCode = new Map(currentDeviceTypes.map((dt) => [String(dt.code), dt.id]));
+    const backupDtCodeById = new Map<string, string>();
+    if (Array.isArray(data.deviceTypes)) {
+      for (const dt of data.deviceTypes as Array<{ id?: string; code?: string }>) {
+        if (dt?.id && dt?.code) backupDtCodeById.set(dt.id, dt.code);
+      }
+    }
+
     if (Array.isArray(data.users) && data.users.length) {
       for (const u of data.users) {
-        await prisma.user.create({ data: u }).catch(() => undefined);
+        const mappedRoleCode = backupRoleCodeById.get(u.roleId);
+        const mappedRoleId = mappedRoleCode ? currentRoleIdByCode.get(mappedRoleCode) : undefined;
+        const userPayload = mappedRoleId ? { ...u, roleId: mappedRoleId } : u;
+        await prisma.user.create({ data: userPayload }).catch(() => undefined);
       }
       restoredTables++;
     }
@@ -214,7 +280,12 @@ export async function restoreFromBackupArchive(backupFilePath: string): Promise<
       restoredTables++;
     }
     if (Array.isArray(data.devices) && data.devices.length) {
-      await prisma.device.createMany({ data: data.devices });
+      const remappedDevices = (data.devices as Prisma.DeviceCreateManyInput[]).map((d) => {
+        const code = backupDtCodeById.get(d.deviceTypeId) || d.category;
+        const targetDtId = code ? currentDtIdByCode.get(String(code)) : undefined;
+        return targetDtId ? { ...d, deviceTypeId: targetDtId } : d;
+      });
+      await prisma.device.createMany({ data: remappedDevices });
       restoredTables++;
     }
     if (Array.isArray(data.switches) && data.switches.length) {

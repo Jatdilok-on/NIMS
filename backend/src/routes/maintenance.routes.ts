@@ -53,6 +53,33 @@ router.post(
   async (req, res, next) => {
     try {
       const body = maintenanceSchema.parse(req.body);
+      const site = await prisma.site.findUnique({ where: { id: body.siteId } });
+      if (!site) {
+        res.status(404).json({ error: 'Site not found' });
+        return;
+      }
+
+      if (body.deviceId) {
+        const device = await prisma.device.findFirst({
+          where: { id: body.deviceId, siteId: body.siteId },
+        });
+        if (!device) {
+          res.status(400).json({ error: 'Referenced deviceId does not belong to this site' });
+          return;
+        }
+      }
+
+      const performedAt = body.performedAt ? new Date(body.performedAt) : new Date();
+      if (Number.isNaN(performedAt.getTime())) {
+        res.status(400).json({ error: 'Invalid performedAt date' });
+        return;
+      }
+      const nextScheduledAt = body.nextScheduledAt ? new Date(body.nextScheduledAt) : null;
+      if (nextScheduledAt && Number.isNaN(nextScheduledAt.getTime())) {
+        res.status(400).json({ error: 'Invalid nextScheduledAt date' });
+        return;
+      }
+
       const record = await prisma.maintenanceRecord.create({
         data: {
           siteId: body.siteId,
@@ -60,8 +87,8 @@ router.post(
           title: body.title.trim(),
           maintenanceType: body.maintenanceType,
           status: body.status,
-          performedAt: body.performedAt ? new Date(body.performedAt) : new Date(),
-          nextScheduledAt: body.nextScheduledAt ? new Date(body.nextScheduledAt) : null,
+          performedAt,
+          nextScheduledAt,
           engineerName: body.engineerName || req.user!.fullName,
           engineerUserId: req.user!.id,
           summary: body.summary.trim(),
@@ -96,7 +123,10 @@ router.post(
 
 router.delete('/:id', async (req, res, next) => {
   try {
-    const existing = await prisma.maintenanceRecord.findUnique({ where: { id: req.params.id } });
+    const existing = await prisma.maintenanceRecord.findUnique({
+      where: { id: req.params.id },
+      include: { site: { select: { siteCode: true } }, device: { select: { name: true } } },
+    });
     if (!existing) {
       res.status(404).json({ error: 'Maintenance record not found' });
       return;
@@ -106,6 +136,18 @@ router.delete('/:id', async (req, res, next) => {
       return;
     }
     await prisma.maintenanceRecord.delete({ where: { id: existing.id } });
+    await recordAuditLog({
+      req,
+      userId: req.user!.id,
+      username: req.user!.username,
+      action: 'DELETE_MAINTENANCE_RECORD',
+      module: 'MAINTENANCE',
+      siteId: existing.siteId,
+      siteCode: existing.site.siteCode,
+      deviceId: existing.deviceId,
+      deviceName: existing.device?.name,
+      details: { recordId: existing.id, title: existing.title },
+    });
     res.json({ message: 'Deleted' });
   } catch (err) {
     next(err);

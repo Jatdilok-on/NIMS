@@ -158,7 +158,7 @@ export async function releaseDeviceIpamAllocations(
 
   await tx.ipAddress.updateMany({
     where: { ...staleWhere, status: { not: IpAllocationStatus.ALLOCATED } },
-    data: { deviceId: null },
+    data: { deviceId: null, hostname: null, macAddress: null },
   });
 
   await tx.ipAddress.deleteMany({
@@ -383,10 +383,20 @@ export async function updateDeviceWithDetails(deviceId: string, payload: Partial
     deviceId,
   );
 
+  const nextCategory = payload.category ?? existing.category;
+  const categoryChanged = payload.category !== undefined && payload.category !== existing.category;
+  let nextDeviceTypeId: string | undefined = undefined;
+  if (categoryChanged) {
+    const dt = await prisma.deviceType.findUniqueOrThrow({ where: { code: nextCategory } });
+    nextDeviceTypeId = dt.id;
+  }
+
   const tx = prisma;
   const updated = await tx.device.update({
       where: { id: deviceId },
       data: {
+        siteId: payload.siteId !== undefined ? payload.siteId : undefined,
+        deviceTypeId: nextDeviceTypeId,
         category: payload.category !== undefined ? payload.category : undefined,
         itemNo: payload.itemNo !== undefined ? payload.itemNo : undefined,
         name: payload.name !== undefined ? payload.name.trim() : undefined,

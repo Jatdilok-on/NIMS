@@ -486,10 +486,12 @@ export async function buildInventoryExcelBuffer(rows: ExportDeviceRow[]): Promis
 
 function escapeCsvValue(val: string | number | null | undefined): string {
   const s = val === null || val === undefined ? '' : String(val);
-  if (s.includes(',') || s.includes('"') || s.includes('\n')) {
-    return `"${s.replace(/"/g, '""')}"`;
+  // Neutralize spreadsheet formula injection while preserving plain display values
+  const safe = /^[=+\-@\t\r]/.test(s) ? `'${s}` : s;
+  if (safe.includes(',') || safe.includes('"') || safe.includes('\n') || safe.includes('\r')) {
+    return `"${safe.replace(/"/g, '""')}"`;
   }
-  return s;
+  return safe;
 }
 
 export function buildInventoryCsv(rows: ExportDeviceRow[]): string {
@@ -551,6 +553,10 @@ const CATEGORY_SYNONYMS: Array<{ patterns: string[]; category: DeviceCategory }>
     category: DeviceCategory.IP_CAM,
   },
   {
+    patterns: ['plc', 'programmable logic controller', 'plc controller'],
+    category: DeviceCategory.PLC,
+  },
+  {
     patterns: ['wlc', 'wireless controller', 'controller', 'ac controller'],
     category: DeviceCategory.WLC,
   },
@@ -569,10 +575,6 @@ const CATEGORY_SYNONYMS: Array<{ patterns: string[]; category: DeviceCategory }>
   {
     patterns: ['server', 'svr', 'physical server', 'rack server'],
     category: DeviceCategory.SERVER,
-  },
-  {
-    patterns: ['plc', 'programmable logic controller', 'plc controller'],
-    category: DeviceCategory.PLC,
   },
   {
     patterns: ['nas', 'nas storage', 'storage', 'synology', 'qnap'],

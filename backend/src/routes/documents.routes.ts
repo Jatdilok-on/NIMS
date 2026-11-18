@@ -10,6 +10,7 @@ import {
   deleteStoredFile,
   isAllowedExtension,
   readStoredFile,
+  resolveSafeMimeType,
   saveSiteFile,
 } from '../lib/storage';
 import { recordAuditLog } from '../lib/audit';
@@ -90,7 +91,21 @@ router.post('/upload', upload.single('file'), async (req, res, next) => {
       return;
     }
 
-    const site = await prisma.site.findUniqueOrThrow({ where: { id: siteId } });
+    const site = await prisma.site.findUnique({ where: { id: siteId } });
+    if (!site) {
+      res.status(404).json({ error: 'Site not found' });
+      return;
+    }
+
+    const projectId = req.body.projectId ? String(req.body.projectId).trim() : null;
+    if (projectId) {
+      const project = await prisma.project.findFirst({ where: { id: projectId, siteId } });
+      if (!project) {
+        res.status(400).json({ error: 'Referenced projectId does not belong to this site' });
+        return;
+      }
+    }
+
     const categoryRaw = String(req.body.category || 'OTHER');
     const category =
       categoryRaw in DocumentCategory
@@ -100,6 +115,7 @@ router.post('/upload', upload.single('file'), async (req, res, next) => {
     const documentName = String(req.body.documentName || req.file.originalname).trim();
     const versionLabel = String(req.body.version || '1.0').trim();
     const ext = path.extname(req.file.originalname).replace('.', '').toUpperCase() || 'FILE';
+    const safeMime = resolveSafeMimeType(req.file.originalname);
 
     const saved = saveSiteFile(
       site.siteCode,
@@ -111,7 +127,7 @@ router.post('/upload', upload.single('file'), async (req, res, next) => {
     const created = await prisma.document.create({
       data: {
         siteId,
-        projectId: req.body.projectId ? String(req.body.projectId) : null,
+        projectId,
         documentName,
         documentType: ext,
         category,
@@ -121,7 +137,7 @@ router.post('/upload', upload.single('file'), async (req, res, next) => {
         versionNumber: 1,
         filePath: saved.relativePath,
         originalFileName: req.file!.originalname,
-        mimeType: req.file!.mimetype,
+        mimeType: safeMime,
         fileSize: saved.fileSize,
         uploadedById: req.user!.id,
         responsiblePerson: req.body.responsiblePerson
@@ -138,7 +154,7 @@ router.post('/upload', upload.single('file'), async (req, res, next) => {
         versionLabel,
         filePath: saved.relativePath,
         originalFileName: req.file!.originalname,
-        mimeType: req.file!.mimetype,
+        mimeType: safeMime,
         fileSize: saved.fileSize,
         changeNote: req.body.changeNote ? String(req.body.changeNote) : 'Initial upload',
         uploadedById: req.user!.id,
@@ -200,6 +216,7 @@ router.post('/:id/replace', upload.single('file'), async (req, res, next) => {
       ? String(req.body.version).trim()
       : `${nextVerNum}.0`;
     const ext = path.extname(req.file.originalname).replace('.', '').toUpperCase() || 'FILE';
+    const safeMime = resolveSafeMimeType(req.file.originalname);
 
     const saved = saveSiteFile(
       existing.site.siteCode,
@@ -216,7 +233,7 @@ router.post('/:id/replace', upload.single('file'), async (req, res, next) => {
         versionNumber: nextVerNum,
         filePath: saved.relativePath,
         originalFileName: req.file!.originalname,
-        mimeType: req.file!.mimetype,
+        mimeType: safeMime,
         fileSize: saved.fileSize,
         uploadedById: req.user!.id,
       },
@@ -229,7 +246,7 @@ router.post('/:id/replace', upload.single('file'), async (req, res, next) => {
         versionLabel: nextVerLabel,
         filePath: saved.relativePath,
         originalFileName: req.file!.originalname,
-        mimeType: req.file!.mimetype,
+        mimeType: safeMime,
         fileSize: saved.fileSize,
         changeNote: req.body.changeNote
           ? String(req.body.changeNote)
@@ -278,12 +295,19 @@ router.get('/:id/download', async (req, res, next) => {
       return;
     }
 
-    const versionParam = req.query.version ? parseInt(String(req.query.version), 10) : null;
+    let versionParam: number | null = null;
+    if (req.query.version !== undefined) {
+      const parsedVer = parseInt(String(req.query.version), 10);
+      if (Number.isNaN(parsedVer) || parsedVer < 1) {
+        res.status(400).json({ error: 'Invalid document version parameter' });
+        return;
+      }
+      versionParam = parsedVer;
+    }
     let targetPath = doc.filePath;
     let targetName = doc.originalFileName;
-    let targetMime = doc.mimeType;
 
-    if (versionParam) {
+    if (versionParam !== null) {
       const ver = await prisma.documentVersion.findUnique({
         where: { documentId_versionNumber: { documentId: doc.id, versionNumber: versionParam } },
       });
@@ -293,11 +317,21 @@ router.get('/:id/download', async (req, res, next) => {
       }
       targetPath = ver.filePath;
       targetName = ver.originalFileName;
-      targetMime = ver.mimeType;
     }
 
     const buf = readStoredFile(targetPath);
     const inline = req.query.inline === '1';
+    const targetExt = path.extname(targetName).toLowerCase();
+    const safeMime = resolveSafeMimeType(targetName);
+    const isPdf = targetExt === '.pdf';
+    const isSvg = targetExt === '.svg';
+    const allowInline =
+      inline &&
+      (isPdf ||
+        isSvg ||
+        safeMime.startsWith('image/') ||
+        safeMime.startsWith('text/') ||
+        safeMime.startsWith('application/json'));
 
     await recordAuditLog({
       req,
@@ -310,10 +344,19 @@ router.get('/:id/download', async (req, res, next) => {
       details: { documentId: doc.id, documentName: doc.documentName },
     });
 
-    res.setHeader('Content-Type', targetMime || 'application/octet-stream');
+    res.setHeader('Content-Type', safeMime);
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    if (allowInline) {
+      res.setHeader(
+        'Content-Security-Policy',
+        isPdf
+          ? "default-src 'none'; script-src 'none'; object-src 'self'"
+          : "default-src 'none'; sandbox; style-src 'unsafe-inline'; img-src 'self' data:",
+      );
+    }
     res.setHeader(
       'Content-Disposition',
-      `${inline ? 'inline' : 'attachment'}; filename="${encodeURIComponent(targetName)}"`,
+      `${allowInline ? 'inline' : 'attachment'}; filename="${encodeURIComponent(targetName)}"`,
     );
     res.send(buf);
   } catch (err) {

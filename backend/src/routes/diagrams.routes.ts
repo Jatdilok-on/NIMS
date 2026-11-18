@@ -8,6 +8,7 @@ import { authenticate } from '../middleware/auth';
 import { getPermittedSiteIds, hasSitePermission, requireSitePermission } from '../middleware/rbac';
 import {
   ALLOWED_DIAGRAM_EXTENSIONS,
+  deleteStoredFile,
   isAllowedExtension,
   readStoredFile,
   saveSiteFile,
@@ -78,7 +79,7 @@ function detectContentTypeForFormat(
   }
 }
 
-async function enrichCanvasWithLiveInventory(canvasData: unknown) {
+async function enrichCanvasWithLiveInventory(canvasData: unknown, siteId?: string) {
   if (!canvasData || typeof canvasData !== 'object') return canvasData;
   const cd = canvasData as {
     nodes?: Array<{ id: string; data?: Record<string, unknown>; [k: string]: unknown }>;
@@ -94,7 +95,7 @@ async function enrichCanvasWithLiveInventory(canvasData: unknown) {
   if (deviceIds.length === 0) return canvasData;
 
   const devices = await prisma.device.findMany({
-    where: { id: { in: deviceIds } },
+    where: { id: { in: deviceIds }, ...(siteId ? { siteId } : {}) },
     select: {
       id: true,
       name: true,
@@ -202,7 +203,7 @@ router.get('/:id', async (req, res, next) => {
       return;
     }
 
-    const enrichedCanvas = await enrichCanvasWithLiveInventory(diagram.canvasData);
+    const enrichedCanvas = await enrichCanvasWithLiveInventory(diagram.canvasData, diagram.siteId);
     res.json({ diagram: { ...diagram, canvasData: enrichedCanvas } });
   } catch (err) {
     next(err);
@@ -515,12 +516,19 @@ router.get('/:id/file', async (req, res, next) => {
 
     const buf = readStoredFile(targetFilePath);
     res.setHeader('Content-Type', targetContentType);
+    res.setHeader('X-Content-Type-Options', 'nosniff');
     if (req.query.download === '1') {
       res.setHeader(
         'Content-Disposition',
         `attachment; filename="${path.basename(targetFilePath)}"`,
       );
     } else {
+      if (targetContentType.includes('svg') || targetContentType.includes('xml')) {
+        res.setHeader(
+          'Content-Security-Policy',
+          "default-src 'none'; sandbox; style-src 'unsafe-inline'; img-src 'self' data:",
+        );
+      }
       res.setHeader('Content-Disposition', 'inline');
     }
     res.send(buf);
@@ -542,6 +550,11 @@ router.get('/:id/preview-svg', async (req, res, next) => {
     }
     const buf = readStoredFile(diagram.previewSvgPath);
     res.setHeader('Content-Type', 'image/svg+xml');
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader(
+      'Content-Security-Policy',
+      "default-src 'none'; sandbox; style-src 'unsafe-inline'; img-src 'self' data:",
+    );
     res.send(buf);
   } catch (err) {
     next(err);
@@ -558,11 +571,17 @@ router.post('/parse-import', upload.single('file'), async (req, res, next) => {
     const rawText = req.file.buffer.toString('utf8');
 
     if (ext === '.json') {
-      const parsed = JSON.parse(rawText) as {
+      let parsed: {
         nodes?: unknown[];
         edges?: unknown[];
         backgroundImage?: string | null;
       };
+      try {
+        parsed = JSON.parse(rawText);
+      } catch {
+        res.status(400).json({ error: 'Invalid JSON syntax in diagram file' });
+        return;
+      }
       if (!Array.isArray(parsed.nodes)) {
         res.status(400).json({ error: 'Invalid NIMS JSON diagram (missing nodes array)' });
         return;
@@ -602,7 +621,7 @@ router.get('/:id/export/json', async (req, res, next) => {
       res.status(403).json({ error: 'Access denied' });
       return;
     }
-    const cd = await enrichCanvasWithLiveInventory(diagram.canvasData);
+    const cd = await enrichCanvasWithLiveInventory(diagram.canvasData, diagram.siteId);
     res.setHeader('Content-Type', 'application/json; charset=utf-8');
     res.setHeader(
       'Content-Disposition',
@@ -626,7 +645,7 @@ router.get('/:id/export/drawio', async (req, res, next) => {
       return;
     }
 
-    const cd = (await enrichCanvasWithLiveInventory(diagram.canvasData)) as {
+    const cd = (await enrichCanvasWithLiveInventory(diagram.canvasData, diagram.siteId)) as {
       nodes?: ReactFlowExportNode[];
       edges?: ReactFlowExportEdge[];
     } | null;
@@ -729,7 +748,10 @@ router.delete('/:id', async (req, res, next) => {
   try {
     const diagram = await prisma.diagram.findUnique({
       where: { id: req.params.id },
-      include: { site: { select: { siteCode: true } } },
+      include: {
+        site: { select: { siteCode: true } },
+        versions: { select: { filePath: true } },
+      },
     });
     if (!diagram) {
       res.status(404).json({ error: 'Diagram not found' });
@@ -740,7 +762,17 @@ router.delete('/:id', async (req, res, next) => {
       return;
     }
 
+    const filePathsToDelete = new Set<string>();
+    if (diagram.filePath) filePathsToDelete.add(diagram.filePath);
+    if (diagram.previewSvgPath) filePathsToDelete.add(diagram.previewSvgPath);
+    for (const v of diagram.versions) {
+      if (v.filePath) filePathsToDelete.add(v.filePath);
+    }
+
     await prisma.diagram.delete({ where: { id: diagram.id } });
+    for (const relPath of filePathsToDelete) {
+      deleteStoredFile(relPath);
+    }
     await recordAuditLog({
       req,
       userId: req.user!.id,

@@ -45,7 +45,14 @@ const credentialSchema = z.object({
   password: z.string().min(1).max(500),
   accessMethod: z.string().max(160).optional().nullable(),
   port: z.number().int().min(1).max(65535).optional().nullable(),
-  url: z.string().max(500).optional().nullable(),
+  url: z
+    .string()
+    .max(500)
+    .optional()
+    .nullable()
+    .refine((val) => !val || /^https?:\/\//i.test(val.trim()), {
+      message: 'URL must start with http:// or https://',
+    }),
   remark: z.string().max(1000).optional().nullable(),
   passwordExpiresAt: z.string().optional().nullable(),
   howToConnect: z.string().max(2000).optional().nullable(),
@@ -236,6 +243,7 @@ router.get('/export', async (req, res, next) => {
       });
     }
 
+    res.setHeader('Cache-Control', 'no-store');
     if (format === 'csv') {
       const csv = buildCredentialsCsv(exportRows);
       res.setHeader('Content-Type', 'text/csv; charset=utf-8');
@@ -498,6 +506,21 @@ router.post(
   async (req, res, next) => {
     try {
       const body = credentialSchema.parse(req.body);
+      if (body.deviceId) {
+        const linkedDevice = await prisma.device.findFirst({
+          where: { id: body.deviceId, siteId: body.siteId },
+        });
+        if (!linkedDevice) {
+          res.status(400).json({ error: 'Referenced deviceId does not belong to this site' });
+          return;
+        }
+      }
+      const passwordExpiresAt = body.passwordExpiresAt ? new Date(body.passwordExpiresAt) : null;
+      if (passwordExpiresAt && Number.isNaN(passwordExpiresAt.getTime())) {
+        res.status(400).json({ error: 'Invalid passwordExpiresAt date' });
+        return;
+      }
+
       const usernameEncrypted = encryptSecret(body.username);
       const passwordEncrypted = encryptSecret(body.password);
 
@@ -516,7 +539,7 @@ router.post(
           port: body.port ?? null,
           url: body.url?.trim() || null,
           remark: body.remark?.trim() || null,
-          passwordExpiresAt: body.passwordExpiresAt ? new Date(body.passwordExpiresAt) : null,
+          passwordExpiresAt,
           createdById: req.user!.id,
         },
       });
@@ -577,6 +600,29 @@ router.put('/:id', async (req, res, next) => {
     }
 
     const body = updateCredentialSchema.parse(req.body);
+    if (body.deviceId) {
+      const linkedDevice = await prisma.device.findFirst({
+        where: { id: body.deviceId, siteId: existing.siteId },
+      });
+      if (!linkedDevice) {
+        res.status(400).json({ error: 'Referenced deviceId does not belong to this site' });
+        return;
+      }
+    }
+    let nextPasswordExpiresAt: Date | null | undefined = undefined;
+    if (body.passwordExpiresAt !== undefined) {
+      if (body.passwordExpiresAt) {
+        const d = new Date(body.passwordExpiresAt);
+        if (Number.isNaN(d.getTime())) {
+          res.status(400).json({ error: 'Invalid passwordExpiresAt date' });
+          return;
+        }
+        nextPasswordExpiresAt = d;
+      } else {
+        nextPasswordExpiresAt = null;
+      }
+    }
+
     const tx = prisma;
     const cred = await tx.credential.update({
       where: { id: existing.id },
@@ -593,12 +639,7 @@ router.put('/:id', async (req, res, next) => {
         port: body.port,
         url: body.url,
         remark: body.remark,
-        passwordExpiresAt:
-          body.passwordExpiresAt !== undefined
-            ? body.passwordExpiresAt
-              ? new Date(body.passwordExpiresAt)
-              : null
-            : undefined,
+        passwordExpiresAt: nextPasswordExpiresAt,
       },
     });
 

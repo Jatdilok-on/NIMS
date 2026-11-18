@@ -29,26 +29,10 @@ import {
 } from '@/components/icons/TechIcons';
 import { ConfirmActionModal } from '@/components/common/ConfirmActionModal';
 import { ImportSitesModal } from '@/components/sites/ImportSitesModal';
-import { apiFetch, ApiError, getSiteGoogleMapUrl } from '@/lib/api';
+import { apiFetch, ApiError, copyTextSafe, getSiteGoogleMapUrl } from '@/lib/api';
 import { useAuth } from '@/lib/auth-context';
 import { useI18n } from '@/lib/i18n';
 import { CredentialItem, Device, Site } from '@/lib/types';
-
-async function copyTextSafe(value: string): Promise<void> {
-  if (typeof navigator !== 'undefined' && navigator.clipboard && window.isSecureContext) {
-    await navigator.clipboard.writeText(value);
-    return;
-  }
-  const ta = document.createElement('textarea');
-  ta.value = value;
-  ta.style.position = 'fixed';
-  ta.style.left = '-9999px';
-  document.body.appendChild(ta);
-  ta.focus();
-  ta.select();
-  document.execCommand('copy');
-  document.body.removeChild(ta);
-}
 
 function suggestSiteCode(siteName: string, existingCodes: string[]): string {
   const used = new Set(existingCodes.map((c) => c.toUpperCase()));
