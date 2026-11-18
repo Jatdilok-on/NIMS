@@ -1085,17 +1085,15 @@ function InnerDiagramEditor({
         pixelRatio: exportPixelRatio,
         skipAutoScale: true,
         filter: (domNode) => {
-          if (domNode instanceof HTMLElement || domNode instanceof SVGElement) {
-            const cls = domNode.classList;
-            if (
-              cls?.contains('react-flow__minimap') ||
-              cls?.contains('react-flow__controls') ||
-              cls?.contains('react-flow__attribution') ||
-              cls?.contains('react-flow__panel') ||
-              cls?.contains('react-flow__resize-control')
-            ) {
-              return false;
-            }
+          const cls = (domNode as Element | null)?.classList;
+          if (
+            cls?.contains('react-flow__minimap') ||
+            cls?.contains('react-flow__controls') ||
+            cls?.contains('react-flow__attribution') ||
+            cls?.contains('react-flow__panel') ||
+            cls?.contains('react-flow__resize-control')
+          ) {
+            return false;
           }
           return true;
         },
