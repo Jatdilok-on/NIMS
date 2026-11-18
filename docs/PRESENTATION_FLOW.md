@@ -157,6 +157,16 @@ sequenceDiagram
    - หน้าเว็บหลัก/Login/ฐานข้อมูลของ NIMS **ไม่ถูกเปิดออกอินเทอร์เน็ต** — มีเฉพาะข้อมูล Target IP และผล Ping ที่วิ่งผ่าน Cloud Relay
 3. **Data Protection:** รหัสผ่านผู้ใช้ Hash ด้วย `bcrypt`, ข้อมูลใน Credentials Vault เข้ารหัสด้วย **AES-256-GCM**, Session ใช้ **HttpOnly Cookie + CSRF**, และตรวจสิทธิ์ **RBAC ราย Site** ทุก API
 
+### 5.1 ตารางควบคุมสิทธิ์ผู้ใช้งาน 5 ระดับ (RBAC Permission Matrix)
+
+| Role | ขอบเขต Site | ดู Inventory / Diagram / IPAM | แก้ไข / ลบข้อมูล | เข้าดู Credentials Vault | จัดการผู้ใช้ / Backup |
+| :--- | :--- | :---: | :---: | :---: | :---: |
+| **`SUPER_ADMIN`** | ทุก Site ทั้งองค์กร | ✅ | ✅ | ✅ *(บันทึก Audit Log)* | ✅ |
+| **`SITE_ADMIN`** | เฉพาะ Site ที่ได้รับสิทธิ์ | ✅ | ✅ *(ตาม Flag)* | ✅ *(ตาม Flag + Audit Log)* | จัดการ Site ที่ได้รับสิทธิ์ |
+| **`NETWORK_ENGINEER`** | เฉพาะ Site ที่ได้รับสิทธิ์ | ✅ | ✅ *(ตาม Flag)* | ✅ *(ตาม Flag + Audit Log)* | ❌ |
+| **`VIEWER`** | เฉพาะ Site ที่ได้รับสิทธิ์ | ✅ *(ดูอย่างเดียว)* | ❌ *(บล็อกระดับ API)* | ✅ *(เฉพาะถ้าเปิด Flag ให้)* | ❌ |
+| **`IP_VIEWER`** | เฉพาะ Site ที่ได้รับสิทธิ์ | ✅ *(ดูอย่างเดียว)* | ❌ *(บล็อกระดับ API)* | 🚫 **บล็อก 100% (`403`)** | ❌ |
+
 ---
 
 ## 6. ความสามารถในการรองรับ (Capacity & Scalability)
@@ -187,7 +197,38 @@ Cloudflare แพ็กเกจ **Free (0 บาท/เดือน)** ให�
 
 ---
 
-## 7. สรุปจุดเด่นและคุณค่าของระบบ (Key Takeaways & Business Value)
+## 7. งบประมาณและทรัพยากรที่ต้องใช้ (Cost & Resource Summary)
+
+| รายการ | ซอฟต์แวร์ / บริการที่ใช้ | ค่าใช้จ่าย |
+| :--- | :--- | :---: |
+| **Web Portal & API Server** | Node.js + Next.js + Express + Caddy (On-Premise) | **0 บาท** *(Open Source)* |
+| **ฐานข้อมูลหลัก** | MongoDB Community Server + Prisma ORM | **0 บาท** *(ใช้เครื่อง Server เดิมได้)* |
+| **Cloud Relay (สำหรับข้ามวงเน็ต)** | Cloudflare Workers + D1 Free Tier | **0 บาท/เดือน** *(รองรับ ~15–45+ Sites)* |
+| **เครื่องกลาง (Bridge) & หน้างาน** | ใช้ PC / Notebook / Mini-PC ที่มีอยู่แล้ว | **0 บาท** *(ไม่บังคับซื้ออุปกรณ์ใหม่)* |
+| **VPN / Public IP รายสาขา** | ไม่จำเป็นต้องใช้ (ทำงานผ่าน Outbound HTTPS 443) | **ประหยัด 100%** |
+
+---
+
+## 8. การรับมือเมื่อเกิดเหตุขัดข้อง (Resilience & Failure Handling)
+
+| สถานการณ์ที่อาจเกิดขึ้น | กลไกการทำงานของระบบ | ผลกระทบต่อผู้ดูแล |
+| :--- | :--- | :--- |
+| **Server หรือ Notebook รีสตาร์ท / ไฟดับ** | Windows Task Scheduler (`NIMS Production Server`, `NIMS HTTPS Proxy`, `NIMS-Relay-Bridge`, `NIMS-SiteAgent-*`) เปิดบริการกลับเองอัตโนมัติ | **ไม่ต้องเข้าไปเปิดโปรแกรมเอง** |
+| **อินเทอร์เน็ตหลุดชั่วคราว** | Agent หน้างานยังคงวนทำงานและ Retry อัตโนมัติ, ข้อมูลค้างใน D1 จะยังไม่ถูกลบจนกว่า Bridge จะส่งถึง Server สำเร็จ (`ACK` หลัง HTTP 200) | **ไม่ต้องเดินทางไปหน้างาน**, ข้อมูลไม่สูญหาย |
+| **อุปกรณ์หน่วง / Ping หลุด 1–2 ครั้ง** | ระบบใช้ค่า `Offline Misses` (ค่าเริ่มต้น `3` ครั้งติดกัน) ก่อนเปลี่ยนเป็น `OFFLINE` และคงสถานะ `MAINTENANCE` ไว้ไม่เขียนทับ | **ลด Alert หลอก (False Alarm)** |
+| **ตรวจสอบโควตาและการทำงาน** | ดูกราฟ `Requests today` / `Rows written` ได้จาก Cloudflare Dashboard และดู Log การเปลี่ยนสถานะทั้งหมดใน Audit Logs | **ติดตามและวางแผนขยายระบบได้ล่วงหน้า** |
+
+---
+
+## 9. แผนพัฒนาต่อยอดในอนาคต (Future Roadmap)
+
+- **การแจ้งเตือนอัตโนมัติ (Alerting & Notifications):** ส่งแจ้งเตือนไปยัง **Email / Microsoft Teams / LINE / Webhook** ทันทีเมื่ออุปกรณ์หลักเปลี่ยนสถานะเป็น `OFFLINE`
+- **รายงานความพร้อมใช้งาน (Uptime & SLA Reports):** สรุปสถิติ % Uptime, ค่า Latency เฉลี่ย และประวัติ Down-time รายเดือนแยกตาม Site
+- **การตรวจวัดเชิงลึก (Extended Telemetry):** ต่อยอด Agent ให้ตรวจสอบ **TCP Service / HTTP Endpoint / SNMP** (CPU, Memory, Port Traffic) เพิ่มเติมจาก ICMP Ping
+
+---
+
+## 10. สรุปจุดเด่นและคุณค่าของระบบ (Key Takeaways & Business Value)
 
 1. **ประหยัดงบประมาณและลดเวลาติดตั้ง:** ใช้โครงสร้างที่มีอยู่ (On-Premise Server + Cloudflare Free Tier 0 บาท) ไม่ต้องซื้อ IP Public หรือเช่า VPN Tunnel รายสาขา
 2. **ปลอดภัยและไม่กระทบระบบเครือข่ายลูกค้า (Zero Router Config):** ไม่ต้องขอเปิด Port ขาเข้าหรือแก้ Firewall/Router ของลูกค้าทั้งฝั่งต้นทางและปลายทาง
