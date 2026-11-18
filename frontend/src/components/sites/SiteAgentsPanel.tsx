@@ -7,6 +7,7 @@ import {
   Check,
   Copy,
   Download,
+  Globe,
   KeyRound,
   Pencil,
   Plus,
@@ -83,12 +84,22 @@ function sanitizeBatValue(value: string): string {
   return value.replace(/[\r\n"&|<>^%]/g, '').trim();
 }
 
+function encodeUtf8ToBase64(text: string): string {
+  const bytes = new TextEncoder().encode(text);
+  let binary = '';
+  for (let i = 0; i < bytes.length; i += 0x8000) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  }
+  return btoa(binary);
+}
+
 function buildWindowsOneClickBat(
   siteCode: string,
   agentName: string,
   serverUrl: string,
   token: string,
   allowInsecureTls = false,
+  embeddedScriptBase64?: string,
 ): string {
   const cleanUrl = sanitizeBatValue(serverUrl).replace(/\/+$/, '');
   const cleanToken = sanitizeBatValue(token);
@@ -97,6 +108,22 @@ function buildWindowsOneClickBat(
   const folderName = `${safeSite}-${suffix}`;
   const taskName = `NIMS-SiteAgent-${folderName}`;
   const safeAgentName = sanitizeBatValue(agentName) || safeSite;
+  const scriptWriteLines = embeddedScriptBase64
+    ? [
+        ...Array.from(
+          { length: Math.ceil(embeddedScriptBase64.length / 900) },
+          (_, idx) => {
+            const chunk = embeddedScriptBase64.slice(idx * 900, (idx + 1) * 900);
+            const op = idx === 0 ? '>' : '>>';
+            return `${op} "%INSTALL_DIR%\\nims-agent.b64" echo ${chunk}`;
+          },
+        ),
+        '"%NODE_EXE%" -e "const fs=require(\'fs\'),p=require(\'path\');const b=p.join(process.env.INSTALL_DIR,\'nims-agent.b64\');fs.writeFileSync(p.join(process.env.INSTALL_DIR,\'nims-agent.mjs\'),Buffer.from(fs.readFileSync(b,\'utf8\').replace(/\\s+/g,\'\'),\'base64\'));fs.unlinkSync(b);"',
+      ]
+    : [
+        ...(allowInsecureTls ? ['set "NODE_TLS_REJECT_UNAUTHORIZED=0"'] : []),
+        '"%NODE_EXE%" -e "fetch(process.env.NIMS_URL+\'/api/agents/runtime/script\',{headers:{Authorization:\'Bearer \'+process.env.AGENT_TOKEN}}).then(async r=>{if(!r.ok)throw new Error(\'HTTP \'+r.status);require(\'fs\').writeFileSync(require(\'path\').join(process.env.INSTALL_DIR,\'nims-agent.mjs\'),await r.text());}).catch(e=>{console.error(e.message||e);process.exit(1);})"',
+      ];
 
   const lines = [
     '@echo off',
@@ -160,8 +187,7 @@ function buildWindowsOneClickBat(
     'echo NIMS_FALLBACK_TCP_PORTS=22,80,443,3389,502,9100 >> "%INSTALL_DIR%\\nims-agent.env"',
     `echo NIMS_ALLOW_INSECURE_TLS=${allowInsecureTls ? 'true' : 'false'}>> "%INSTALL_DIR%\\nims-agent.env"`,
     '',
-    ...(allowInsecureTls ? ['set "NODE_TLS_REJECT_UNAUTHORIZED=0"'] : []),
-    '"%NODE_EXE%" -e "fetch(process.env.NIMS_URL+\'/api/agents/runtime/script\',{headers:{Authorization:\'Bearer \'+process.env.AGENT_TOKEN}}).then(async r=>{if(!r.ok)throw new Error(\'HTTP \'+r.status);require(\'fs\').writeFileSync(require(\'path\').join(process.env.INSTALL_DIR,\'nims-agent.mjs\'),await r.text());}).catch(e=>{console.error(e.message||e);process.exit(1);})"',
+    ...scriptWriteLines,
     'if not errorlevel 1 goto :script_ok',
     'echo.',
     'echo [ERROR] Could not download agent script from %NIMS_URL%',
@@ -253,12 +279,15 @@ export function SiteAgentsPanel({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
+  const [formDefaultMode, setFormDefaultMode] = useState<'LAN' | 'REMOTE'>('LAN');
   const [editingAgent, setEditingAgent] = useState<SiteAgent | null>(null);
   const [tokenReveal, setTokenReveal] = useState<{
     agentName: string;
     rawToken: string;
+    mode: 'LAN' | 'REMOTE';
   } | null>(null);
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
+  const [downloadingRemoteBat, setDownloadingRemoteBat] = useState(false);
 
   const [rotateTarget, setRotateTarget] = useState<SiteAgent | null>(null);
   const [rotating, setRotating] = useState(false);
@@ -268,6 +297,12 @@ export function SiteAgentsPanel({
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
 
+  const [savedRelayUrl, setSavedRelayUrl] = useState(() => {
+    if (typeof window !== 'undefined') {
+      return window.localStorage.getItem('nims_relay_url') || 'https://nims-relay.jatdilok-on.workers.dev';
+    }
+    return 'https://nims-relay.jatdilok-on.workers.dev';
+  });
   const [nimsServerUrl, setNimsServerUrl] = useState(() =>
     typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3000',
   );
@@ -275,6 +310,65 @@ export function SiteAgentsPanel({
     typeof window !== 'undefined' ? window.location.protocol === 'https:' : false,
   );
   const isLocalhostUrl = /\/\/(localhost|127\.0\.0\.1)(:|\/|$)/i.test(nimsServerUrl);
+
+  const updateRelayUrl = (nextUrl: string) => {
+    setSavedRelayUrl(nextUrl);
+    if (typeof window !== 'undefined') {
+      window.localStorage.setItem('nims_relay_url', nextUrl);
+    }
+  };
+
+  const handleDownloadOneClickBat = async () => {
+    if (!tokenReveal) return;
+    const isRemote = tokenReveal.mode === 'REMOTE';
+    const targetUrl = isRemote ? savedRelayUrl.trim() : nimsServerUrl.trim();
+    if (!targetUrl) {
+      setError(isRemote ? 'กรุณากรอก Relay URL ก่อนดาวน์โหลด' : 'กรุณากรอก NIMS Server URL ก่อนดาวน์โหลด');
+      return;
+    }
+    const safeFileSite = siteCode.toLowerCase().replace(/[^a-z0-9_-]/g, '') || 'site';
+    if (!isRemote) {
+      downloadTextFile(
+        `nims-agent-${safeFileSite}-1click.bat`,
+        buildWindowsOneClickBat(
+          siteCode,
+          tokenReveal.agentName,
+          targetUrl,
+          tokenReveal.rawToken,
+          allowInsecureTls,
+        ),
+      );
+      return;
+    }
+
+    setDownloadingRemoteBat(true);
+    setError(null);
+    try {
+      const res = await fetch('/api/agents/script', { credentials: 'include' });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const scriptText = await res.text();
+      const base64 = encodeUtf8ToBase64(scriptText);
+      downloadTextFile(
+        `nims-agent-${safeFileSite}-remote-1click.bat`,
+        buildWindowsOneClickBat(
+          siteCode,
+          tokenReveal.agentName,
+          targetUrl,
+          tokenReveal.rawToken,
+          false,
+          base64,
+        ),
+      );
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? `ไม่สามารถดึงไฟล์ nims-agent.mjs จาก Server ได้: ${err.message}`
+          : 'ไม่สามารถสร้างไฟล์ Remote 1-Click Installer ได้',
+      );
+    } finally {
+      setDownloadingRemoteBat(false);
+    }
+  };
 
   const loadAgents = useCallback(async () => {
     try {
@@ -328,7 +422,7 @@ export function SiteAgentsPanel({
         { method: 'POST' },
       );
       setRotateTarget(null);
-      setTokenReveal({ agentName: res.agent.name, rawToken: res.rawToken });
+      setTokenReveal({ agentName: res.agent.name, rawToken: res.rawToken, mode: 'LAN' });
       loadAgents();
     } catch (err) {
       setRotateError(err instanceof ApiError ? err.message : 'Failed to rotate token');
@@ -397,17 +491,33 @@ export function SiteAgentsPanel({
             Download nims-agent.mjs
           </a>
           {canManage && (
-            <button
-              type="button"
-              onClick={() => {
-                setEditingAgent(null);
-                setShowForm(true);
-              }}
-              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold cursor-pointer"
-            >
-              <Plus className="h-4 w-4" />
-              Add Site Agent
-            </button>
+            <>
+              <button
+                type="button"
+                onClick={() => {
+                  setEditingAgent(null);
+                  setFormDefaultMode('LAN');
+                  setShowForm(true);
+                }}
+                className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold cursor-pointer"
+              >
+                <Plus className="h-4 w-4" />
+                Add Site Agent
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setEditingAgent(null);
+                  setFormDefaultMode('REMOTE');
+                  setShowForm(true);
+                }}
+                title="เพิ่ม Site Agent สำหรับ Site ที่อยู่คนละวง Network / ออกอินเทอร์เน็ตผ่าน Cloudflare Relay"
+                className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold shadow-xs cursor-pointer"
+              >
+                <Globe className="h-4 w-4" />
+                Add Remote Agent (คนละวง)
+              </button>
+            </>
           )}
         </div>
       </div>
@@ -452,65 +562,115 @@ export function SiteAgentsPanel({
             </button>
           </div>
 
-          <div className="rounded-lg bg-white dark:bg-slate-900 border border-emerald-200 dark:border-emerald-800 p-3 space-y-2">
-            <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-300">
-              NIMS Server URL (URL ที่เครื่อง Agent หน้างานเรียกมาถึงได้)
-            </label>
-            <input
-              type="text"
-              value={nimsServerUrl}
-              onChange={(e) => {
-                const next = e.target.value;
-                setNimsServerUrl(next);
-                if (next.trim().toLowerCase().startsWith('https://')) {
-                  setAllowInsecureTls(true);
-                }
-              }}
-              placeholder="https://191.20.110.191:3000"
-              className="w-full px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-transparent font-mono text-xs"
-            />
-            {nimsServerUrl.trim().toLowerCase().startsWith('https://') && (
-              <label className="flex items-center gap-2 text-[11px] text-slate-600 dark:text-slate-300 cursor-pointer pt-0.5">
-                <input
-                  type="checkbox"
-                  checked={allowInsecureTls}
-                  onChange={(e) => setAllowInsecureTls(e.target.checked)}
-                  className="rounded border-slate-300"
-                />
-                <span>
-                  Allow Self-Signed / Internal LAN HTTPS (แนะนำเมื่อใช้ใบรับรองภายในจาก Caddy)
-                </span>
-              </label>
-            )}
-            {isLocalhostUrl && (
-              <p className="text-[11px] text-amber-700 dark:text-amber-300 flex items-center gap-1.5">
-                <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
-                <span>
-                  ตอนนี้เป็น <code className="font-mono">localhost</code> — ถ้านำไปรันบนเครื่องอื่น กรุณาแก้เป็น IP ของเครื่อง NIMS Server (เช่น <code className="font-mono">http://191.20.110.191:3000</code>) ก่อนกดดาวน์โหลด
-                </span>
-              </p>
-            )}
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() =>
+                setTokenReveal((prev) => (prev ? { ...prev, mode: 'LAN' } : prev))
+              }
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition cursor-pointer ${
+                tokenReveal.mode === 'LAN'
+                  ? 'bg-blue-600 text-white border-blue-600'
+                  : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border-emerald-200 dark:border-emerald-800'
+              }`}
+            >
+              Same LAN (วงเดียวกับ Server)
+            </button>
+            <button
+              type="button"
+              onClick={() =>
+                setTokenReveal((prev) => (prev ? { ...prev, mode: 'REMOTE' } : prev))
+              }
+              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border transition cursor-pointer ${
+                tokenReveal.mode === 'REMOTE'
+                  ? 'bg-emerald-600 text-white border-emerald-600'
+                  : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border-emerald-200 dark:border-emerald-800'
+              }`}
+            >
+              <Globe className="h-3.5 w-3.5" />
+              Cross-Network / Relay (คนละวงเน็ต)
+            </button>
           </div>
+
+          {tokenReveal.mode === 'REMOTE' ? (
+            <div className="space-y-2.5">
+              <div className="rounded-lg bg-white dark:bg-slate-900 border border-emerald-200 dark:border-emerald-800 p-3 space-y-2">
+                <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-300">
+                  Cloudflare Relay URL (URL ที่เครื่อง Site ปลายทางส่งผลกลับมา)
+                </label>
+                <input
+                  type="text"
+                  value={savedRelayUrl}
+                  onChange={(e) => updateRelayUrl(e.target.value)}
+                  placeholder="https://nims-relay.xxx.workers.dev"
+                  className="w-full px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-transparent font-mono text-xs"
+                />
+              </div>
+
+              <div className="rounded-lg bg-sky-50/90 dark:bg-sky-950/40 border border-sky-200 dark:border-sky-800 p-3 space-y-1.5 text-xs text-sky-900 dark:text-sky-200">
+                <div className="font-bold">
+                  1) เครื่องกลาง (Notebook Bridge): เพิ่ม Token นี้ในไฟล์ <code className="font-mono">nims-relay-bridge.env</code>
+                </div>
+                <p className="text-[11px] opacity-90">
+                  นำ Token ด้านบนไปต่อท้ายบรรทัด <code className="font-mono">NIMS_AGENT_TOKENS=</code> คั่นด้วย <code className="font-mono">,</code> (ถ้า <code className="font-mono">nims-relay-bridge.mjs</code> รันอยู่แล้ว ระบบจะโหลดใหม่อัตโนมัติภายใน ~15 วิ)
+                </p>
+              </div>
+            </div>
+          ) : (
+            <div className="rounded-lg bg-white dark:bg-slate-900 border border-emerald-200 dark:border-emerald-800 p-3 space-y-2">
+              <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-300">
+                NIMS Server URL (URL ที่เครื่อง Agent หน้างานเรียกมาถึงได้)
+              </label>
+              <input
+                type="text"
+                value={nimsServerUrl}
+                onChange={(e) => {
+                  const next = e.target.value;
+                  setNimsServerUrl(next);
+                  if (next.trim().toLowerCase().startsWith('https://')) {
+                    setAllowInsecureTls(true);
+                  }
+                }}
+                placeholder="https://191.20.110.191:3000"
+                className="w-full px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-transparent font-mono text-xs"
+              />
+              {nimsServerUrl.trim().toLowerCase().startsWith('https://') && (
+                <label className="flex items-center gap-2 text-[11px] text-slate-600 dark:text-slate-300 cursor-pointer pt-0.5">
+                  <input
+                    type="checkbox"
+                    checked={allowInsecureTls}
+                    onChange={(e) => setAllowInsecureTls(e.target.checked)}
+                    className="rounded border-slate-300"
+                  />
+                  <span>
+                    Allow Self-Signed / Internal LAN HTTPS (แนะนำเมื่อใช้ใบรับรองภายในจาก Caddy)
+                  </span>
+                </label>
+              )}
+              {isLocalhostUrl && (
+                <p className="text-[11px] text-amber-700 dark:text-amber-300 flex items-center gap-1.5">
+                  <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                  <span>
+                    ตอนนี้เป็น <code className="font-mono">localhost</code> — ถ้านำไปรันบนเครื่องอื่น กรุณาแก้เป็น IP ของเครื่อง NIMS Server (เช่น <code className="font-mono">http://191.20.110.191:3000</code>) ก่อนกดดาวน์โหลด
+                  </span>
+                </p>
+              )}
+            </div>
+          )}
 
           <div className="flex flex-wrap items-center gap-2 pt-1">
             <button
               type="button"
-              onClick={() =>
-                downloadTextFile(
-                  `nims-agent-${siteCode.toLowerCase().replace(/[^a-z0-9_-]/g, '') || 'site'}-1click.bat`,
-                  buildWindowsOneClickBat(
-                    siteCode,
-                    tokenReveal.agentName,
-                    nimsServerUrl,
-                    tokenReveal.rawToken,
-                    allowInsecureTls,
-                  ),
-                )
-              }
-              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-sm cursor-pointer"
+              disabled={downloadingRemoteBat}
+              onClick={handleDownloadOneClickBat}
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-sm cursor-pointer disabled:opacity-60"
             >
               <Wand2 className="h-4 w-4" />
-              Download 1-Click Auto Installer (.bat) — ดับเบิลคลิกจบ
+              {downloadingRemoteBat
+                ? 'Preparing Remote Installer...'
+                : tokenReveal.mode === 'REMOTE'
+                ? '2) Download Remote 1-Click (.bat) — ดับเบิลคลิกที่ Site ปลายทาง'
+                : 'Download 1-Click Auto Installer (.bat) — ดับเบิลคลิกจบ'}
             </button>
             <a
               href="/api/agents/script"
@@ -525,7 +685,11 @@ export function SiteAgentsPanel({
               onClick={() =>
                 downloadTextFile(
                   'nims-agent.env',
-                  buildAgentEnvText(nimsServerUrl, tokenReveal.rawToken, allowInsecureTls),
+                  buildAgentEnvText(
+                    tokenReveal.mode === 'REMOTE' ? savedRelayUrl : nimsServerUrl,
+                    tokenReveal.rawToken,
+                    tokenReveal.mode === 'REMOTE' ? false : allowInsecureTls,
+                  ),
                 )
               }
               className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-xs font-medium hover:bg-slate-50 dark:hover:bg-slate-800 cursor-pointer"
@@ -543,7 +707,9 @@ export function SiteAgentsPanel({
             </button>
           </div>
           <p className="text-[11px] text-emerald-800 dark:text-emerald-300">
-            แนะนำ: กด <strong>Download 1-Click Auto Installer (.bat)</strong> แล้วนำไปดับเบิลคลิกบนเครื่อง Windows หน้างาน — ระบบจะเช็ก/ติดตั้ง Node.js, ดาวน์โหลดสคริปต์, ทดสอบ Ping, รันเบื้องหลังแบบซ่อนหน้าต่าง และตั้ง Auto-Start ตอนเปิดเครื่องให้อัตโนมัติ
+            {tokenReveal.mode === 'REMOTE'
+              ? 'ไฟล์ Remote 1-Click (.bat) มีโค้ด nims-agent.mjs ฝังมาในตัวเลย — ดับเบิลคลิกบนเครื่องปลายทางคนละวงเน็ตได้ทันที (ติดตั้ง Node.js, สร้าง .env ชี้ไป Relay URL, ทดสอบ Ping และรันเบื้องหลังอัตโนมัติ)'
+              : 'แนะนำ: กด Download 1-Click Auto Installer (.bat) แล้วนำไปดับเบิลคลิกบนเครื่อง Windows หน้างาน — ระบบจะเช็ก/ติดตั้ง Node.js, ดาวน์โหลดสคริปต์, ทดสอบ Ping, รันเบื้องหลังแบบซ่อนหน้าต่าง และตั้ง Auto-Start ตอนเปิดเครื่องให้อัตโนมัติ'}
           </p>
         </div>
       )}
@@ -563,17 +729,32 @@ export function SiteAgentsPanel({
             </p>
           </div>
           {canManage && (
-            <button
-              type="button"
-              onClick={() => {
-                setEditingAgent(null);
-                setShowForm(true);
-              }}
-              className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold cursor-pointer"
-            >
-              <Plus className="h-4 w-4" />
-              Create First Site Agent
-            </button>
+            <div className="flex flex-wrap items-center justify-center gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setEditingAgent(null);
+                  setFormDefaultMode('LAN');
+                  setShowForm(true);
+                }}
+                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold cursor-pointer"
+              >
+                <Plus className="h-4 w-4" />
+                Create First Site Agent
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setEditingAgent(null);
+                  setFormDefaultMode('REMOTE');
+                  setShowForm(true);
+                }}
+                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold cursor-pointer"
+              >
+                <Globe className="h-4 w-4" />
+                Add Remote Agent (คนละวง)
+              </button>
+            </div>
           )}
         </div>
       ) : (
@@ -714,6 +895,8 @@ export function SiteAgentsPanel({
         <AgentFormModal
           siteId={siteId}
           editing={editingAgent}
+          initialMode={formDefaultMode}
+          initialRelayUrl={savedRelayUrl}
           onClose={() => {
             setShowForm(false);
             setEditingAgent(null);
@@ -721,8 +904,15 @@ export function SiteAgentsPanel({
           onCreated={(res) => {
             setShowForm(false);
             setEditingAgent(null);
+            if (res.mode === 'REMOTE' && res.relayUrl) {
+              updateRelayUrl(res.relayUrl);
+            }
             if (res.rawToken) {
-              setTokenReveal({ agentName: res.agent.name, rawToken: res.rawToken });
+              setTokenReveal({
+                agentName: res.agent.name,
+                rawToken: res.rawToken,
+                mode: res.mode || 'LAN',
+              });
             }
             loadAgents();
           }}
@@ -777,15 +967,26 @@ export function SiteAgentsPanel({
 function AgentFormModal({
   siteId,
   editing,
+  initialMode = 'LAN',
+  initialRelayUrl = '',
   onClose,
   onCreated,
 }: {
   siteId: string;
   editing: SiteAgent | null;
+  initialMode?: 'LAN' | 'REMOTE';
+  initialRelayUrl?: string;
   onClose: () => void;
-  onCreated: (res: { agent: SiteAgent; rawToken?: string }) => void;
+  onCreated: (res: {
+    agent: SiteAgent;
+    rawToken?: string;
+    mode?: 'LAN' | 'REMOTE';
+    relayUrl?: string;
+  }) => void;
 }) {
   const [name, setName] = useState(editing?.name || '');
+  const [networkMode, setNetworkMode] = useState<'LAN' | 'REMOTE'>(initialMode);
+  const [relayUrl, setRelayUrl] = useState(initialRelayUrl);
   const [pollIntervalSec, setPollIntervalSec] = useState(
     String(editing?.pollIntervalSec ?? 60),
   );
@@ -797,6 +998,10 @@ function AgentFormModal({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!editing && networkMode === 'REMOTE' && !relayUrl.trim()) {
+      setError('กรุณากรอก Relay URL สำหรับ Agent คนละวงเน็ต');
+      return;
+    }
     setSaving(true);
     setError('');
     try {
@@ -816,7 +1021,11 @@ function AgentFormModal({
           method: 'POST',
           body: JSON.stringify({ siteId, ...payload }),
         });
-        onCreated(res);
+        onCreated({
+          ...res,
+          mode: networkMode,
+          relayUrl: relayUrl.trim().replace(/\/+$/, ''),
+        });
       }
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Save failed');
@@ -829,8 +1038,15 @@ function AgentFormModal({
     <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4">
       <div className="bg-white dark:bg-slate-900 rounded-2xl max-w-md w-full border border-slate-200 dark:border-slate-800 shadow-2xl overflow-hidden">
         <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 dark:border-slate-800">
-          <h3 className="font-bold text-base">
-            {editing ? 'Edit Site Agent' : 'Add Site Ping Agent'}
+          <h3 className="font-bold text-base flex items-center gap-2">
+            {!editing && networkMode === 'REMOTE' && (
+              <Globe className="h-4 w-4 text-emerald-600" />
+            )}
+            {editing
+              ? 'Edit Site Agent'
+              : networkMode === 'REMOTE'
+              ? 'Add Remote Site Agent (คนละวงเน็ต)'
+              : 'Add Site Ping Agent'}
           </h3>
           <button
             type="button"
@@ -848,6 +1064,38 @@ function AgentFormModal({
             </div>
           )}
 
+          {!editing && (
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => setNetworkMode('LAN')}
+                className={`px-3 py-2 rounded-lg border text-xs font-semibold text-left transition cursor-pointer ${
+                  networkMode === 'LAN'
+                    ? 'border-blue-600 bg-blue-50 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300'
+                    : 'border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300'
+                }`}
+              >
+                <div>Same LAN</div>
+                <div className="text-[10px] font-normal opacity-80">วงเดียวกับ Server</div>
+              </button>
+              <button
+                type="button"
+                onClick={() => setNetworkMode('REMOTE')}
+                className={`px-3 py-2 rounded-lg border text-xs font-semibold text-left transition cursor-pointer ${
+                  networkMode === 'REMOTE'
+                    ? 'border-emerald-600 bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300'
+                    : 'border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300'
+                }`}
+              >
+                <div className="flex items-center gap-1">
+                  <Globe className="h-3.5 w-3.5" />
+                  <span>Remote (คนละวง)</span>
+                </div>
+                <div className="text-[10px] font-normal opacity-80">ผ่าน Cloudflare Relay</div>
+              </button>
+            </div>
+          )}
+
           <div>
             <label className="block text-xs font-semibold text-slate-500 mb-1">
               Agent Name *
@@ -856,10 +1104,30 @@ function AgentFormModal({
               required
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder="e.g. Plant-Rayong Probe PC"
+              placeholder={
+                networkMode === 'REMOTE' ? 'e.g. Site-Rayong Remote Probe' : 'e.g. Plant-Rayong Probe PC'
+              }
               className="w-full px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-transparent"
             />
           </div>
+
+          {!editing && networkMode === 'REMOTE' && (
+            <div>
+              <label className="block text-xs font-semibold text-slate-500 mb-1">
+                Cloudflare Relay URL *
+              </label>
+              <input
+                required
+                value={relayUrl}
+                onChange={(e) => setRelayUrl(e.target.value)}
+                placeholder="https://nims-relay.xxx.workers.dev"
+                className="w-full px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-transparent font-mono text-xs"
+              />
+              <p className="text-[10px] text-slate-500 mt-1">
+                เครื่องหน้างานจะยิง HTTPS ออกไปยัง Relay URL นี้ แล้วให้เครื่องกลางดึงกลับเข้า NIMS Server
+              </p>
+            </div>
+          )}
 
           <div className="grid grid-cols-2 gap-3">
             <div>

@@ -55,6 +55,7 @@ const candidates = explicitConfig
       path.join(process.cwd(), 'nims-relay-bridge.env'),
       path.join(__dirname, 'nims-relay-bridge.env'),
     ];
+const activeEnvPath = candidates.find((p) => fs.existsSync(p)) || null;
 for (const p of candidates) {
   loadEnvFile(p);
 }
@@ -69,10 +70,14 @@ const BRIDGE_SECRET = (process.env.BRIDGE_SECRET || '').trim();
 const BRIDGE_POLL_SEC = Math.max(5, parseInt(process.env.BRIDGE_POLL_SEC || '15', 10));
 const TARGETS_SYNC_SEC = Math.max(30, parseInt(process.env.TARGETS_SYNC_SEC || '120', 10));
 
-const TOKENS = (process.env.NIMS_AGENT_TOKENS || '')
-  .split(/[\r\n,]+/)
-  .map((s) => s.trim())
-  .filter(Boolean);
+function parseTokenList(raw) {
+  return (raw || '')
+    .split(/[\r\n,]+/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+const TOKENS = parseTokenList(process.env.NIMS_AGENT_TOKENS);
 
 if (!NIMS_URL || !RELAY_URL || !BRIDGE_SECRET || TOKENS.length === 0) {
   console.error(
@@ -88,8 +93,33 @@ function sha256Hex(value) {
 }
 
 const tokenByHash = new Map();
-for (const token of TOKENS) {
-  tokenByHash.set(sha256Hex(token), token);
+function rebuildTokenMap(tokens) {
+  tokenByHash.clear();
+  for (const token of tokens) {
+    tokenByHash.set(sha256Hex(token), token);
+  }
+}
+rebuildTokenMap(TOKENS);
+
+let lastEnvMtimeMs = activeEnvPath ? fs.statSync(activeEnvPath).mtimeMs : 0;
+function reloadTokensIfEnvChanged() {
+  if (!activeEnvPath || !fs.existsSync(activeEnvPath)) return false;
+  try {
+    const stat = fs.statSync(activeEnvPath);
+    if (stat.mtimeMs === lastEnvMtimeMs) return false;
+    lastEnvMtimeMs = stat.mtimeMs;
+    const content = fs.readFileSync(activeEnvPath, 'utf8');
+    const match = content.match(/^\s*NIMS_AGENT_TOKENS\s*=\s*(.+)$/m);
+    if (!match) return false;
+    const raw = match[1].trim().replace(/^["']|["']$/g, '');
+    const nextTokens = parseTokenList(raw);
+    if (nextTokens.length === 0) return false;
+    rebuildTokenMap(nextTokens);
+    console.log(`[${new Date().toISOString()}] Reloaded NIMS_AGENT_TOKENS (${tokenByHash.size} site(s)) from ${path.basename(activeEnvPath)}.`);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 async function fetchJson(url, options = {}) {
@@ -220,6 +250,9 @@ async function loop() {
   );
 
   while (true) {
+    if (reloadTokensIfEnvChanged()) {
+      lastTargetsSyncAt = 0;
+    }
     try {
       await syncTargetsIfDue();
     } catch (err) {
