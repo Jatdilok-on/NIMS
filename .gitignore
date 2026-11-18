@@ -16,6 +16,11 @@ backend/.env
 backend/.env.*
 frontend/.env
 frontend/.env.*
+agent/relay/nims-relay-bridge.env
+agent/relay/bridge-run.cmd
+agent/relay/bridge-hidden.vbs
+agent/relay/view-bridge-log.bat
+agent/relay/uninstall-bridge.bat
 
 # Runtime user data, uploads & DB backups
 backend/data/

@@ -17,17 +17,16 @@
 4. ทดสอบเปิดใน Browser: `https://nims-relay.<subdomain>.workers.dev/health` (ต้องขึ้น `{"ok":true,"service":"nims-cloudflare-relay"}`)
 
 ## 3. รัน Bridge บน Notebook ตัวกลาง (อยู่ในวง LAN เดียวกับ NIMS Server)
-1. ก๊อปปี้ `nims-relay-bridge.mjs` และ `nims-relay-bridge.env.example` ไปวางในโฟลเดอร์บน Notebook แล้วเปลี่ยนชื่อ `.env.example` เป็น `nims-relay-bridge.env`
+1. ก๊อปปี้โฟลเดอร์ `agent/relay/` ไปวางบน Notebook (เช่น `C:\nims-bridge`) แล้วเปลี่ยนชื่อ `nims-relay-bridge.env.example` เป็น `nims-relay-bridge.env`
 2. กรอกค่าใน `nims-relay-bridge.env`:
    - `NIMS_URL=https://191.20.110.191:3000`
    - `NIMS_ALLOW_INSECURE_TLS=true`
    - `RELAY_URL=https://nims-relay.<subdomain>.workers.dev`
    - `BRIDGE_SECRET=<รหัสลับเดียวกับ Worker>`
    - `NIMS_AGENT_TOKENS=<Token ของแต่ละ Site ที่สร้างใน NIMS คั่นด้วยเครื่องหมาย ,>`
-3. รันบน Notebook:
-   ```powershell
-   node nims-relay-bridge.mjs
-   ```
+3. เลือกวิธีรันบน Notebook:
+   - **แบบรันเบื้องหลังอัตโนมัติ (แนะนำ):** ดับเบิลคลิก **`install-bridge-background.bat`** (ซ่อนหน้าต่างทำงาน, ตั้งเปิดเครื่องรันเองอัตโนมัติ และสร้าง `view-bridge-log.bat` / `uninstall-bridge.bat` ให้พร้อม)
+   - **แบบดูหน้าต่าง Console สด:** ดับเบิลคลิก **`start-bridge.bat`** หรือรัน `node nims-relay-bridge.mjs`
 
 ## 4. ติดตั้ง Agent ที่เครื่อง Site ปลายทาง (Site อื่น ๆ)
 วาง `agent/nims-agent.mjs` บนเครื่องของ Site ปลายทาง แล้วตั้ง `nims-agent.env`:
