@@ -39,6 +39,11 @@
   - รองรับการเพิ่มผู้ใช้งานจำนวนมากด้วยการ Import Excel / CSV และบังคับเปลี่ยนรหัสผ่านเมื่อเข้าสู่ระบบครั้งแรก (`First-Login Password Change`)
   - รองรับเปลี่ยนภาษาหน้าเว็บ 4 ภาษา (`ไทย`, `English`, `中文`, `日本語`) และธีมสีหลายรูปแบบ
 
+- **ระบบมอนิเตอร์สถานะอุปกรณ์แบบเรียลไทม์ (Site Ping Agents & Cross-Network Relay)**
+  - ติดตั้ง Agent (`nims-agent.mjs`) แบบ 1-Click เพื่อ Ping อุปกรณ์ภายในแต่ละ Site อัตโนมัติ พร้อมแสดงไฟ LED กระพริบ Up/Down, Latency (`ms`) และแสงวิ่งบนสาย Link Cable ในหน้า Network Diagram
+  - รองรับทั้ง Site วง LAN เดียวกัน และ **Site คนละวงเน็ต (Cross-Network)** โดยใช้ **Notebook Bridge + Cloudflare Workers & D1 Relay** สำหรับกรณี Server ออกเน็ตไม่ได้และไม่ต้องการเปิด Port Firewall
+  - ดูผังสถาปัตยกรรม, Flow การทำงานทั้งหมด และตัวเลขการรองรับ (Capacity) สำหรับนำเสนอได้ที่ [docs/PRESENTATION_FLOW.md](docs/PRESENTATION_FLOW.md)
+
 - **สำรองและกู้คืนข้อมูล (Backup & Restore)**
   - สร้างไฟล์สำรองแบบ ZIP ที่รวม Snapshot ฐานข้อมูล MongoDB, ไฟล์อัปโหลดทั้งหมด และ SHA-256 Manifest ทั้งแบบกดสำรองเองและตั้งเวลาอัตโนมัติ (รายวัน/รายสัปดาห์/รายเดือน)
 
@@ -50,7 +55,7 @@
 - `frontend/` — Next.js App Router + React + TypeScript + Tailwind CSS + React Flow (พอร์ต `3000`)
 - `scripts/run-nims.mjs` — สคริปต์รันระบบด้วย Node.js โดยตรง (ไม่ต้องใช้ Docker)
 - `start-nims.ps1` / `start-nims.bat` — สคริปต์เปิดใช้งานด่วนบน Windows
-- `docs/` — เอกสารเพิ่มเติม: [ARCHITECTURE.md](docs/ARCHITECTURE.md), [INSTALLATION.md](docs/INSTALLATION.md), [BACKUP_RESTORE.md](docs/BACKUP_RESTORE.md), [API.md](docs/API.md)
+- `docs/` — เอกสารเพิ่มเติม: [PRESENTATION_FLOW.md](docs/PRESENTATION_FLOW.md) *(ผังสถาปัตยกรรม, Flow การทำงาน & Capacity สำหรับนำเสนอ)*, [ARCHITECTURE.md](docs/ARCHITECTURE.md), [INSTALLATION.md](docs/INSTALLATION.md), [BACKUP_RESTORE.md](docs/BACKUP_RESTORE.md), [API.md](docs/API.md)
 - `docker-compose.yml` — สำหรับรันด้วย Docker Compose (MongoDB 7 + Backend + Frontend)
 - `.env.example` — เทมเพลตการตั้งค่า Environment
 
