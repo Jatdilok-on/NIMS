@@ -220,7 +220,30 @@ Cloudflare แพ็กเกจ **Free (0 บาท/เดือน)** ให�
 
 ---
 
-## 9. แผนพัฒนาต่อยอดในอนาคต (Future Roadmap)
+## 9. ระบบสำรองและกู้คืนข้อมูล (Backup & Restore)
+
+ระบบมีกลไก **Backup & Restore ในตัว** (ควบคุมผ่านเมนู **System & Backup** สำหรับ `SUPER_ADMIN` เท่านั้น) เพื่อป้องกันข้อมูลสูญหายและรองรับการย้ายเครื่อง Server ได้ทันที:
+
+```mermaid
+flowchart LR
+    SCH["ตั้งเวลาอัตโนมัติ (Daily 02:00 / Weekly / Monthly) หรือกด Manual Backup"] --> ZIP["สร้างไฟล์ nims-backup-timestamp.zip"]
+    ZIP --> C1["database.json (ข้อมูลทุกตาราง + รหัสผ่าน Vault แบบ AES-256-GCM)"]
+    ZIP --> C2["storage/ (ไฟล์ Diagrams, Documents, Assets แยกตาม Site)"]
+    ZIP --> C3["manifest.json (เวลา + SHA-256 Checksum ตรวจสอบความสมบูรณ์)"]
+    ZIP --> STORE["เก็บลง Local Disk / NAS และลบไฟล์เก่าเกิน Retention อัตโนมัติ"]
+    STORE --> RESTORE["กู้คืน 1-Click ในเว็บ หรือ Upload .zip เพื่อ Restore ข้ามเครื่อง"]
+```
+
+- **สิ่งที่รวมอยู่ในไฟล์ Backup (`.zip`):**
+  1. `database.json` — Snapshot ข้อมูลทั้งหมดในระบบ (Sites, Devices, IPAM, Credentials ที่ยังเข้ารหัส **AES-256-GCM**, Diagrams, Documents, Maintenance, Users, RBAC, Settings)
+  2. `storage/` — ไฟล์ผังเครือข่ายและเอกสารโครงการทั้งหมดแยกตาม Site
+  3. `manifest.json` — ข้อมูลเวลาและ **SHA-256 Checksum** สำหรับตรวจสอบความถูกต้องก่อนกู้คืน
+- **การตั้งเวลาและการเก็บไฟล์ (Retention):** ตั้งความถี่ได้ทั้ง `Daily (02:00 AM)`, `Weekly`, `Monthly` หรือ `Manual Only` พร้อมกำหนดจำนวนชุด Backup ที่เก็บย้อนหลังอัตโนมัติ (ระบุปลายทางเป็น Local Disk หรือ Mounted NAS ได้)
+- **การกู้คืน (Restore):** กด **Restore** จากรายการย้อนหลัง หรือ **Upload & Restore (`.zip`)** ได้จากหน้าเว็บโดยตรง *(รองรับ `mongodump` / `mongorestore` เพิ่มเติมสำหรับฐานข้อมูลขนาดใหญ่ และต้องสำรองค่า `CREDENTIALS_ENCRYPTION_KEY` ใน `.env` แยกไว้อย่างปลอดภัยเพื่อให้ถอดรหัส Vault ได้หลังย้ายเครื่อง)*
+
+---
+
+## 10. แผนพัฒนาต่อยอดในอนาคต (Future Roadmap)
 
 - **การแจ้งเตือนอัตโนมัติ (Alerting & Notifications):** ส่งแจ้งเตือนไปยัง **Email / Microsoft Teams / LINE / Webhook** ทันทีเมื่ออุปกรณ์หลักเปลี่ยนสถานะเป็น `OFFLINE`
 - **รายงานความพร้อมใช้งาน (Uptime & SLA Reports):** สรุปสถิติ % Uptime, ค่า Latency เฉลี่ย และประวัติ Down-time รายเดือนแยกตาม Site
@@ -228,7 +251,7 @@ Cloudflare แพ็กเกจ **Free (0 บาท/เดือน)** ให�
 
 ---
 
-## 10. สรุปจุดเด่นและคุณค่าของระบบ (Key Takeaways & Business Value)
+## 11. สรุปจุดเด่นและคุณค่าของระบบ (Key Takeaways & Business Value)
 
 1. **ประหยัดงบประมาณและลดเวลาติดตั้ง:** ใช้โครงสร้างที่มีอยู่ (On-Premise Server + Cloudflare Free Tier 0 บาท) ไม่ต้องซื้อ IP Public หรือเช่า VPN Tunnel รายสาขา
 2. **ปลอดภัยและไม่กระทบระบบเครือข่ายลูกค้า (Zero Router Config):** ไม่ต้องขอเปิด Port ขาเข้าหรือแก้ Firewall/Router ของลูกค้าทั้งฝั่งต้นทางและปลายทาง
