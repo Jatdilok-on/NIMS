@@ -70,7 +70,8 @@ describe('Runbook Guides API & RBAC', () => {
       .get('/api/runbook')
       .set('Authorization', `Bearer ${viewer.rawJwt}`);
     expect(getRes.status).toBe(200);
-    expect(getRes.body.guides.length).toBe(6);
+    expect(getRes.body.guides.length).toBe(7);
+    expect(getRes.body.guides.some((g: { id: string }) => g.id === 'RGV')).toBe(true);
 
     const deniedPost = await request(app)
       .post('/api/runbook')
@@ -153,5 +154,62 @@ describe('Runbook Guides API & RBAC', () => {
 
     netEng.sessionSpy.mockRestore();
     auditSpy.mockRestore();
+  });
+
+  it('auto-seeds new RGV default into existing legacy guides.json without overwriting custom guides or resurrecting deletions', async () => {
+    const legacyTempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'nims-runbook-legacy-'));
+    env.storageRoot = legacyTempRoot;
+    const runbookDir = path.join(legacyTempRoot, 'runbook');
+    fs.mkdirSync(runbookDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(runbookDir, 'guides.json'),
+      JSON.stringify([
+        {
+          id: 'SHU',
+          codeBadge: 'SHU • Custom',
+          iconType: 'SHUTTLE',
+          thTitle: 'SHU (แก้ไขเฉพาะไซต์)',
+          enTitle: 'SHU Custom',
+          thPath: 'PLC Main -> AP -> SHU',
+          enPath: 'PLC Main -> AP -> SHU',
+          thPhysical: ['Check battery'],
+          enPhysical: ['Check battery'],
+          thNetworkMatrix: [],
+          enNetworkMatrix: [],
+          thSelfFix: [],
+          enSelfFix: [],
+          thEscalate: [],
+          enEscalate: [],
+        },
+      ]),
+      'utf8',
+    );
+
+    const app = createApp();
+    const netEng = mockSessionForRole('u-ne2', 'net_eng2', RoleCode.NETWORK_ENGINEER, 'sess-ne2');
+    const auditSpy = vi.spyOn(prisma.auditLog, 'create').mockResolvedValue({} as never);
+
+    const firstGet = await request(app)
+      .get('/api/runbook')
+      .set('Authorization', `Bearer ${netEng.rawJwt}`);
+    expect(firstGet.status).toBe(200);
+    expect(firstGet.body.guides.map((g: { id: string }) => g.id)).toEqual(['SHU', 'RGV']);
+    expect(firstGet.body.guides[0].thTitle).toBe('SHU (แก้ไขเฉพาะไซต์)');
+
+    // Explicitly deleting RGV should stay deleted on reload
+    const delRgv = await request(app)
+      .delete('/api/runbook/RGV')
+      .set('Authorization', `Bearer ${netEng.rawJwt}`);
+    expect(delRgv.status).toBe(200);
+
+    const secondGet = await request(app)
+      .get('/api/runbook')
+      .set('Authorization', `Bearer ${netEng.rawJwt}`);
+    expect(secondGet.status).toBe(200);
+    expect(secondGet.body.guides.map((g: { id: string }) => g.id)).toEqual(['SHU']);
+
+    netEng.sessionSpy.mockRestore();
+    auditSpy.mockRestore();
+    fs.rmSync(legacyTempRoot, { recursive: true, force: true });
   });
 });

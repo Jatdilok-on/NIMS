@@ -233,6 +233,79 @@ export const DEFAULT_RUNBOOK_GUIDES: RunbookGuide[] = [
     ],
   },
   {
+    id: 'RGV',
+    codeBadge: 'RGV • Rail',
+    iconType: 'SHUTTLE',
+    thTitle: 'RGV (รถลำเลียงบนราง — hAP ax2 / Phoenix WLAN / RUTX10)',
+    enTitle: 'RGV (Rail Guided Vehicle — hAP ax2 / Phoenix / RUTX10)',
+    thPath: 'PLC Main → Access Point (ฝั่งราง) ~~ AP Client บนรถ RGV (hAP ax2 / Phoenix WLAN / RUTX10) → PLC บนรถ RGV',
+    enPath: 'PLC Main → Trackside Access Point ~~ Onboard RGV Client (hAP ax2 / Phoenix WLAN / RUTX10) → Onboard RGV PLC',
+    thPhysical: [
+      'ตรวจเบรกเกอร์ / Power Supply 24VDC บนรถ RGV, สวิตช์ E-Stop, กันชน/Sensor หน้า-หลัง และหน้าสัมผัสไฟบนราง',
+      'ดูไฟหน้าตัว AP Client ตามรุ่นบนรถ: MikroTik hAP ax2 (Power น้ำเงิน + Ether + WLAN), Phoenix Contact WLAN (US/PWR เขียว + WLAN/BF), หรือ Teltonika RUTX10 (Power + Wi-Fi + LAN)',
+      'ตรวจขั้วเสาอากาศ Wi-Fi (SMA) บนตัวรถว่าแน่น-ไม่หัก และเช็กไฟพอร์ตสาย LAN ที่เชื่อมระหว่าง AP Client กับตัว PLC บนรถ RGV',
+      'ตรวจไฟสถานะบนตัว PLC บนรถ RGV: POWER และ RUN ต้องติดสีเขียว (หากติด ERR/SF สีแดง ให้จดรหัสแล้วแจ้งทีม Control/PLC)',
+    ],
+    enPhysical: [
+      'Check onboard 24VDC power supply/breaker, E-Stop switches, safety bumpers/sensors, and track power pickup.',
+      'Inspect onboard AP Client LEDs by model: MikroTik hAP ax2 (Power/Ether/WLAN), Phoenix Contact WLAN (US/PWR & WLAN/BF), or Teltonika RUTX10 (Power/Wi-Fi/LAN).',
+      'Verify Wi-Fi antenna SMA connectors are tight and LAN Link/ACT LED is active on the patch cord between AP Client and onboard PLC.',
+      'Inspect onboard RGV PLC LEDs: POWER and RUN must be solid green (note any red ERR/SF fault code).',
+    ],
+    thNetworkMatrix: [
+      {
+        condition: 'Ping PLC Main & AP ฝั่งรางเจอ ✅ แต่ AP Client บนรถ (hAP ax2 / Phoenix / RUTX10) ไม่เจอ ❌',
+        meaning: 'ลิงก์ Wi-Fi ถึงตัวรถหลุดหรือไฟเลี้ยง AP Client ดับ: เช็กไฟเลี้ยงบนตัว hAP ax2 / Phoenix / RUTX10, เสาอากาศบนรถ หรือจุดอับสัญญาณช่วงรางนั้น',
+      },
+      {
+        condition: 'Ping AP Client บนรถ (hAP ax2 / Phoenix / RUTX10) เจอ ✅ แต่ PLC บนรถ RGV ไม่เจอ ❌',
+        meaning: 'Wi-Fi มาถึงรถปกติ! ปัญหาอยู่บนตัวรถเอง: สาย Patch LAN จากพอร์ต Ethernet ของ AP Client เข้า PLC หลวม/ขาด หรือตัว PLC บนรถดับ/ค้าง',
+      },
+      {
+        condition: 'Ping รถ RGV สะดุด (Latency พุ่ง > 100ms หรือ Timeout สลับขณะรถวิ่ง) ⚠️',
+        meaning: 'การ Roaming ระหว่าง Access Point ตามรางช้า, ช่องสัญญาณชน/กวน, หรือเสาอากาศบังโครงเหล็ก — จดตำแหน่งเสา/ช่วงรางที่เกิดอาการ',
+      },
+      {
+        condition: 'Ping AP Client และ PLC บนรถ RGV เจอครบ ✅ แต่รถไม่เดิน ❌',
+        meaning: 'Network ปกติ — มักติด Safety Sensor, E-Stop, PLC อยู่ในโหมด STOP/Fault หรือคำสั่งจาก WCS / PLC Main ยังไม่มา',
+      },
+    ],
+    enNetworkMatrix: [
+      {
+        condition: 'PLC Main & Track AP OK ✅ but Onboard Client (hAP ax2 / Phoenix / RUTX10) Timeout ❌',
+        meaning: 'Wireless link or onboard client power down: check DC power on hAP ax2 / Phoenix WLAN / RUTX10, antennas, or track RF dead zone.',
+      },
+      {
+        condition: 'Onboard Client OK ✅ but Onboard RGV PLC Timeout ❌',
+        meaning: 'Wi-Fi reached the RGV! Inspect short Ethernet patch cable between AP Client and PLC or check onboard PLC power/boot.',
+      },
+      {
+        condition: 'High latency (>100ms) or intermittent drops while moving ⚠️',
+        meaning: 'Slow AP roaming along the rail, RF interference, or antenna obstruction — record the exact track section.',
+      },
+      {
+        condition: 'Both Onboard Client & PLC Ping OK ✅ but RGV stalled ❌',
+        meaning: 'Network is healthy; check vehicle safety sensors, E-Stop, PLC RUN/STOP/Fault mode, or WCS dispatcher command.',
+      },
+    ],
+    thSelfFix: [
+      'ตรวจเบรกเกอร์ 24VDC, ปลด E-Stop/สิ่งกีดขวางหน้า Sensor, ขันเสา Wi-Fi ให้แน่น และขยับ/เปลี่ยนสาย LAN เส้นสั้นระหว่าง AP Client (hAP ax2 / Phoenix / RUTX10) กับ PLC บนรถ',
+      'หากค้างเฉพาะรถ RGV คันเดียว ให้ลอง Power-Cycle รีบูตชุดไฟรถ 1 รอบ และเปิด NIMS เช็กว่า AP ฝั่งรางโซนนั้นยัง Online ครบทุกตัว',
+    ],
+    enSelfFix: [
+      'Check 24VDC breaker, release E-Stop/obstacles, tighten Wi-Fi antennas, and reseat/swap the LAN patch cable between AP Client (hAP ax2 / Phoenix / RUTX10) and onboard PLC.',
+      'Power-cycle the single stalled RGV if isolated to one unit and confirm in NIMS that trackside Access Points remain ONLINE.',
+    ],
+    thEscalate: [
+      'รถ RGV หลายคันบนรางเดียวกันหลุดพร้อมกัน หรือ AP ฝั่งรางใน NIMS ขึ้น OFFLINE (ทีม Network เช็ก Access Point / Switch / PoE)',
+      'ไฟและสายบนรถปกติ แต่ hAP ax2 / Phoenix WLAN / RUTX10 ยังเกาะ SSID ไม่ได้ หรือหลุดซ้ำที่ช่วงรางเดิม (ส่งทีม Network ตรวจ Config Station/Client, Signal RSSI และ Roaming)',
+    ],
+    enEscalate: [
+      'Multiple RGVs on the same rail drop together or trackside AP shows OFFLINE in NIMS (Network team to inspect AP/Switch/PoE).',
+      'Hardware/cabling OK but hAP ax2 / Phoenix WLAN / RUTX10 fails to associate or consistently drops at the same track spot (Network team to check wireless config, RSSI, and roaming).',
+    ],
+  },
+  {
     id: 'PLC_MAIN',
     codeBadge: 'PLC • Main',
     iconType: 'PLC',
@@ -413,17 +486,33 @@ export const DEFAULT_RUNBOOK_GUIDES: RunbookGuide[] = [
   },
 ];
 
-function getRunbookFilePath(): string {
+const LEGACY_SEEDED_DEFAULT_IDS = [
+  'SRM',
+  'AMR',
+  'SHU',
+  'PLC_MAIN',
+  'ACCESS_POINT',
+  'AP_CLIENT',
+];
+
+function getRunbookDir(): string {
   const dir = path.resolve(env.storageRoot, 'runbook');
   ensureDir(dir);
-  return path.join(dir, 'guides.json');
+  return dir;
 }
 
-function writeGuidesAtomic(guides: RunbookGuide[]): void {
-  const targetPath = getRunbookFilePath();
+function getRunbookFilePath(): string {
+  return path.join(getRunbookDir(), 'guides.json');
+}
+
+function getRunbookSeedStatePath(): string {
+  return path.join(getRunbookDir(), 'seed-state.json');
+}
+
+function writeFileAtomic(targetPath: string, payload: unknown): void {
   const uniqueSuffix = `${process.pid}.${crypto.randomBytes(6).toString('hex')}`;
   const tempPath = `${targetPath}.${uniqueSuffix}.tmp`;
-  fs.writeFileSync(tempPath, JSON.stringify(guides, null, 2), 'utf8');
+  fs.writeFileSync(tempPath, JSON.stringify(payload, null, 2), 'utf8');
 
   // Windows antivirus/indexers or concurrent readers can briefly return EPERM/EBUSY on atomic rename
   let lastErr: unknown;
@@ -448,16 +537,86 @@ function writeGuidesAtomic(guides: RunbookGuide[]): void {
   throw lastErr;
 }
 
+function writeGuidesAtomic(guides: RunbookGuide[]): void {
+  writeFileAtomic(getRunbookFilePath(), guides);
+}
+
+function loadSeededDefaultIds(): Set<string> {
+  const seedPath = getRunbookSeedStatePath();
+  if (!fs.existsSync(seedPath)) {
+    return new Set(LEGACY_SEEDED_DEFAULT_IDS);
+  }
+  try {
+    const raw = fs.readFileSync(seedPath, 'utf8');
+    const parsed = JSON.parse(raw) as { seededIds?: unknown };
+    if (Array.isArray(parsed?.seededIds)) {
+      return new Set(parsed.seededIds.filter((id): id is string => typeof id === 'string'));
+    }
+  } catch {
+    // Fallback to legacy default set if seed-state is unreadable
+  }
+  return new Set(LEGACY_SEEDED_DEFAULT_IDS);
+}
+
+function saveSeededDefaultIds(ids: Iterable<string>): void {
+  writeFileAtomic(getRunbookSeedStatePath(), {
+    seededIds: Array.from(new Set(ids)),
+  });
+}
+
+function mergeNewlyAddedDefaults(existing: RunbookGuide[]): RunbookGuide[] {
+  const seededIds = loadSeededDefaultIds();
+  const missingDefaults = DEFAULT_RUNBOOK_GUIDES.filter(
+    (def) => !seededIds.has(def.id) && !existing.some((g) => g.id === def.id),
+  );
+  if (missingDefaults.length === 0) {
+    if (!fs.existsSync(getRunbookSeedStatePath())) {
+      try {
+        saveSeededDefaultIds(DEFAULT_RUNBOOK_GUIDES.map((d) => d.id));
+      } catch {
+        // non-fatal
+      }
+    }
+    return existing;
+  }
+
+  const next = [...existing];
+  for (const def of missingDefaults) {
+    const defIdx = DEFAULT_RUNBOOK_GUIDES.findIndex((d) => d.id === def.id);
+    // Insert right after the nearest preceding default that exists, to preserve curated order
+    let insertAt = next.length;
+    for (let i = defIdx - 1; i >= 0; i--) {
+      const prevIdx = next.findIndex((g) => g.id === DEFAULT_RUNBOOK_GUIDES[i].id);
+      if (prevIdx >= 0) {
+        insertAt = prevIdx + 1;
+        break;
+      }
+    }
+    next.splice(insertAt, 0, { ...def });
+    seededIds.add(def.id);
+  }
+
+  try {
+    writeGuidesAtomic(next);
+    saveSeededDefaultIds(seededIds);
+  } catch {
+    // non-fatal; return merged list for current request
+  }
+  return next;
+}
+
 export function loadRunbookGuides(): RunbookGuide[] {
   const targetPath = getRunbookFilePath();
   if (!fs.existsSync(targetPath)) {
     const initial = DEFAULT_RUNBOOK_GUIDES.map((g) => ({ ...g }));
     try {
       writeGuidesAtomic(initial);
+      saveSeededDefaultIds(DEFAULT_RUNBOOK_GUIDES.map((d) => d.id));
     } catch {
       // Another concurrent request may have just initialized the file; try reading it
       if (fs.existsSync(targetPath)) {
-        return JSON.parse(fs.readFileSync(targetPath, 'utf8')) as RunbookGuide[];
+        const current = JSON.parse(fs.readFileSync(targetPath, 'utf8')) as RunbookGuide[];
+        return mergeNewlyAddedDefaults(current);
       }
     }
     return initial;
@@ -471,6 +630,7 @@ export function loadRunbookGuides(): RunbookGuide[] {
     if (code === 'ENOENT') {
       const initial = DEFAULT_RUNBOOK_GUIDES.map((g) => ({ ...g }));
       writeGuidesAtomic(initial);
+      saveSeededDefaultIds(DEFAULT_RUNBOOK_GUIDES.map((d) => d.id));
       return initial;
     }
     throw err;
@@ -480,7 +640,7 @@ export function loadRunbookGuides(): RunbookGuide[] {
   if (!Array.isArray(parsed)) {
     throw new Error('Corrupted runbook guides store: expected JSON array');
   }
-  return parsed as RunbookGuide[];
+  return mergeNewlyAddedDefaults(parsed as RunbookGuide[]);
 }
 
 let runbookWriteQueue: Promise<void> = Promise.resolve();
@@ -502,5 +662,6 @@ export function saveRunbookGuides(guides: RunbookGuide[]): RunbookGuide[] {
 export function resetRunbookGuides(): RunbookGuide[] {
   const fresh = DEFAULT_RUNBOOK_GUIDES.map((g) => ({ ...g }));
   writeGuidesAtomic(fresh);
+  saveSeededDefaultIds(DEFAULT_RUNBOOK_GUIDES.map((d) => d.id));
   return fresh;
 }

@@ -48,18 +48,18 @@ function classifyNode(rawLabel: string): Omit<FlowNode, 'label' | 'linkTypeBefor
       hintEn: 'If AP/Bridge AP fails: check AP LED (dark = no PoE from Switch / loose UTP) and escalate PoE port check.',
     };
   }
-  if (/client|bridge\s*cl|rutx10|teltonika/.test(lower)) {
+  if (/client|bridge\s*cl|rutx10|teltonika|mikrotik|hap\s*ax2|phoenix|wlan/.test(lower)) {
     return {
       roleKind: 'CLIENT',
-      hintTh: 'AP ฝั่งนิ่งปกติแต่จุดนี้หลุด: เช็กไฟเลี้ยงบนรถ/เครน, เสา Wi-Fi หลวม, หน้าจาน Bridge ถูกบัง หรือจุดอับสัญญาณในซอย',
-      hintEn: 'Fixed AP OK but client unreachable: inspect vehicle power, Wi-Fi antennas, dish line-of-sight, or aisle dead zone.',
+      hintTh: 'AP ฝั่งนิ่งปกติแต่จุดนี้หลุด: เช็กไฟเลี้ยงบนรถ/เครน (24VDC), ไฟบนตัว hAP ax2 / Phoenix WLAN / RUTX10, เสา Wi-Fi หลวม, หน้าจาน Bridge ถูกบัง หรือจุดอับสัญญาณ',
+      hintEn: 'Fixed AP OK but client unreachable: inspect vehicle DC power, hAP ax2 / Phoenix WLAN / RUTX10 LEDs, Wi-Fi antennas, dish line-of-sight, or track dead zone.',
     };
   }
-  if (/amr|รถ/.test(lower) && !/shuttle|บนรถ/.test(lower)) {
+  if (/(amr|rgv|รถ)/.test(lower) && !/shuttle|บนรถ/.test(lower)) {
     return {
       roleKind: 'VEHICLE',
-      hintTh: 'ถ้ารถ AMR ไม่ตอบ: เช็กหน้าจอ/E-Stop/Bumper/แบตเตอรี่บนตัวรถก่อน ถ้าดับหลายคันโซนเดียวกันให้เช็ก Access Point จุดนั้น',
-      hintEn: 'Check AMR E-Stop, bumper safety, and battery first. If multiple units drop in one aisle, check the zone AP.',
+      hintTh: 'ถ้ารถ AMR/RGV ไม่ตอบ: เช็กหน้าจอ/E-Stop/Bumper/ไฟเลี้ยงบนตัวรถก่อน ถ้าดับหลายคันโซนเดียวกันให้เช็ก Access Point จุดนั้น',
+      hintEn: 'Check AMR/RGV E-Stop, bumper safety, and power first. If multiple units drop in one aisle/rail, check the zone AP.',
     };
   }
   if (/plc/.test(lower)) {
@@ -111,7 +111,7 @@ function parsePathToNodes(pathText: string): FlowNode[] {
       const prevIsFixedAp =
         (/access\s*point|bridge\s*ap|\bap\b/.test(prevLower) && !/client/.test(prevLower));
       const curIsWirelessPeer =
-        /bridge\s*cl|ap\s*client|client|rutx10|amr|wifi|ไร้สาย/.test(curLower);
+        /bridge\s*cl|ap\s*client|client|rutx10|mikrotik|hap\s*ax2|phoenix|wlan|amr|rgv|wifi|ไร้สาย/.test(curLower);
       if (prevIsFixedAp && curIsWirelessPeer) {
         linkType = 'WIFI';
       }

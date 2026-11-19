@@ -596,6 +596,7 @@ export function TroubleshootingRunbook() {
                   { targetId: 'SRM', text: isTh ? '🏗️ เครน SRM หยุด / Bridge หลุด' : '🏗️ Crane SRM Stopped' },
                   { targetId: 'AMR', text: isTh ? '🤖 รถ AMR หยุดวิ่ง / สะดุด' : '🤖 AMR Stopped / Flapping' },
                   { targetId: 'SHU', text: isTh ? '🚋 รถ Shuttle / บาร์โค้ดไม่ยิง' : '🚋 Shuttle / Barcode Issue' },
+                  { targetId: 'RGV', text: isTh ? '🚃 รถ RGV หยุด / Wi-Fi hAP ax2 / Phoenix / RUTX10 หลุด' : '🚃 RGV Stopped / Client Drop' },
                   { targetId: 'PLC_MAIN', text: isTh ? '🏭 ตู้ PLC Main ไม่ตอบสนอง' : '🏭 PLC Main Unreachable' },
                   { targetId: 'ACCESS_POINT', text: isTh ? '📶 ตัวปล่อย Wi-Fi / AP ดับ' : '📶 Access Point Down' },
                   { targetId: 'AP_CLIENT', text: isTh ? '📡 AP Client / Bridge เชื่อมไม่ได้' : '📡 AP Client / Bridge Drop' },
