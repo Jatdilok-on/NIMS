@@ -30,8 +30,9 @@ import {
 import { ConfirmActionModal } from '@/components/common/ConfirmActionModal';
 import { apiFetch, ApiError, apiUploadWithProgress, copyTextSafe } from '@/lib/api';
 import { useAuth } from '@/lib/auth-context';
+import { getDeviceLedClass, isDeviceAgentLive } from '@/lib/deviceTelemetry';
 import { useI18n } from '@/lib/i18n';
-import { Device, Site } from '@/lib/types';
+import { Device, DeviceCategory, Site } from '@/lib/types';
 import { RunbookVisualDiagram } from './RunbookVisualDiagram';
 
 type RunbookIconType =
@@ -126,6 +127,36 @@ function linesToArray(raw: string): string[] {
     .filter(Boolean);
 }
 
+const GUIDE_LIVE_CATEGORIES: Partial<Record<string, DeviceCategory[]>> = {
+  SRM: ['PLC', 'AP_CLIENT'],
+  AMR: ['ACCESS_POINT', 'PC'],
+  SHU: ['AP_CLIENT', 'PLC', 'BARCODE'],
+  PLC_MAIN: ['PLC', 'SWITCH'],
+  ACCESS_POINT: ['ACCESS_POINT', 'WLC'],
+  AP_CLIENT: ['AP_CLIENT'],
+};
+
+function getLiveBadgeForGuide(guide: RunbookGuide, siteDevices: Device[]) {
+  if (siteDevices.length === 0) return null;
+  const cats = GUIDE_LIVE_CATEGORIES[guide.id];
+  const live = siteDevices.filter((d) => {
+    if (!isDeviceAgentLive(d)) return false;
+    if (cats) return cats.includes(d.category);
+    // Custom guides: match any live device if iconType hints a category
+    if (guide.iconType === 'CAMERA') return d.category === 'IP_CAM' || d.category === 'NVR';
+    if (guide.iconType === 'SWITCH') return d.category === 'SWITCH';
+    if (guide.iconType === 'SERVER') return d.category === 'SERVER' || d.category === 'UPS';
+    if (guide.iconType === 'PLC') return d.category === 'PLC';
+    if (guide.iconType === 'AP') return d.category === 'ACCESS_POINT' || d.category === 'WLC';
+    if (guide.iconType === 'CLIENT') return d.category === 'AP_CLIENT';
+    return true;
+  });
+  if (live.length === 0) return null;
+  const offlineCount = live.filter((d) => d.status === 'OFFLINE').length;
+  const status = offlineCount > 0 ? 'OFFLINE' : 'ONLINE';
+  return { count: live.length, offlineCount, status };
+}
+
 export function TroubleshootingRunbook() {
   const { user } = useAuth();
   const { lang, t } = useI18n();
@@ -217,15 +248,23 @@ export function TroubleshootingRunbook() {
     }
     let cancelled = false;
     setSelectedDeviceId('');
-    apiFetch<{ devices: Device[] }>(`/devices?siteId=${encodeURIComponent(siteId)}`)
-      .then((res) => {
-        if (!cancelled) setSiteDevices(res.devices || []);
-      })
-      .catch(() => {
-        if (!cancelled) setSiteDevices([]);
-      });
+    const fetchDevices = () => {
+      apiFetch<{ devices: Device[] }>(`/devices?siteId=${encodeURIComponent(siteId)}`)
+        .then((res) => {
+          if (!cancelled) setSiteDevices(res.devices || []);
+        })
+        .catch(() => {
+          if (!cancelled) setSiteDevices([]);
+        });
+    };
+    fetchDevices();
+    const timer = window.setInterval(() => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+      fetchDevices();
+    }, 15_000);
     return () => {
       cancelled = true;
+      window.clearInterval(timer);
     };
   }, [siteId]);
 
@@ -652,26 +691,36 @@ export function TroubleshootingRunbook() {
                         .includes(q);
                     })
                     .slice(0, 20)
-                    .map((d) => (
+                    .map((d) => {
+                      const live = isDeviceAgentLive(d);
+                      return (
                       <div
                         key={d.id}
                         className="flex flex-wrap items-center justify-between gap-2 px-3 py-1.5 text-xs hover:bg-slate-50 dark:hover:bg-slate-800/50"
                       >
                         <div className="flex items-center gap-2 min-w-0">
                           <span
-                            className={`h-2 w-2 rounded-full shrink-0 ${
-                              d.status === 'ONLINE'
-                                ? 'bg-emerald-500'
-                                : d.status === 'OFFLINE'
-                                  ? 'bg-red-500'
-                                  : 'bg-slate-400'
-                            }`}
+                            title={live ? 'Live Agent Ping Active' : 'Manual / No recent Agent ping'}
+                            className={getDeviceLedClass(d.status, live)}
                           />
                           <span className="font-semibold truncate">{d.name}</span>
                           <span className="font-mono text-[11px] text-slate-500">{d.managementIp}</span>
-                          <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-500">
+                          <span
+                            className={`text-[10px] px-1.5 py-0.5 rounded font-semibold ${
+                              d.status === 'ONLINE'
+                                ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300'
+                                : d.status === 'OFFLINE'
+                                  ? 'bg-red-50 text-red-700 dark:bg-red-950/60 dark:text-red-300'
+                                  : 'bg-slate-100 dark:bg-slate-800 text-slate-500'
+                            }`}
+                          >
                             {d.status}
                           </span>
+                          {live && (
+                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-cyan-50 dark:bg-cyan-950/60 border border-cyan-200 dark:border-cyan-800 text-cyan-700 dark:text-cyan-300 text-[9px] font-mono font-bold">
+                              AGENT{d.lastLatencyMs != null ? ` ${d.lastLatencyMs}ms` : ' LIVE'}
+                            </span>
+                          )}
                         </div>
                         <div className="flex items-center gap-1.5">
                           <button
@@ -705,7 +754,8 @@ export function TroubleshootingRunbook() {
                           </button>
                         </div>
                       </div>
-                    ))}
+                      );
+                    })}
                   {siteDevices.filter((d) => d.managementIp).length === 0 && (
                     <div className="p-3 text-center text-xs text-slate-400">
                       {isTh ? 'ไม่พบอุปกรณ์ที่มี IP ใน Site นี้' : 'No devices with management IP in this site.'}
@@ -718,6 +768,7 @@ export function TroubleshootingRunbook() {
             <div className="flex flex-wrap gap-2 print:hidden">
               {guides.map((item) => {
                 const active = activeGuide?.id === item.id;
+                const liveBadge = siteId ? getLiveBadgeForGuide(item, siteDevices) : null;
                 return (
                   <button
                     key={item.id}
@@ -731,6 +782,12 @@ export function TroubleshootingRunbook() {
                   >
                     {renderGuideIcon(item.iconType)}
                     <span>{isTh ? item.thTitle : item.enTitle}</span>
+                    {liveBadge && (
+                      <span
+                        title={`${liveBadge.count} Agent-pinged device(s)`}
+                        className={getDeviceLedClass(liveBadge.status, true)}
+                      />
+                    )}
                   </button>
                 );
               })}
@@ -818,6 +875,7 @@ export function TroubleshootingRunbook() {
                   guideId={activeGuide.id}
                   pathText={isTh ? activeGuide.thPath : activeGuide.enPath}
                   isTh={isTh}
+                  siteDevices={siteId ? siteDevices : undefined}
                 />
 
                 {/* Optional Field Photo uploaded by Network Engineer / Admin */}

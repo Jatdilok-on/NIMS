@@ -16,6 +16,8 @@ import {
   Wrench,
   XCircle,
 } from 'lucide-react';
+import { getDeviceLedClass, isDeviceAgentLive } from '@/lib/deviceTelemetry';
+import { Device, DeviceCategory, DeviceStatus } from '@/lib/types';
 
 interface FlowNode {
   label: string;
@@ -148,14 +150,46 @@ function nodeIcon(kind: FlowNode['roleKind']) {
   }
 }
 
+const ROLE_CATEGORY_MAP: Record<FlowNode['roleKind'], DeviceCategory[]> = {
+  CORE: ['SERVER', 'NVR'],
+  SWITCH: ['SWITCH'],
+  AP: ['ACCESS_POINT', 'WLC'],
+  CLIENT: ['AP_CLIENT'],
+  PLC: ['PLC'],
+  VEHICLE: ['PC', 'PLC', 'AP_CLIENT'],
+  ENDPOINT: ['BARCODE', 'PLC', 'IP_CAM', 'PRINTER', 'UPS', 'NAS', 'VM', 'ESXI'],
+};
+
+function matchLiveStageDevices(
+  roleKind: FlowNode['roleKind'],
+  nodeLabel: string,
+  siteDevices?: Device[],
+): Device[] {
+  if (!siteDevices || siteDevices.length === 0) return [];
+  const lower = nodeLabel.toLowerCase();
+  const candidates = siteDevices.filter((d) => isDeviceAgentLive(d));
+  if (candidates.length === 0) return [];
+
+  if (/barcode|scanner/.test(lower)) {
+    return candidates.filter((d) => d.category === 'BARCODE');
+  }
+  if (/cam|cctv/.test(lower)) {
+    return candidates.filter((d) => d.category === 'IP_CAM' || d.category === 'NVR');
+  }
+  const allowedCats = ROLE_CATEGORY_MAP[roleKind] || [];
+  return candidates.filter((d) => allowedCats.includes(d.category));
+}
+
 export function RunbookVisualDiagram({
   guideId,
   pathText,
   isTh,
+  siteDevices,
 }: {
   guideId: string;
   pathText: string;
   isTh: boolean;
+  siteDevices?: Device[];
 }) {
   const rawNodes = useMemo(() => parsePathToNodes(pathText), [pathText]);
   const [direction, setDirection] = useState<'PING' | 'FIELD'>('PING');
@@ -305,6 +339,40 @@ export function RunbookVisualDiagram({
                     <span className="absolute -top-2 -left-2 h-5 w-5 rounded-full bg-slate-800 dark:bg-slate-700 text-white text-[10px] font-bold flex items-center justify-center">
                       {idx + 1}
                     </span>
+                    {(() => {
+                      const liveDevs = matchLiveStageDevices(node.roleKind, node.label, siteDevices);
+                      if (liveDevs.length === 0) return null;
+                      const offlineCount = liveDevs.filter((d) => d.status === 'OFFLINE').length;
+                      const onlineCount = liveDevs.filter((d) => d.status === 'ONLINE').length;
+                      const badgeStatus: DeviceStatus =
+                        offlineCount > 0 ? 'OFFLINE' : onlineCount > 0 ? 'ONLINE' : 'MAINTENANCE';
+                      const tooltip = liveDevs
+                        .slice(0, 6)
+                        .map(
+                          (d) =>
+                            `${d.name} (${d.managementIp || '-'}): ${d.status}${
+                              d.lastLatencyMs != null ? ` ${d.lastLatencyMs}ms` : ''
+                            }`,
+                        )
+                        .join('\n');
+                      return (
+                        <span
+                          title={tooltip}
+                          className={`absolute -top-2 -right-2 inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[9px] font-bold border shadow-xs ${
+                            offlineCount > 0
+                              ? 'bg-red-50 border-red-300 text-red-700 dark:bg-red-950 dark:border-red-700 dark:text-red-300'
+                              : 'bg-emerald-50 border-emerald-300 text-emerald-700 dark:bg-emerald-950 dark:border-emerald-700 dark:text-emerald-300'
+                          }`}
+                        >
+                          <span className={getDeviceLedClass(badgeStatus, true)} />
+                          <span>
+                            {offlineCount > 0
+                              ? `${offlineCount} OFF`
+                              : `${onlineCount} LIVE`}
+                          </span>
+                        </span>
+                      );
+                    })()}
 
                     <div
                       className={`h-9 w-9 rounded-lg flex items-center justify-center mb-1.5 ${
