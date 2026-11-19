@@ -6,6 +6,7 @@ import { env } from './config/env';
 import { APP_META } from './config/appMeta';
 import { apiRateLimiter } from './middleware/rateLimit';
 import { errorHandler } from './middleware/errorHandler';
+import { apiRequestLoggerMiddleware } from './lib/apiLogger';
 
 import setupRoutes from './routes/setup.routes';
 import authRoutes from './routes/auth.routes';
@@ -42,6 +43,7 @@ export function createApp() {
   app.use(cookieParser());
   app.use(express.json({ limit: '15mb' }));
   app.use(express.urlencoded({ extended: true, limit: '15mb' }));
+  app.use('/api', apiRequestLoggerMiddleware);
   app.use('/api', apiRateLimiter);
 
   app.get('/api/health', (_req, res) => {

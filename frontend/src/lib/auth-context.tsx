@@ -84,6 +84,27 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     refreshUser();
   }, [applyTheme, refreshUser]);
 
+  // Keep user presence online in real time while an authenticated tab is open
+  useEffect(() => {
+    if (!user) return;
+    const sendHeartbeat = () => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+      apiFetch('/auth/heartbeat', { method: 'POST' }).catch(() => {});
+    };
+    sendHeartbeat();
+    const timer = window.setInterval(sendHeartbeat, 45_000);
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        sendHeartbeat();
+      }
+    };
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
+  }, [user]);
+
   const logout = useCallback(async () => {
     try {
       await apiFetch('/auth/logout', { method: 'POST' });

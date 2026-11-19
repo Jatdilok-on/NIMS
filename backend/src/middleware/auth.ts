@@ -4,6 +4,8 @@ import { RoleCode, UserSitePermission } from '@prisma/client';
 import { env } from '../config/env';
 import { prisma } from '../lib/prisma';
 import { hashToken } from '../lib/crypto';
+import { extractClientIp } from '../lib/audit';
+import { recordUserActivity } from '../lib/presence';
 
 export interface AuthenticatedUser {
   id: string;
@@ -109,6 +111,10 @@ export async function authenticate(req: Request, res: Response, next: NextFuncti
         return;
       }
       req.user = cached.user;
+      recordUserActivity(cached.user.id, cached.user.sessionId, {
+        ip: extractClientIp(req),
+        path: (req.originalUrl || `${req.baseUrl}${req.path}`).split('?')[0],
+      });
       next();
       return;
     }
@@ -169,6 +175,10 @@ export async function authenticate(req: Request, res: Response, next: NextFuncti
     }
 
     req.user = authenticatedUser;
+    recordUserActivity(authenticatedUser.id, authenticatedUser.sessionId, {
+      ip: extractClientIp(req),
+      path: (req.originalUrl || `${req.baseUrl}${req.path}`).split('?')[0],
+    });
 
     next();
   } catch {

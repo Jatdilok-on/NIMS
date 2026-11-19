@@ -7,6 +7,7 @@ import { authenticate, invalidateSessionCacheForUser } from '../middleware/auth'
 import { requireRoles } from '../middleware/rbac';
 import { hashPassword } from '../lib/crypto';
 import { recordAuditLog } from '../lib/audit';
+import { getUserPresence, removeUserPresence } from '../lib/presence';
 import {
   buildSampleUsersCsv,
   buildSampleUsersExcelBuffer,
@@ -174,6 +175,7 @@ router.get('/roles', async (_req, res, next) => {
 
 router.get('/', async (_req, res, next) => {
   try {
+    const now = new Date();
     const users = await prisma.user.findMany({
       select: {
         id: true,
@@ -188,10 +190,29 @@ router.get('/', async (_req, res, next) => {
         sitePermissions: {
           include: { site: { select: { id: true, siteCode: true, siteName: true } } },
         },
+        sessions: {
+          where: { revokedAt: null, expiresAt: { gt: now } },
+          select: { id: true, ipAddress: true },
+        },
       },
       orderBy: { createdAt: 'asc' },
     });
-    res.json({ users });
+
+    const enrichedUsers = users.map(({ sessions, ...u }) => {
+      const presence = getUserPresence(u.id, u.lastLoginAt);
+      const isOnline = u.isActive && presence.isOnline;
+      return {
+        ...u,
+        isOnline,
+        lastActiveAt: presence.lastActiveAt,
+        activeSessionCount: isOnline
+          ? Math.max(presence.activeSessionCount, sessions.length > 0 ? 1 : 0)
+          : 0,
+        lastKnownIp: presence.lastKnownIp || sessions[0]?.ipAddress || null,
+      };
+    });
+
+    res.json({ users: enrichedUsers });
   } catch (err) {
     next(err);
   }
@@ -738,6 +759,7 @@ router.put('/:id', async (req, res, next) => {
         where: { userId: updated.id, revokedAt: null },
         data: { revokedAt: new Date() },
       });
+      removeUserPresence(updated.id);
     }
     invalidateSessionCacheForUser(updated.id);
 
@@ -801,6 +823,7 @@ router.delete('/:id', async (req, res, next) => {
     const deleted = await prisma.user.delete({ where: { id: req.params.id } });
     await prisma.session.deleteMany({ where: { userId: req.params.id } }).catch(() => undefined);
     invalidateSessionCacheForUser(req.params.id);
+    removeUserPresence(req.params.id);
     await recordAuditLog({
       req,
       userId: req.user!.id,

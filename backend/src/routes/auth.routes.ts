@@ -18,6 +18,7 @@ import {
 } from '../middleware/auth';
 import { extractClientIp, recordAuditLog } from '../lib/audit';
 import { loginRateLimiter } from '../middleware/rateLimit';
+import { recordUserActivity, removeSessionPresence } from '../lib/presence';
 
 const router = Router();
 
@@ -34,6 +35,7 @@ const changePasswordSchema = z.object({
 router.post('/login', loginRateLimiter, async (req, res, next) => {
   try {
     const { username, password } = loginSchema.parse(req.body);
+    (req as typeof req & { apiActorName?: string }).apiActorName = username.trim().slice(0, 60);
 
     const user = await prisma.user.findFirst({
       where: {
@@ -101,6 +103,11 @@ router.post('/login', loginRateLimiter, async (req, res, next) => {
       data: { lastLoginAt: new Date() },
     });
 
+    recordUserActivity(user.id, sessionId, {
+      ip: extractClientIp(req),
+      path: '/api/auth/login',
+    });
+
     const csrfToken = generateRandomToken(24);
     const maxAgeMs = env.sessionTtlHours * 3600 * 1000;
 
@@ -151,6 +158,7 @@ router.post('/logout', authenticate, async (req, res, next) => {
   try {
     if (req.user) {
       invalidateSessionCacheForUser(req.user.id);
+      removeSessionPresence(req.user.id, req.user.sessionId);
       await prisma.session.update({
         where: { id: req.user.sessionId },
         data: { revokedAt: new Date() },
@@ -176,6 +184,10 @@ router.post('/logout', authenticate, async (req, res, next) => {
 
 router.get('/me', authenticate, async (req, res) => {
   res.json({ user: req.user });
+});
+
+router.post('/heartbeat', authenticate, (_req, res) => {
+  res.json({ ok: true, timestamp: new Date().toISOString() });
 });
 
 router.post('/change-password', authenticate, async (req, res, next) => {

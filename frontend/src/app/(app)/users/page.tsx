@@ -44,6 +44,10 @@ interface ManagedUser {
   isActive: boolean;
   mustChangePassword?: boolean;
   lastLoginAt?: string | null;
+  isOnline?: boolean;
+  lastActiveAt?: string | null;
+  activeSessionCount?: number;
+  lastKnownIp?: string | null;
   role: { id: string; code: RoleCode; name: string };
   sitePermissions: SitePermission[];
 }
@@ -55,6 +59,7 @@ export default function UsersPage() {
   const [sites, setSites] = useState<Site[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [roleFilter, setRoleFilter] = useState<'ALL' | RoleCode>('ALL');
+  const [presenceFilter, setPresenceFilter] = useState<'ALL' | 'ONLINE' | 'OFFLINE'>('ALL');
   const [selectedUserIds, setSelectedUserIds] = useState<string[]>([]);
   const [bulkRoleCode, setBulkRoleCode] = useState<RoleCode>('NETWORK_ENGINEER');
   const [updatingRoleUserId, setUpdatingRoleUserId] = useState<string | null>(null);
@@ -89,6 +94,11 @@ export default function UsersPage() {
   useEffect(() => {
     if (!isSuperAdmin) return;
     loadData().catch(() => {});
+    const timer = window.setInterval(() => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+      loadData().catch(() => {});
+    }, 15_000);
+    return () => window.clearInterval(timer);
   }, [loadData, isSuperAdmin]);
 
   if (currentUser && !isSuperAdmin) {
@@ -167,12 +177,17 @@ export default function UsersPage() {
     }
   };
 
+  const onlineCount = users.filter((u) => u.isOnline).length;
   const configurableUsers = users.filter((u) => u.role.code !== 'SUPER_ADMIN');
   const filteredUsers = users.filter((u) => {
     if (roleFilter !== 'ALL' && u.role.code !== roleFilter) return false;
+    if (presenceFilter === 'ONLINE' && !u.isOnline) return false;
+    if (presenceFilter === 'OFFLINE' && u.isOnline) return false;
     if (!searchQuery.trim()) return true;
     const q = searchQuery.toLowerCase();
-    return `${u.username} ${u.fullName} ${u.email} ${u.role.name}`.toLowerCase().includes(q);
+    return `${u.username} ${u.fullName} ${u.email} ${u.role.name} ${u.lastKnownIp || ''}`
+      .toLowerCase()
+      .includes(q);
   });
   const visibleConfigurable = filteredUsers.filter((u) => u.role.code !== 'SUPER_ADMIN');
   const allVisibleSelected =
@@ -209,7 +224,16 @@ export default function UsersPage() {
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">{t('users.title')}</h1>
+          <div className="flex flex-wrap items-center gap-2.5">
+            <h1 className="text-2xl font-bold tracking-tight">{t('users.title')}</h1>
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-800 text-emerald-700 dark:text-emerald-300">
+              <span className="relative flex h-2 w-2">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
+              </span>
+              {t('users.onlineNow')}: {onlineCount} / {users.length}
+            </span>
+          </div>
           <p className="text-sm text-slate-500">
             {t('users.subtitle')}
           </p>
@@ -286,6 +310,15 @@ export default function UsersPage() {
             <option value="NETWORK_ENGINEER">Network Engineer</option>
             <option value="VIEWER">Viewer</option>
             <option value="IP_VIEWER">IP Viewer</option>
+          </select>
+          <select
+            value={presenceFilter}
+            onChange={(e) => setPresenceFilter(e.target.value as 'ALL' | 'ONLINE' | 'OFFLINE')}
+            className="px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs"
+          >
+            <option value="ALL">{t('users.allPresence')}</option>
+            <option value="ONLINE">{t('users.realtimeOnline')} ({onlineCount})</option>
+            <option value="OFFLINE">{t('users.realtimeOffline')} ({users.length - onlineCount})</option>
           </select>
         </div>
 
@@ -442,17 +475,56 @@ export default function UsersPage() {
                     )}
                   </td>
                   <td className="px-4 py-3">
-                    <button
-                      onClick={() => toggleActive(u)}
-                      className={`px-2 py-0.5 rounded-full text-xs font-semibold cursor-pointer ${
-                        u.isActive ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-700'
-                      }`}
-                    >
-                      {u.isActive ? 'Active' : 'Disabled'}
-                    </button>
+                    <div className="flex flex-col items-start gap-1">
+                      <span
+                        title={
+                          u.isOnline
+                            ? `${u.activeSessionCount || 1} active session(s)${u.lastKnownIp ? ` • ${u.lastKnownIp}` : ''}`
+                            : undefined
+                        }
+                        className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-bold border ${
+                          u.isOnline
+                            ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-700 dark:bg-emerald-950/60 dark:border-emerald-500/40 dark:text-emerald-300'
+                            : 'bg-slate-100 border-slate-200 text-slate-500 dark:bg-slate-800/80 dark:border-slate-700 dark:text-slate-400'
+                        }`}
+                      >
+                        <span className="relative flex h-2 w-2">
+                          {u.isOnline && (
+                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+                          )}
+                          <span
+                            className={`relative inline-flex rounded-full h-2 w-2 ${
+                              u.isOnline ? 'bg-emerald-500' : 'bg-slate-400'
+                            }`}
+                          />
+                        </span>
+                        {u.isOnline ? t('users.realtimeOnline') : t('users.realtimeOffline')}
+                      </span>
+                      <button
+                        onClick={() => toggleActive(u)}
+                        className={`px-2 py-0.5 rounded-full text-[10px] font-semibold cursor-pointer ${
+                          u.isActive
+                            ? 'bg-blue-50 text-blue-700 dark:bg-blue-950/60 dark:text-blue-300'
+                            : 'bg-red-50 text-red-700 dark:bg-red-950/60 dark:text-red-300'
+                        }`}
+                      >
+                        {u.isActive ? t('users.activeAcc') : t('users.disabledAcc')}
+                      </button>
+                    </div>
                   </td>
                   <td className="px-4 py-3 text-xs text-slate-500">
-                    {u.lastLoginAt ? new Date(u.lastLoginAt).toLocaleString() : 'Never'}
+                    <div>
+                      {u.lastActiveAt
+                        ? new Date(u.lastActiveAt).toLocaleString()
+                        : u.lastLoginAt
+                          ? new Date(u.lastLoginAt).toLocaleString()
+                          : 'Never'}
+                    </div>
+                    {u.lastKnownIp && (
+                      <div className="text-[11px] font-mono text-slate-400 mt-0.5">
+                        {u.lastKnownIp}
+                      </div>
+                    )}
                   </td>
                   <td className="px-4 py-3 text-right whitespace-nowrap">
                     <button
