@@ -37,11 +37,18 @@
 - **เอกสารโครงการ (Project Documents) และประวัติบำรุงรักษา (Maintenance History)**
   - จัดเก็บเอกสารแยกหมวดหมู่ มีระบบอัปเดตเวอร์ชันและดาวน์โหลดย้อนหลัง รวมถึงบันทึกประวัติงานซ่อมบำรุง/อัปเกรดเฟิร์มแวร์
 
-- **ระบบผู้ใช้งาน, สิทธิ์ (RBAC), ความปลอดภัย และ Audit Logs**
+- **ระบบผู้ใช้งาน, สิทธิ์ (RBAC), สถานะออนไลน์เรียลไทม์, ความปลอดภัย และ Audit / API Logs**
   - รองรับ Role 5 ระดับ: `SUPER_ADMIN`, `SITE_ADMIN`, `NETWORK_ENGINEER`, `VIEWER`, `IP_VIEWER` พร้อมกำหนดสิทธิ์ราย Site และรายโมดูล (รองรับ Bulk Assign) และการบังคับสิทธิ์ฝั่ง UI + API
+  - **Realtime User Presence (`/users`):** แสดงสถานะผู้ใช้กำลังใช้งาน **`ONLINE` (ไฟเขียวกระพริบ)** / **`OFFLINE`** แบบเรียลไทม์ พร้อมจำนวน Session ที่เปิดอยู่, เวลาใช้งานล่าสุด และ IP ล่าสุด
+  - **Audit Logs แยกหมวด & API Traffic Monitor (`/audit-logs`):** จำแนกหมวดหมู่ Log (เข้าสู่ระบบ/สิทธิ์, สถานะอุปกรณ์ `ONLINE ↔ OFFLINE`, อุปกรณ์/IPAM/ผัง, รหัสผ่าน/เอกสาร/ซ่อมบำรุง, ผู้ใช้/ระบบ), กรองแยกตาม Site พร้อมสรุปรายละเอียด และแท็บ **API Traffic Logs** สำหรับ `SUPER_ADMIN` ดูการเรียก API แบบเรียลไทม์
   - รองรับการเพิ่มผู้ใช้งานจำนวนมากด้วยการ Import Excel / CSV และบังคับเปลี่ยนรหัสผ่านเมื่อเข้าสู่ระบบครั้งแรก (`First-Login Password Change`)
-  - รองรับเปลี่ยนภาษาหน้าเว็บครบ **4 ภาษา** (`ไทย`, `English`, `中文`, `日本語`) ครอบคลุมทุกโมดูลหลัก (Dashboard, Sites, Inventory, IPAM, Diagrams, Access & Vault, Documents, Maintenance, Site Agents, Users, Audit Logs, Settings) และธีมสีหลายรูปแบบ
+  - รองรับเปลี่ยนภาษาหน้าเว็บครบ **4 ภาษา** (`ไทย`, `English`, `中文`, `日本語`) ครอบคลุมทุกโมดูลหลัก, ธีมสีหลายรูปแบบ และฟอนต์ **`Anuphan` + `JetBrains Mono`** แบบ Offline Bundled (ไม่ต้องต่อเน็ตบน Server)
   - เสริมความปลอดภัยระดับ Production ด้วย HttpOnly Cookie Authentication, การตรวจจับ Origin ป้องกัน CSRF, CSP/XSS Sanitization และการจำกัดขนาด/ชนิดไฟล์อัปโหลด
+
+- **คู่มือเช็กอุปกรณ์เบื้องต้นสำหรับ IT Service (Device Check Runbook `/runbook`)**
+  - คู่มือไล่เช็กปัญหา 4 ขั้นตอน (**ขั้นที่ 1:** แยกขอบเขต 10 วิ → **ขั้นที่ 2:** Ping 4 ด่าน → **ขั้นที่ 3:** แยกตามประเภทระบบ **SRM เครน**, **AMR รถ AGV**, **SHU รถ Shuttle**, **PLC Main**, **Access Point**, **AP Client/Bridge** → **ขั้นที่ 4:** แบบฟอร์มสร้าง Ticket ส่งต่อทีม Network)
+  - มี **แผนภาพเส้นทางสัญญาณแบบคลิกทดสอบได้** (สลับได้ทั้งทิศ `Ping จากคอมฯ` และ `เดินดูหน้างาน`), ภาพสีไฟ LED 4 สถานะ, ปุ่มเลือกตามอาการที่หน้างานแจ้ง, ดึง IP จริงใน Site + คัดลอกคำสั่ง `ping -n 5 <IP>`, และ **พิมพ์คู่มือ (A4)** ได้ cleanly ทั้งโหมดสว่างและโหมดมืด
+  - Role `NETWORK_ENGINEER`, `SITE_ADMIN`, `SUPER_ADMIN` สามารถ **เพิ่ม / แก้ไข / ลบคู่มือ** และ **แนบภาพถ่ายหน้างานจริง** ผ่านหน้าเว็บได้ทันที (เก็บรวมอยู่ใน Backup/Restore อัตโนมัติ)
 
 - **ระบบมอนิเตอร์สถานะอุปกรณ์แบบเรียลไทม์ (Site Ping Agents & Cross-Network Relay)**
   - ติดตั้ง Agent (`nims-agent.mjs`) ผ่านหน้า **Sites → Site Agents → + Add Site Agent** ได้ทั้งแบบ **LAN Direct** และ **Remote (Cross-Network)** พร้อมตัวดาวน์โหลด 1-Click Installer ทั้งฝั่ง Agent และฝั่ง Relay Bridge

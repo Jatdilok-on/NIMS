@@ -37,11 +37,18 @@ An on-premise web application for centralized multi-site network infrastructure 
 - **Project Documents & Maintenance History**
   - Categorized document storage with file versioning and downloads, alongside maintenance/firmware upgrade logs.
 
-- **Users, RBAC, Security & Audit Logs**
+- **Users, RBAC, Realtime User Presence, Security & Audit / API Logs**
   - 5 role levels (`SUPER_ADMIN`, `SITE_ADMIN`, `NETWORK_ENGINEER`, `VIEWER`, `IP_VIEWER`) with per-site module permissions and Bulk Assign enforced across UI and API.
+  - **Realtime User Presence (`/users`):** Live **`ONLINE` (blinking green)** / **`OFFLINE`** indicators per user with active session count, last active timestamp, and last known IP.
+  - **Categorized Audit Logs & API Traffic Monitor (`/audit-logs`):** Category split tabs (Auth/RBAC, Device `ONLINE ↔ OFFLINE` transitions, Inventory/IPAM/Diagrams, Vault/Docs/Maint, Users/Sites/System), site filtering, readable event details, and a **Super Admin-only API Traffic Monitor** inspecting live `/api/*` requests with method/status filters and secret redaction.
   - Bulk user import via Excel/CSV and forced first-login password change.
-  - Complete **4-language UI** (`ไทย`, `English`, `中文`, `日本語`) across all major modules plus multi-theme support.
+  - Complete **4-language UI** (`ไทย`, `English`, `中文`, `日本語`), multiple color themes, and offline-bundled **`Anuphan` + `JetBrains Mono`** fonts (zero external internet needed on LAN servers).
   - Production-hardened with HttpOnly Cookie Auth, CSRF Origin Validation, CSP/XSS Sanitization, and upload size/MIME validation.
+
+- **IT Service Device Check Runbook (`/runbook`)**
+  - Guided 4-step first-line troubleshooting SOP (**Step 1:** 10s Scope Isolation → **Step 2:** 4-Stage Sequential Ping → **Step 3:** Per-system guides for **SRM Cranes**, **AMR Vehicles**, **SHU Shuttles**, **PLC Main**, **Access Points**, **AP Clients/Bridges** → **Step 4:** Escalation Ticket Builder).
+  - Includes an **interactive clickable topology flow diagram** (switchable between `Ping Order: Source → End` and `Floor Check: Unit → Switch`), LED field cheat sheet, quick symptom selector, live site device IP lookup with 1-click `ping -n 5 <IP>` copy, and clean A4 printing across light & dark themes.
+  - `NETWORK_ENGINEER`, `SITE_ADMIN`, and `SUPER_ADMIN` can easily **Add / Edit / Delete guides** and **attach field reference photos** directly from the UI (automatically backed up with `storage/`).
 
 - **Real-Time Monitoring (Site Ping Agents & Cross-Network Relay)**
   - Deploy `nims-agent.mjs` via **Sites → Site Agents → + Add Site Agent** in either **LAN Direct** or **Remote (Cross-Network)** mode with 1-Click installers for both the Probe Agent and Step 1 Relay Bridge.
