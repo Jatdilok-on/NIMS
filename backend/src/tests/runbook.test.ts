@@ -115,6 +115,36 @@ describe('Runbook Guides API & RBAC', () => {
     expect(updateRes.body.guide.thTitle).toContain('อัปเดต');
     expect(updateRes.body.guide.updatedBy).toBe('net_eng');
 
+    // 3. Test image upload, safe serving headers, and path traversal / SVG rejection
+    const pngPayload = Buffer.concat([
+      Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+      Buffer.from('0000000d494844520000', 'hex'),
+    ]);
+    const uploadRes = await request(app)
+      .post(`/api/runbook/${createdId}/image`)
+      .set('Authorization', `Bearer ${netEng.rawJwt}`)
+      .attach('image', pngPayload, 'cabinet.png');
+    expect(uploadRes.status).toBe(200);
+    const uploadedFile = uploadRes.body.guide.imageFile as string;
+    expect(uploadedFile).toMatch(/\.png$/);
+
+    const imgGetRes = await request(app)
+      .get(`/api/runbook/images/${uploadedFile}`)
+      .set('Authorization', `Bearer ${netEng.rawJwt}`);
+    expect(imgGetRes.status).toBe(200);
+    expect(imgGetRes.headers['content-type']).toContain('image/png');
+    expect(imgGetRes.headers['content-security-policy']).toContain('sandbox');
+
+    const badImgTraversal = await request(app)
+      .get('/api/runbook/images/..')
+      .set('Authorization', `Bearer ${netEng.rawJwt}`);
+    expect(badImgTraversal.status).toBe(400);
+
+    const badSvgReq = await request(app)
+      .get('/api/runbook/images/xss.svg')
+      .set('Authorization', `Bearer ${netEng.rawJwt}`);
+    expect(badSvgReq.status).toBe(400);
+
     const deleteRes = await request(app)
       .delete(`/api/runbook/${createdId}`)
       .set('Authorization', `Bearer ${netEng.rawJwt}`);

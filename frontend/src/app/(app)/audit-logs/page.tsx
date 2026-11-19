@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Activity,
   Globe,
@@ -119,6 +119,8 @@ function renderAuditDetails(row: AuditRow): React.ReactNode {
   if (typeof d.targetUsername === 'string') summaryParts.push(`user: ${d.targetUsername}`);
   if (typeof d.deletedUsername === 'string') summaryParts.push(`user: ${d.deletedUsername}`);
   if (typeof d.roleCode === 'string') summaryParts.push(`role: ${d.roleCode}`);
+  else if (typeof d.role === 'string') summaryParts.push(`role: ${d.role}`);
+  if (typeof d.userCount === 'number') summaryParts.push(`users: ${d.userCount}`);
   if (typeof d.isActive === 'boolean') summaryParts.push(`active: ${String(d.isActive)}`);
   if (typeof d.name === 'string') summaryParts.push(d.name);
   if (typeof d.title === 'string') summaryParts.push(d.title);
@@ -184,7 +186,11 @@ export default function AuditLogsPage() {
       .catch(() => {});
   }, [canViewAuditLogs]);
 
+  const trailSeqRef = useRef(0);
+  const apiSeqRef = useRef(0);
+
   const loadLogs = useCallback(async () => {
+    const seq = ++trailSeqRef.current;
     const activeCat = CATEGORY_TABS.find((c) => c.key === category);
     const params = new URLSearchParams({ page: String(page), pageSize: '40' });
     if (activeCat?.modules) params.set('modules', activeCat.modules);
@@ -195,15 +201,20 @@ export default function AuditLogsPage() {
 
     const res = await apiFetch<{
       logs: AuditRow[];
-      pagination: { total: number; totalPages: number };
+      pagination: { page: number; total: number; totalPages: number };
     }>(`/audit-logs?${params.toString()}`);
+    if (seq !== trailSeqRef.current) return;
     setLogs(res.logs);
     setTotalPages(res.pagination.totalPages);
     setTotalTrailCount(res.pagination.total);
+    if (res.pagination.page && res.pagination.page !== page) {
+      setPage(res.pagination.page);
+    }
   }, [category, siteId, page, username, search, result]);
 
   const loadApiLogs = useCallback(async () => {
     if (!isSuperAdmin) return;
+    const seq = ++apiSeqRef.current;
     const params = new URLSearchParams({
       page: String(apiPage),
       pageSize: '50',
@@ -216,28 +227,42 @@ export default function AuditLogsPage() {
     const res = await apiFetch<{
       logs: ApiRequestRow[];
       stats: ApiStats;
-      pagination: { totalPages: number };
+      pagination: { page: number; totalPages: number };
     }>(`/audit-logs/api-requests?${params.toString()}`);
+    if (seq !== apiSeqRef.current) return;
     setApiLogs(res.logs);
     setApiStats(res.stats);
     setApiTotalPages(res.pagination.totalPages);
+    if (res.pagination.page && res.pagination.page !== apiPage) {
+      setApiPage(res.pagination.page);
+    }
   }, [isSuperAdmin, apiPage, excludePolling, apiMethod, apiStatusGroup, apiSearch]);
 
   useEffect(() => {
     if (!canViewAuditLogs || activeTab !== 'TRAIL') return;
-    loadLogs().catch(() => {});
-  }, [loadLogs, canViewAuditLogs, activeTab]);
+    const delay = username.trim() || search.trim() ? 220 : 0;
+    const timer = window.setTimeout(() => {
+      loadLogs().catch(() => {});
+    }, delay);
+    return () => window.clearTimeout(timer);
+  }, [loadLogs, canViewAuditLogs, activeTab, username, search]);
 
   useEffect(() => {
     if (!isSuperAdmin || activeTab !== 'API') return;
-    loadApiLogs().catch(() => {});
-    if (!apiAutoRefresh) return;
+    const delay = apiSearch.trim() ? 220 : 0;
+    const initTimer = window.setTimeout(() => {
+      loadApiLogs().catch(() => {});
+    }, delay);
+    if (!apiAutoRefresh) return () => window.clearTimeout(initTimer);
     const timer = window.setInterval(() => {
       if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
       loadApiLogs().catch(() => {});
     }, 5_000);
-    return () => window.clearInterval(timer);
-  }, [loadApiLogs, isSuperAdmin, activeTab, apiAutoRefresh]);
+    return () => {
+      window.clearTimeout(initTimer);
+      window.clearInterval(timer);
+    };
+  }, [loadApiLogs, isSuperAdmin, activeTab, apiAutoRefresh, apiSearch]);
 
   const handleClearApiLogs = async () => {
     if (!isSuperAdmin) return;

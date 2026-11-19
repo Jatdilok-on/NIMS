@@ -18,7 +18,11 @@ import {
 } from '../middleware/auth';
 import { extractClientIp, recordAuditLog } from '../lib/audit';
 import { loginRateLimiter } from '../middleware/rateLimit';
-import { recordUserActivity, removeSessionPresence } from '../lib/presence';
+import {
+  recordUserActivity,
+  removeOtherSessionsPresence,
+  removeSessionPresence,
+} from '../lib/presence';
 
 const router = Router();
 
@@ -106,6 +110,7 @@ router.post('/login', loginRateLimiter, async (req, res, next) => {
     recordUserActivity(user.id, sessionId, {
       ip: extractClientIp(req),
       path: '/api/auth/login',
+      expiresAt: expiresAt.getTime(),
     });
 
     const csrfToken = generateRandomToken(24);
@@ -223,6 +228,7 @@ router.post('/change-password', authenticate, async (req, res, next) => {
     });
 
     invalidateSessionCacheForUser(user.id);
+    removeOtherSessionsPresence(user.id, req.user!.sessionId);
 
     await recordAuditLog({
       req,

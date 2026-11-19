@@ -25,17 +25,20 @@ const POLLING_PATH_PREFIXES = [
 ];
 
 function isPollingPath(urlPath: string): boolean {
-  const clean = urlPath.split('?')[0];
+  const clean = urlPath.split('?')[0].replace(/\/+$/, '');
   return POLLING_PATH_PREFIXES.some((prefix) => clean === prefix);
 }
 
 function sanitizePath(rawUrl: string): string {
-  const [pathname, query] = rawUrl.split('?');
+  const qIdx = rawUrl.indexOf('?');
+  if (qIdx < 0) return rawUrl;
+  const pathname = rawUrl.slice(0, qIdx);
+  const query = rawUrl.slice(qIdx + 1);
   if (!query) return pathname;
-  // Redact any token/password/secret query parameter values if ever passed
+  // Redact any sensitive query parameter values if ever passed
   const params = new URLSearchParams(query);
   for (const key of Array.from(params.keys())) {
-    if (/token|secret|password|key|auth/i.test(key)) {
+    if (/(token|secret|password|passwd|pwd|pass|key|auth|session|cookie|jwt|bearer|credential)/i.test(key)) {
       params.set(key, '[REDACTED]');
     }
   }

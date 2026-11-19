@@ -1,7 +1,7 @@
 'use client';
 
 import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
-import { apiFetch } from './api';
+import { ApiError, apiFetch } from './api';
 import { UserProfile } from './types';
 import { getThemeDefinition, isValidThemeId, ThemeId } from './themes';
 
@@ -89,7 +89,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (!user) return;
     const sendHeartbeat = () => {
       if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
-      apiFetch('/auth/heartbeat', { method: 'POST' }).catch(() => {});
+      apiFetch('/auth/heartbeat', { method: 'POST' }).catch((err) => {
+        if (err instanceof ApiError && err.status === 401) {
+          setUser(null);
+        }
+      });
     };
     sendHeartbeat();
     const timer = window.setInterval(sendHeartbeat, 45_000);

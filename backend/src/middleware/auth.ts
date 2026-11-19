@@ -64,7 +64,8 @@ function isAllowedDuringPasswordChange(req: Request): boolean {
   return (
     fullPath === '/api/auth/me' ||
     fullPath === '/api/auth/logout' ||
-    fullPath === '/api/auth/change-password'
+    fullPath === '/api/auth/change-password' ||
+    fullPath === '/api/auth/heartbeat'
   );
 }
 
@@ -103,6 +104,7 @@ export async function authenticate(req: Request, res: Response, next: NextFuncti
       cached.sessionExpiresAt > nowMs &&
       cached.user.id === decoded.sub
     ) {
+      (req as Request & { apiActorName?: string }).apiActorName = cached.user.username;
       if (cached.user.mustChangePassword && !isAllowedDuringPasswordChange(req)) {
         res.status(403).json({
           error: 'Password change required before accessing this resource',
@@ -114,6 +116,7 @@ export async function authenticate(req: Request, res: Response, next: NextFuncti
       recordUserActivity(cached.user.id, cached.user.sessionId, {
         ip: extractClientIp(req),
         path: (req.originalUrl || `${req.baseUrl}${req.path}`).split('?')[0],
+        expiresAt: cached.sessionExpiresAt,
       });
       next();
       return;
@@ -166,6 +169,7 @@ export async function authenticate(req: Request, res: Response, next: NextFuncti
       cachedUntil: nowMs + SESSION_CACHE_TTL_MS,
     });
 
+    (req as Request & { apiActorName?: string }).apiActorName = authenticatedUser.username;
     if (authenticatedUser.mustChangePassword && !isAllowedDuringPasswordChange(req)) {
       res.status(403).json({
         error: 'Password change required before accessing this resource',
@@ -178,6 +182,7 @@ export async function authenticate(req: Request, res: Response, next: NextFuncti
     recordUserActivity(authenticatedUser.id, authenticatedUser.sessionId, {
       ip: extractClientIp(req),
       path: (req.originalUrl || `${req.baseUrl}${req.path}`).split('?')[0],
+      expiresAt: session.expiresAt.getTime(),
     });
 
     next();

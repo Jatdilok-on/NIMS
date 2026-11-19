@@ -212,11 +212,21 @@ export function TroubleshootingRunbook() {
   useEffect(() => {
     if (!siteId) {
       setSiteDevices([]);
+      setSelectedDeviceId('');
       return;
     }
+    let cancelled = false;
+    setSelectedDeviceId('');
     apiFetch<{ devices: Device[] }>(`/devices?siteId=${encodeURIComponent(siteId)}`)
-      .then((res) => setSiteDevices(res.devices || []))
-      .catch(() => setSiteDevices([]));
+      .then((res) => {
+        if (!cancelled) setSiteDevices(res.devices || []);
+      })
+      .catch(() => {
+        if (!cancelled) setSiteDevices([]);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [siteId]);
 
   const activeGuide = useMemo(
@@ -363,9 +373,15 @@ export function TroubleshootingRunbook() {
         `/runbook/${encodeURIComponent(deleteTarget.id)}`,
         { method: 'DELETE' },
       );
-      setGuides(res.guides || []);
-      if (res.guides?.length > 0) {
-        setSelectedGuideId(res.guides[0].id);
+      const nextList = res.guides || [];
+      setGuides(nextList);
+      if (nextList.length > 0) {
+        if (!nextList.some((g) => g.id === selectedGuideId)) {
+          setSelectedGuideId(nextList[0].id);
+        }
+        if (!nextList.some((g) => g.id === deviceType)) {
+          setDeviceType(nextList[0].id);
+        }
       }
       setDeleteTarget(null);
     } catch (err) {
@@ -382,9 +398,11 @@ export function TroubleshootingRunbook() {
       const res = await apiFetch<{ guides: RunbookGuide[] }>('/runbook/reset-defaults', {
         method: 'POST',
       });
-      setGuides(res.guides || []);
-      if (res.guides?.length > 0) {
-        setSelectedGuideId(res.guides[0].id);
+      const nextList = res.guides || [];
+      setGuides(nextList);
+      if (nextList.length > 0) {
+        setSelectedGuideId(nextList[0].id);
+        setDeviceType(nextList[0].id);
       }
       setShowResetConfirm(false);
     } catch (err) {
@@ -598,11 +616,11 @@ export function TroubleshootingRunbook() {
                   <Network className="h-3.5 w-3.5 text-emerald-600" />
                   {t('runbook.liveLookupTitle')}
                 </div>
-                <div className="flex flex-wrap items-center gap-2 text-xs">
+                <div className="flex flex-wrap items-center gap-2 text-xs w-full sm:w-auto">
                   <select
                     value={siteId}
                     onChange={(e) => setSiteId(e.target.value)}
-                    className="px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900"
+                    className="w-full sm:w-auto max-w-full px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900"
                   >
                     <option value="">-- {t('runbook.siteSelect')} --</option>
                     {sites.map((s) => (
@@ -616,7 +634,7 @@ export function TroubleshootingRunbook() {
                       value={lookupSearch}
                       onChange={(e) => setLookupSearch(e.target.value)}
                       placeholder="Filter device / IP..."
-                      className="px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-transparent w-44"
+                      className="px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-transparent w-full sm:w-44"
                     />
                   )}
                 </div>
@@ -967,7 +985,10 @@ export function TroubleshootingRunbook() {
                   </label>
                   <select
                     value={selectedDeviceId}
-                    onChange={(e) => setSelectedDeviceId(e.target.value)}
+                    onChange={(e) => {
+                      setSelectedDeviceId(e.target.value);
+                      if (e.target.value) setCustomUnit('');
+                    }}
                     className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900"
                   >
                     <option value="">-- {t('runbook.deviceSelect')} --</option>
@@ -986,7 +1007,10 @@ export function TroubleshootingRunbook() {
                 </label>
                 <input
                   value={customUnit}
-                  onChange={(e) => setCustomUnit(e.target.value)}
+                  onChange={(e) => {
+                    setCustomUnit(e.target.value);
+                    if (selectedDeviceId) setSelectedDeviceId('');
+                  }}
                   placeholder="e.g. SRM-02 / AMR #24 / 192.168.88.42"
                   className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-transparent"
                 />
@@ -1218,7 +1242,7 @@ export function TroubleshootingRunbook() {
       {zoomPhotoUrl && (
         <div
           onClick={() => setZoomPhotoUrl(null)}
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 cursor-zoom-out"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 cursor-zoom-out print:hidden"
         >
           <img
             src={zoomPhotoUrl}
@@ -1298,13 +1322,18 @@ function RunbookEditorModal({
       thPath: thPath.trim(),
       enPath: enPath.trim(),
       thPhysical: linesToArray(thPhysicalText),
-      enPhysical: [],
+      // Preserve existing distinct English content when editing unless cleared/overridden
+      enPhysical:
+        initialGuide && initialGuide.enPhysical?.length ? initialGuide.enPhysical : [],
       thNetworkMatrix: cleanMatrix,
-      enNetworkMatrix: [],
+      enNetworkMatrix:
+        initialGuide && initialGuide.enNetworkMatrix?.length ? initialGuide.enNetworkMatrix : [],
       thSelfFix: linesToArray(thSelfFixText),
-      enSelfFix: [],
+      enSelfFix:
+        initialGuide && initialGuide.enSelfFix?.length ? initialGuide.enSelfFix : [],
       thEscalate: linesToArray(thEscalateText),
-      enEscalate: [],
+      enEscalate:
+        initialGuide && initialGuide.enEscalate?.length ? initialGuide.enEscalate : [],
       clearImage,
     };
 
@@ -1349,7 +1378,7 @@ function RunbookEditorModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 overflow-y-auto">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 overflow-y-auto print:hidden">
       <div className="w-full max-w-3xl max-h-[92vh] overflow-y-auto rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-2xl p-6 space-y-4">
         <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
           <h3 className="text-lg font-bold flex items-center gap-2">
@@ -1358,8 +1387,9 @@ function RunbookEditorModal({
           </h3>
           <button
             type="button"
+            disabled={saving}
             onClick={onClose}
-            className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+            className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer disabled:opacity-40"
           >
             <X className="h-4 w-4" />
           </button>
@@ -1583,8 +1613,9 @@ function RunbookEditorModal({
           <div className="flex justify-end gap-2 pt-2 border-t border-slate-100 dark:border-slate-800">
             <button
               type="button"
+              disabled={saving}
               onClick={onClose}
-              className="px-4 py-2 rounded-lg border border-slate-200 dark:border-slate-700 font-semibold cursor-pointer"
+              className="px-4 py-2 rounded-lg border border-slate-200 dark:border-slate-700 font-semibold cursor-pointer disabled:opacity-40"
             >
               {t('common.cancel')}
             </button>

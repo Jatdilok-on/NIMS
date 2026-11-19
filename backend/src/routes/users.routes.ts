@@ -193,6 +193,7 @@ router.get('/', async (_req, res, next) => {
         sessions: {
           where: { revokedAt: null, expiresAt: { gt: now } },
           select: { id: true, ipAddress: true },
+          orderBy: { createdAt: 'desc' },
         },
       },
       orderBy: { createdAt: 'asc' },

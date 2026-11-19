@@ -390,10 +390,27 @@ body {
   body {
     background: #ffffff !important;
     color: #0f172a !important;
+    color-scheme: light !important;
     -webkit-print-color-adjust: exact !important;
     print-color-adjust: exact !important;
   }
   .nims-cyber-bg {
     background-image: none !important;
+  }
+  /* Force dark-mode surfaces onto crisp white paper when printing from Dark/Midnight/Nord themes */
+  .dark [class*="dark:bg-slate-9"],
+  .dark [class*="dark:bg-slate-8"],
+  .dark .bg-slate-950 {
+    background-color: #ffffff !important;
+    color: #0f172a !important;
+  }
+  .dark [class*="dark:border-slate-"] {
+    border-color: #cbd5e1 !important;
+  }
+  .dark [class*="dark:text-slate-1"],
+  .dark [class*="dark:text-slate-2"],
+  .dark [class*="dark:text-slate-3"],
+  .dark [class*="dark:text-slate-4"] {
+    color: #334155 !important;
   }
 }

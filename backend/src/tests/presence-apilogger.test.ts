@@ -79,9 +79,11 @@ describe('User Realtime Presence Registry', () => {
     expect(oneLeft.lastKnownIp).toBe('192.168.1.10');
 
     removeSessionPresence('u-pres-1', 'sess-a');
-    const offline = getUserPresence('u-pres-1', null);
+    const loginOlder = new Date('2026-11-19T00:00:00.000Z');
+    const offline = getUserPresence('u-pres-1', loginOlder);
     expect(offline.isOnline).toBe(false);
     expect(offline.activeSessionCount).toBe(0);
+    expect(new Date(offline.lastActiveAt!).getTime()).toBeGreaterThan(loginOlder.getTime());
   });
 
   it('falls back to lastLoginAt when user is offline', () => {
@@ -106,9 +108,9 @@ describe('API Request Logger & Super Admin Endpoint RBAC', () => {
     const auditSpy = vi.spyOn(prisma.auditLog, 'create').mockResolvedValue({} as never);
 
     // 1. Trigger a health request + a synthetic sensitive query request
-    await request(app).get('/api/health?token=topsecret123');
+    await request(app).get('/api/health/?token=topsecret123&pwd=mypassword');
 
-    // Polling filter should hide /api/health by default, show it when excludePolling=false
+    // Polling filter should hide /api/health (even with trailing slash) by default
     const hiddenRes = queryApiRequestLogs({ excludePolling: true });
     expect(hiddenRes.logs.some((l) => l.path.startsWith('/api/health'))).toBe(false);
 
@@ -116,6 +118,7 @@ describe('API Request Logger & Super Admin Endpoint RBAC', () => {
     const healthEntry = visibleRes.logs.find((l) => l.path.startsWith('/api/health'));
     expect(healthEntry).toBeDefined();
     expect(healthEntry!.path).not.toContain('topsecret123');
+    expect(healthEntry!.path).not.toContain('mypassword');
     expect(healthEntry!.path).toContain('REDACTED');
 
     // 2. SITE_ADMIN gets 403 on /api/audit-logs/api-requests

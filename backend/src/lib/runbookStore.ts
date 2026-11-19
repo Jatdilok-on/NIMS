@@ -1,3 +1,4 @@
+import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
 import { env } from '../config/env';
@@ -420,30 +421,77 @@ function getRunbookFilePath(): string {
 
 function writeGuidesAtomic(guides: RunbookGuide[]): void {
   const targetPath = getRunbookFilePath();
-  const tempPath = `${targetPath}.tmp`;
+  const uniqueSuffix = `${process.pid}.${crypto.randomBytes(6).toString('hex')}`;
+  const tempPath = `${targetPath}.${uniqueSuffix}.tmp`;
   fs.writeFileSync(tempPath, JSON.stringify(guides, null, 2), 'utf8');
-  fs.renameSync(tempPath, targetPath);
+
+  // Windows antivirus/indexers or concurrent readers can briefly return EPERM/EBUSY on atomic rename
+  let lastErr: unknown;
+  for (let attempt = 0; attempt < 5; attempt++) {
+    try {
+      fs.renameSync(tempPath, targetPath);
+      return;
+    } catch (err) {
+      lastErr = err;
+      const code = (err as NodeJS.ErrnoException)?.code;
+      if (code !== 'EPERM' && code !== 'EBUSY' && code !== 'EACCES') {
+        break;
+      }
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 25 * (attempt + 1));
+    }
+  }
+  try {
+    if (fs.existsSync(tempPath)) fs.unlinkSync(tempPath);
+  } catch {
+    // ignore cleanup error
+  }
+  throw lastErr;
 }
 
 export function loadRunbookGuides(): RunbookGuide[] {
   const targetPath = getRunbookFilePath();
   if (!fs.existsSync(targetPath)) {
     const initial = DEFAULT_RUNBOOK_GUIDES.map((g) => ({ ...g }));
-    writeGuidesAtomic(initial);
+    try {
+      writeGuidesAtomic(initial);
+    } catch {
+      // Another concurrent request may have just initialized the file; try reading it
+      if (fs.existsSync(targetPath)) {
+        return JSON.parse(fs.readFileSync(targetPath, 'utf8')) as RunbookGuide[];
+      }
+    }
     return initial;
   }
+
+  let raw: string;
   try {
-    const raw = fs.readFileSync(targetPath, 'utf8');
-    const parsed = JSON.parse(raw);
-    if (Array.isArray(parsed)) {
-      return parsed as RunbookGuide[];
+    raw = fs.readFileSync(targetPath, 'utf8');
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException)?.code;
+    if (code === 'ENOENT') {
+      const initial = DEFAULT_RUNBOOK_GUIDES.map((g) => ({ ...g }));
+      writeGuidesAtomic(initial);
+      return initial;
     }
-  } catch {
-    // Fall back safely to defaults if file was corrupted
+    throw err;
   }
-  const initial = DEFAULT_RUNBOOK_GUIDES.map((g) => ({ ...g }));
-  writeGuidesAtomic(initial);
-  return initial;
+
+  const parsed = JSON.parse(raw);
+  if (!Array.isArray(parsed)) {
+    throw new Error('Corrupted runbook guides store: expected JSON array');
+  }
+  return parsed as RunbookGuide[];
+}
+
+let runbookWriteQueue: Promise<void> = Promise.resolve();
+
+export function withRunbookLock<T>(task: () => Promise<T> | T): Promise<T> {
+  const run = runbookWriteQueue.then(() => task());
+  runbookWriteQueue = run.then(
+    () => undefined,
+    () => undefined,
+  );
+  return run;
 }
 
 export function saveRunbookGuides(guides: RunbookGuide[]): RunbookGuide[] {

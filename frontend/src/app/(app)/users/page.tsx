@@ -365,7 +365,7 @@ export default function UsersPage() {
                 <th className="px-4 py-3">{t('users.colRole')}</th>
                 <th className="px-4 py-3">{t('users.colSites')}</th>
                 <th className="px-4 py-3">{t('users.colStatus')}</th>
-                <th className="px-4 py-3">{t('users.colLastLogin')}</th>
+                <th className="px-4 py-3">{t('users.lastActive')}</th>
                 <th className="px-4 py-3 text-right">{t('users.colActions')}</th>
               </tr>
             </thead>
@@ -502,7 +502,8 @@ export default function UsersPage() {
                       </span>
                       <button
                         onClick={() => toggleActive(u)}
-                        className={`px-2 py-0.5 rounded-full text-[10px] font-semibold cursor-pointer ${
+                        disabled={u.id === currentUser?.id}
+                        className={`px-2 py-0.5 rounded-full text-[10px] font-semibold disabled:opacity-60 disabled:cursor-not-allowed cursor-pointer ${
                           u.isActive
                             ? 'bg-blue-50 text-blue-700 dark:bg-blue-950/60 dark:text-blue-300'
                             : 'bg-red-50 text-red-700 dark:bg-red-950/60 dark:text-red-300'
@@ -546,7 +547,8 @@ export default function UsersPage() {
                     )}
                     <button
                       onClick={() => handleDelete(u)}
-                      className="p-1.5 rounded hover:bg-red-50 text-red-600 cursor-pointer"
+                      disabled={u.id === currentUser?.id}
+                      className="p-1.5 rounded hover:bg-red-50 text-red-600 cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
                     >
                       <Trash2 className="h-4 w-4" />
                     </button>
@@ -1551,7 +1553,7 @@ function EditUserModal({
           roleCode: isSelf ? undefined : roleCode,
           syncSitePermissions,
           password: password.trim() ? password : undefined,
-          mustChangePassword,
+          mustChangePassword: isSelf ? undefined : mustChangePassword,
           isActive: isSelf ? undefined : isActive,
         }),
       });
@@ -1647,7 +1649,7 @@ function EditUserModal({
               onChange={(e) => {
                 const nextPwd = e.target.value;
                 setPassword(nextPwd);
-                if (nextPwd.trim()) setMustChangePassword(true);
+                if (!isSelf && nextPwd.trim()) setMustChangePassword(true);
               }}
               className="w-full px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-transparent"
             />

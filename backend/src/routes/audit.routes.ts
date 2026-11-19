@@ -46,7 +46,7 @@ router.get('/', async (req, res, next) => {
         .map((m) => m.trim().toUpperCase())
         .filter(Boolean);
       if (list.length === 1) {
-        where.module = { contains: list[0], mode: 'insensitive' };
+        where.module = { equals: list[0], mode: 'insensitive' };
       } else if (list.length > 1) {
         where.module = { in: list };
       }
@@ -67,23 +67,23 @@ router.get('/', async (req, res, next) => {
       ];
     }
 
-    const [total, logs] = await Promise.all([
-      prisma.auditLog.count({ where }),
-      prisma.auditLog.findMany({
-        where,
-        orderBy: { createdAt: 'desc' },
-        skip: (page - 1) * pageSize,
-        take: pageSize,
-      }),
-    ]);
+    const total = await prisma.auditLog.count({ where });
+    const totalPages = Math.max(1, Math.ceil(total / pageSize));
+    const safePage = Math.min(page, totalPages);
+    const logs = await prisma.auditLog.findMany({
+      where,
+      orderBy: { createdAt: 'desc' },
+      skip: (safePage - 1) * pageSize,
+      take: pageSize,
+    });
 
     res.json({
       logs,
       pagination: {
-        page,
+        page: safePage,
         pageSize,
         total,
-        totalPages: Math.ceil(total / pageSize) || 1,
+        totalPages,
       },
     });
   } catch (err) {

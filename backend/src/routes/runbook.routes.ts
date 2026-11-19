@@ -16,6 +16,7 @@ import {
   RunbookGuide,
   RunbookIconType,
   saveRunbookGuides,
+  withRunbookLock,
 } from '../lib/runbookStore';
 
 const router = Router();
@@ -26,30 +27,32 @@ const uploadImage = multer({
   limits: { fileSize: 5 * 1024 * 1024 },
 });
 
-function detectImageExtension(buffer: Buffer, originalName: string): { ext: string; mime: string } | null {
+const ALLOWED_IMAGE_MIME_BY_EXT: Record<string, string> = {
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.webp': 'image/webp',
+  '.gif': 'image/gif',
+};
+
+const PNG_SIG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+
+function detectImageExtension(buffer: Buffer): { ext: string; mime: string } | null {
   if (buffer.length < 12) return null;
-  // PNG magic bytes: 89 50 4E 47 0D 0A 1A 0A
-  if (
-    buffer[0] === 0x89 &&
-    buffer[1] === 0x50 &&
-    buffer[2] === 0x4e &&
-    buffer[3] === 0x47
-  ) {
+  if (buffer.subarray(0, 8).equals(PNG_SIG)) {
     return { ext: '.png', mime: 'image/png' };
   }
-  // JPEG magic bytes: FF D8 FF
   if (buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff) {
     return { ext: '.jpg', mime: 'image/jpeg' };
   }
-  // WEBP: RIFF....WEBP
   if (
     buffer.subarray(0, 4).toString('ascii') === 'RIFF' &&
     buffer.subarray(8, 12).toString('ascii') === 'WEBP'
   ) {
     return { ext: '.webp', mime: 'image/webp' };
   }
-  const lower = path.extname(originalName).toLowerCase();
-  if (lower === '.gif' && buffer.subarray(0, 4).toString('ascii') === 'GIF8') {
+  const gifHdr = buffer.subarray(0, 6).toString('ascii');
+  if (gifHdr === 'GIF87a' || gifHdr === 'GIF89a') {
     return { ext: '.gif', mime: 'image/gif' };
   }
   return null;
@@ -64,8 +67,10 @@ function getRunbookImagesDir(): string {
 function removeImageFileIfPresent(imageFile?: string | null): void {
   if (!imageFile) return;
   try {
-    const target = resolveSafeStoragePath(path.join('runbook', 'images', path.basename(imageFile)));
-    if (fs.existsSync(target)) {
+    const safeName = sanitizeFileName(imageFile);
+    if (!safeName || safeName === '.' || safeName === '..') return;
+    const target = resolveSafeStoragePath(path.join('runbook', 'images', safeName));
+    if (fs.existsSync(target) && fs.statSync(target).isFile()) {
       fs.unlinkSync(target);
     }
   } catch {
@@ -162,19 +167,39 @@ function normalizeGuideInput(
 }
 
 // All signed-in users (including IT Service / Viewers) can read Runbook guides & attached photos
-router.get('/', (_req, res) => {
-  const guides = loadRunbookGuides();
-  res.json({ guides });
+router.get('/', (_req, res, next) => {
+  try {
+    const guides = loadRunbookGuides();
+    res.json({ guides });
+  } catch (err) {
+    next(err);
+  }
 });
 
 router.get('/images/:filename', (req, res) => {
   try {
-    const safeName = sanitizeFileName(String(req.params.filename || ''));
+    const rawParam = String(req.params.filename || '');
+    const safeName = sanitizeFileName(rawParam);
+    if (!safeName || safeName === '.' || safeName === '..' || safeName !== rawParam) {
+      res.status(400).json({ error: 'Invalid image filename' });
+      return;
+    }
+
+    const ext = path.extname(safeName).toLowerCase();
+    const mimeType = ALLOWED_IMAGE_MIME_BY_EXT[ext];
+    if (!mimeType) {
+      res.status(400).json({ error: 'Unsupported image format' });
+      return;
+    }
+
     const fullPath = resolveSafeStoragePath(path.join('runbook', 'images', safeName), env.storageRoot);
-    if (!fs.existsSync(fullPath)) {
+    if (!fs.existsSync(fullPath) || !fs.statSync(fullPath).isFile()) {
       res.status(404).json({ error: 'Runbook image not found' });
       return;
     }
+
+    res.setHeader('Content-Type', mimeType);
+    res.setHeader('Content-Security-Policy', "default-src 'none'; sandbox");
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('Cache-Control', 'private, max-age=3600');
     res.sendFile(fullPath);
@@ -195,16 +220,19 @@ router.post(
         return;
       }
 
-      const guides = loadRunbookGuides();
-      let candidateId = slugifyId(parsed.data.id || parsed.data.codeBadge || parsed.data.thTitle);
-      let suffix = 2;
-      while (guides.some((g) => g.id === candidateId)) {
-        candidateId = `${slugifyId(parsed.data.id || parsed.data.codeBadge)}_${suffix++}`;
-      }
+      const { created, nextGuides } = await withRunbookLock(() => {
+        const guides = loadRunbookGuides();
+        let candidateId = slugifyId(parsed.data.id || parsed.data.codeBadge || parsed.data.thTitle);
+        let suffix = 2;
+        while (guides.some((g) => g.id === candidateId)) {
+          candidateId = `${slugifyId(parsed.data.id || parsed.data.codeBadge)}_${suffix++}`;
+        }
 
-      const created = normalizeGuideInput(parsed.data, candidateId, req.user!.username, null);
-      const nextGuides = [...guides, created];
-      saveRunbookGuides(nextGuides);
+        const entry = normalizeGuideInput(parsed.data, candidateId, req.user!.username, null);
+        const updatedList = [...guides, entry];
+        saveRunbookGuides(updatedList);
+        return { created: entry, nextGuides: updatedList };
+      });
 
       await recordAuditLog({
         req,
@@ -234,22 +262,27 @@ router.put(
       }
 
       const targetId = String(req.params.id);
-      const guides = loadRunbookGuides();
-      const idx = guides.findIndex((g) => g.id === targetId);
-      if (idx < 0) {
+      const outcome = await withRunbookLock(() => {
+        const guides = loadRunbookGuides();
+        const idx = guides.findIndex((g) => g.id === targetId);
+        if (idx < 0) return null;
+
+        const prevImage = guides[idx].imageFile ?? null;
+        const updated = normalizeGuideInput(parsed.data, targetId, req.user!.username, prevImage);
+        const nextGuides = [...guides];
+        nextGuides[idx] = updated;
+        saveRunbookGuides(nextGuides);
+        return { updated, nextGuides, clearedImage: parsed.data.clearImage ? prevImage : null };
+      });
+
+      if (!outcome) {
         res.status(404).json({ error: 'Runbook guide not found' });
         return;
       }
 
-      const prevImage = guides[idx].imageFile ?? null;
-      if (parsed.data.clearImage && prevImage) {
-        removeImageFileIfPresent(prevImage);
+      if (outcome.clearedImage) {
+        removeImageFileIfPresent(outcome.clearedImage);
       }
-
-      const updated = normalizeGuideInput(parsed.data, targetId, req.user!.username, prevImage);
-      const nextGuides = [...guides];
-      nextGuides[idx] = updated;
-      saveRunbookGuides(nextGuides);
 
       await recordAuditLog({
         req,
@@ -257,10 +290,10 @@ router.put(
         username: req.user!.username,
         action: 'UPDATE_RUNBOOK_GUIDE',
         module: 'RUNBOOK',
-        details: { guideId: updated.id, title: updated.thTitle },
+        details: { guideId: outcome.updated.id, title: outcome.updated.thTitle },
       });
 
-      res.json({ guide: updated, guides: nextGuides });
+      res.json({ guide: outcome.updated, guides: outcome.nextGuides });
     } catch (err) {
       next(err);
     }
@@ -272,20 +305,15 @@ router.post(
   requireRoles(RoleCode.SUPER_ADMIN, RoleCode.SITE_ADMIN, RoleCode.NETWORK_ENGINEER),
   uploadImage.single('image'),
   async (req, res, next) => {
+    let writtenFilename: string | null = null;
     try {
       const targetId = String(req.params.id);
-      const guides = loadRunbookGuides();
-      const idx = guides.findIndex((g) => g.id === targetId);
-      if (idx < 0) {
-        res.status(404).json({ error: 'Runbook guide not found' });
-        return;
-      }
       if (!req.file) {
         res.status(400).json({ error: 'Image file is required' });
         return;
       }
 
-      const detected = detectImageExtension(req.file.buffer, req.file.originalname);
+      const detected = detectImageExtension(req.file.buffer);
       if (!detected) {
         res.status(400).json({ error: 'Only PNG, JPG, WEBP, or GIF image files are allowed' });
         return;
@@ -295,18 +323,36 @@ router.post(
       const filename = `${sanitizeFileName(targetId)}-${crypto.randomBytes(6).toString('hex')}${detected.ext}`;
       const destPath = path.join(imagesDir, filename);
       fs.writeFileSync(destPath, req.file.buffer);
+      writtenFilename = filename;
 
-      removeImageFileIfPresent(guides[idx].imageFile);
+      const outcome = await withRunbookLock(() => {
+        const guides = loadRunbookGuides();
+        const idx = guides.findIndex((g) => g.id === targetId);
+        if (idx < 0) return null;
 
-      const updated: RunbookGuide = {
-        ...guides[idx],
-        imageFile: filename,
-        updatedBy: req.user!.username,
-        updatedAt: new Date().toISOString(),
-      };
-      const nextGuides = [...guides];
-      nextGuides[idx] = updated;
-      saveRunbookGuides(nextGuides);
+        const prevImage = guides[idx].imageFile ?? null;
+        const updated: RunbookGuide = {
+          ...guides[idx],
+          imageFile: filename,
+          updatedBy: req.user!.username,
+          updatedAt: new Date().toISOString(),
+        };
+        const nextGuides = [...guides];
+        nextGuides[idx] = updated;
+        saveRunbookGuides(nextGuides);
+        return { updated, nextGuides, prevImage };
+      });
+
+      if (!outcome) {
+        removeImageFileIfPresent(writtenFilename);
+        res.status(404).json({ error: 'Runbook guide not found' });
+        return;
+      }
+
+      // Only delete previous image after guides.json persisted successfully
+      if (outcome.prevImage && outcome.prevImage !== filename) {
+        removeImageFileIfPresent(outcome.prevImage);
+      }
 
       await recordAuditLog({
         req,
@@ -317,8 +363,9 @@ router.post(
         details: { guideId: targetId, filename },
       });
 
-      res.json({ guide: updated, guides: nextGuides });
+      res.json({ guide: outcome.updated, guides: outcome.nextGuides });
     } catch (err) {
+      if (writtenFilename) removeImageFileIfPresent(writtenFilename);
       next(err);
     }
   },
@@ -330,16 +377,27 @@ router.delete(
   async (req, res, next) => {
     try {
       const targetId = String(req.params.id);
-      const guides = loadRunbookGuides();
-      const target = guides.find((g) => g.id === targetId);
-      if (!target) {
+      const outcome = await withRunbookLock(() => {
+        const guides = loadRunbookGuides();
+        const target = guides.find((g) => g.id === targetId);
+        if (!target) return { status: 404 as const };
+        if (guides.length <= 1) return { status: 400 as const };
+
+        const nextGuides = guides.filter((g) => g.id !== targetId);
+        saveRunbookGuides(nextGuides);
+        return { status: 200 as const, target, nextGuides };
+      });
+
+      if (outcome.status === 404) {
         res.status(404).json({ error: 'Runbook guide not found' });
         return;
       }
+      if (outcome.status === 400) {
+        res.status(400).json({ error: 'Cannot delete the last remaining runbook guide' });
+        return;
+      }
 
-      removeImageFileIfPresent(target.imageFile);
-      const nextGuides = guides.filter((g) => g.id !== targetId);
-      saveRunbookGuides(nextGuides);
+      removeImageFileIfPresent(outcome.target.imageFile);
 
       await recordAuditLog({
         req,
@@ -347,10 +405,10 @@ router.delete(
         username: req.user!.username,
         action: 'DELETE_RUNBOOK_GUIDE',
         module: 'RUNBOOK',
-        details: { guideId: targetId, title: target.thTitle },
+        details: { guideId: targetId, title: outcome.target.thTitle },
       });
 
-      res.json({ guides: nextGuides });
+      res.json({ guides: outcome.nextGuides });
     } catch (err) {
       next(err);
     }
@@ -362,11 +420,20 @@ router.post(
   requireRoles(RoleCode.SUPER_ADMIN, RoleCode.SITE_ADMIN),
   async (req, res, next) => {
     try {
-      const current = loadRunbookGuides();
-      for (const item of current) {
-        removeImageFileIfPresent(item.imageFile);
-      }
-      const guides = resetRunbookGuides();
+      const guides = await withRunbookLock(() => {
+        const fresh = resetRunbookGuides();
+        // Sweep all uploaded runbook images (including any orphans)
+        try {
+          const imagesDir = getRunbookImagesDir();
+          for (const file of fs.readdirSync(imagesDir)) {
+            removeImageFileIfPresent(file);
+          }
+        } catch {
+          // ignore sweep failure
+        }
+        return fresh;
+      });
+
       await recordAuditLog({
         req,
         userId: req.user!.id,
