@@ -4,6 +4,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { Activity, ShieldCheck } from 'lucide-react';
 import { apiFetch } from '@/lib/api';
 import { useAuth } from '@/lib/auth-context';
+import { useI18n } from '@/lib/i18n';
 
 interface AuditRow {
   id: string;
@@ -19,6 +20,7 @@ interface AuditRow {
 
 export default function AuditLogsPage() {
   const { user } = useAuth();
+  const { t } = useI18n();
   const canViewAuditLogs = user?.roleCode === 'SUPER_ADMIN' || user?.roleCode === 'SITE_ADMIN';
   const [logs, setLogs] = useState<AuditRow[]>([]);
   const [username, setUsername] = useState('');
@@ -48,26 +50,26 @@ export default function AuditLogsPage() {
   if (user && !canViewAuditLogs) {
     return (
       <div className="p-8 text-center text-sm text-red-600 dark:text-red-400">
-        Access denied: Administrator privileges are required to view audit logs.
+        {t('audit.accessDenied')}
       </div>
     );
   }
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
             <Activity className="h-6 w-6 text-blue-600" />
-            Immutable Audit Logs
+            {t('audit.title')}
           </h1>
           <p className="text-sm text-slate-500">
-            Tamper-resistant chronological log of logins, inventory changes, document downloads, and credential access
+            {t('audit.subtitle')}
           </p>
         </div>
         <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 text-xs font-semibold">
           <ShieldCheck className="h-4 w-4" />
-          Append-Only • Secrets Redacted
+          {t('audit.badge')}
         </span>
       </div>
 
@@ -78,7 +80,7 @@ export default function AuditLogsPage() {
             setUsername(e.target.value);
             setPage(1);
           }}
-          placeholder="Filter by username..."
+          placeholder={t('audit.filterUser')}
           className="px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-transparent text-sm"
         />
         <input
@@ -87,7 +89,7 @@ export default function AuditLogsPage() {
             setAction(e.target.value);
             setPage(1);
           }}
-          placeholder="Filter by action (e.g. VIEW_CREDENTIAL)..."
+          placeholder={t('audit.filterAction')}
           className="px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-transparent text-sm"
         />
         <select
@@ -98,7 +100,7 @@ export default function AuditLogsPage() {
           }}
           className="px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm"
         >
-          <option value="">All Results</option>
+          <option value="">{t('audit.allResults')}</option>
           <option value="SUCCESS">SUCCESS</option>
           <option value="DENIED">DENIED</option>
           <option value="FAILURE">FAILURE</option>
@@ -110,14 +112,14 @@ export default function AuditLogsPage() {
           <table className="w-full text-sm">
             <thead>
               <tr className="bg-slate-50 dark:bg-slate-800/70 text-left text-xs uppercase text-slate-500 border-b border-slate-200 dark:border-slate-800">
-                <th className="px-4 py-3">Date & Time</th>
-                <th className="px-4 py-3">Username</th>
-                <th className="px-4 py-3">Action</th>
-                <th className="px-4 py-3">Module</th>
-                <th className="px-4 py-3">Site</th>
-                <th className="px-4 py-3">Device</th>
-                <th className="px-4 py-3">Source IP</th>
-                <th className="px-4 py-3">Result</th>
+                <th className="px-4 py-3">{t('audit.colTime')}</th>
+                <th className="px-4 py-3">{t('audit.colUser')}</th>
+                <th className="px-4 py-3">{t('audit.colAction')}</th>
+                <th className="px-4 py-3">{t('audit.colModule')}</th>
+                <th className="px-4 py-3">{t('audit.colSite')}</th>
+                <th className="px-4 py-3">{t('audit.colDevice')}</th>
+                <th className="px-4 py-3">{t('audit.colIp')}</th>
+                <th className="px-4 py-3">{t('audit.colResult')}</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
@@ -156,19 +158,19 @@ export default function AuditLogsPage() {
         <button
           disabled={page <= 1}
           onClick={() => setPage((p) => p - 1)}
-          className="px-3 py-1 rounded border disabled:opacity-40"
+          className="px-3 py-1 rounded border disabled:opacity-40 cursor-pointer"
         >
-          Previous
+          {t('audit.prev')}
         </button>
         <span className="py-1">
-          Page {page} / {totalPages}
+          {t('audit.pageOf')} {page} / {totalPages}
         </span>
         <button
           disabled={page >= totalPages}
           onClick={() => setPage((p) => p + 1)}
-          className="px-3 py-1 rounded border disabled:opacity-40"
+          className="px-3 py-1 rounded border disabled:opacity-40 cursor-pointer"
         >
-          Next
+          {t('audit.next')}
         </button>
       </div>
     </div>

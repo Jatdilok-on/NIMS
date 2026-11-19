@@ -14,6 +14,7 @@ import {
   X,
 } from 'lucide-react';
 import { apiFetch, apiUploadWithProgress, ApiError, formatBytes } from '@/lib/api';
+import { useI18n } from '@/lib/i18n';
 import { ConfirmActionModal } from '@/components/common/ConfirmActionModal';
 import {
   FileDropzone,
@@ -46,6 +47,7 @@ export function DocumentsPanel({
   canEdit?: boolean;
   canDelete?: boolean;
 }) {
+  const { t } = useI18n();
   const [sites, setSites] = useState<Site[]>([]);
   const [documents, setDocuments] = useState<DocumentItem[]>([]);
   const [category, setCategory] = useState<'' | DocumentCategory>('');
@@ -105,7 +107,7 @@ export function DocumentsPanel({
           <input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search documents, project name, filename..."
+            placeholder={t('docs.searchPlaceholder')}
             className="w-full pl-9 pr-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm"
           />
         </div>
@@ -116,7 +118,7 @@ export function DocumentsPanel({
             className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold cursor-pointer"
           >
             <Upload className="h-4 w-4" />
-            Upload Document
+            {t('docs.uploadBtn')}
           </button>
         )}
       </div>
@@ -134,7 +136,7 @@ export function DocumentsPanel({
             }`}
           >
             <Folder className="h-3.5 w-3.5" />
-            {c.label}
+            {c.value === '' ? t('docs.allFolders') : c.label}
           </button>
         ))}
       </div>
@@ -145,21 +147,21 @@ export function DocumentsPanel({
           <table className="w-full text-sm">
             <thead>
               <tr className="bg-slate-50 dark:bg-slate-800/70 text-left text-xs uppercase text-slate-500 border-b border-slate-200 dark:border-slate-800">
-                <th className="px-4 py-3">Document Name</th>
-                {!fixedSiteId && <th className="px-4 py-3">Site</th>}
-                <th className="px-4 py-3">Folder</th>
-                <th className="px-4 py-3">Project</th>
-                <th className="px-4 py-3">Version</th>
-                <th className="px-4 py-3">Size</th>
-                <th className="px-4 py-3">Updated</th>
-                <th className="px-4 py-3 text-right">Actions</th>
+                <th className="px-4 py-3">{t('docs.colName')}</th>
+                {!fixedSiteId && <th className="px-4 py-3">{t('docs.colSite')}</th>}
+                <th className="px-4 py-3">{t('docs.colFolder')}</th>
+                <th className="px-4 py-3">{t('docs.colProject')}</th>
+                <th className="px-4 py-3">{t('docs.colVersion')}</th>
+                <th className="px-4 py-3">{t('docs.colSize')}</th>
+                <th className="px-4 py-3">{t('docs.colUpdated')}</th>
+                <th className="px-4 py-3 text-right">{t('docs.colActions')}</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
               {documents.length === 0 ? (
                 <tr>
                   <td colSpan={8} className="px-4 py-8 text-center text-slate-500">
-                    No documents found in this folder.
+                    {t('docs.empty')}
                   </td>
                 </tr>
               ) : (
@@ -249,7 +251,7 @@ export function DocumentsPanel({
                   href={`/api/documents/${previewDoc.id}/download`}
                   className="px-3 py-1 rounded bg-blue-600 text-white text-xs font-semibold"
                 >
-                  Download
+                  {t('docs.download')}
                 </a>
                 <button onClick={() => setPreviewDoc(null)}>
                   <X className="h-5 w-5" />

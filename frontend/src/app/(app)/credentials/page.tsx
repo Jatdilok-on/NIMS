@@ -2,10 +2,12 @@
 
 import React from 'react';
 import { useAuth } from '@/lib/auth-context';
+import { useI18n } from '@/lib/i18n';
 import { CredentialsPanel } from '@/components/credentials/CredentialsPanel';
 
 export default function CredentialsPage() {
   const { user } = useAuth();
+  const { t } = useI18n();
   if (user?.roleCode === 'IP_VIEWER') {
     return <CredentialsPanel canEdit={false} />;
   }
@@ -17,9 +19,9 @@ export default function CredentialsPage() {
   return (
     <div className="space-y-4">
       <div>
-        <h1 className="text-2xl font-bold tracking-tight">Access Management & Credentials Vault</h1>
+        <h1 className="text-2xl font-bold tracking-tight">{t('vault.title')}</h1>
         <p className="text-sm text-slate-500">
-          AES-256-GCM encrypted login credentials, connection procedures, and audit-logged access
+          {t('vault.subtitle')}
         </p>
       </div>
       <CredentialsPanel canEdit={canEdit} />

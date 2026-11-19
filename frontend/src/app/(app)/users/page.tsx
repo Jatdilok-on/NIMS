@@ -25,6 +25,7 @@ import { apiFetch, apiUploadWithProgress, ApiError } from '@/lib/api';
 import { ConfirmActionModal } from '@/components/common/ConfirmActionModal';
 import { FileDropzone } from '@/components/common/FileDropzone';
 import { useAuth } from '@/lib/auth-context';
+import { useI18n } from '@/lib/i18n';
 import { RoleCode, Site, SitePermission } from '@/lib/types';
 
 const ROLE_OPTIONS: Array<{ code: RoleCode; label: string }> = [
@@ -49,6 +50,7 @@ interface ManagedUser {
 
 export default function UsersPage() {
   const { user: currentUser } = useAuth();
+  const { t } = useI18n();
   const [users, setUsers] = useState<ManagedUser[]>([]);
   const [sites, setSites] = useState<Site[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
@@ -92,7 +94,7 @@ export default function UsersPage() {
   if (currentUser && !isSuperAdmin) {
     return (
       <div className="p-8 text-center text-sm text-red-600 dark:text-red-400">
-        Access denied: Super Admin privileges are required to manage users.
+        {t('users.accessDenied')}
       </div>
     );
   }
@@ -207,9 +209,9 @@ export default function UsersPage() {
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">User Management & RBAC</h1>
+          <h1 className="text-2xl font-bold tracking-tight">{t('users.title')}</h1>
           <p className="text-sm text-slate-500">
-            Configure roles (Super Admin, Site Admin, Network Engineer, Viewer, IP Viewer) and per-site module permissions
+            {t('users.subtitle')}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -232,7 +234,7 @@ export default function UsersPage() {
                   disabled={applyingBulkRole}
                   className="px-2.5 py-1 rounded bg-blue-600 hover:bg-blue-700 text-white font-semibold disabled:opacity-50 cursor-pointer"
                 >
-                  {applyingBulkRole ? 'Applying...' : `Set Role (${selectedUserIds.length})`}
+                  {applyingBulkRole ? t('users.applying') : `${t('users.setRole')} (${selectedUserIds.length})`}
                 </button>
               </div>
               <button
@@ -240,7 +242,7 @@ export default function UsersPage() {
                 className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold shadow-sm cursor-pointer"
               >
                 <Users className="h-4 w-4" />
-                Bulk Site Permissions ({selectedUserIds.length})
+                {t('users.bulkPerms')} ({selectedUserIds.length})
               </button>
             </>
           )}
@@ -249,14 +251,14 @@ export default function UsersPage() {
             className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 text-sm font-semibold hover:bg-blue-100 cursor-pointer"
           >
             <Upload className="h-4 w-4" />
-            Import Excel/CSV
+            {t('users.importBtn')}
           </button>
           <button
             onClick={() => setShowCreate(true)}
             className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold cursor-pointer"
           >
             <Plus className="h-4 w-4" />
-            Add User
+            {t('users.addUser')}
           </button>
         </div>
       </div>
@@ -269,7 +271,7 @@ export default function UsersPage() {
             <input
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search name, username, email..."
+              placeholder={t('users.searchPlaceholder')}
               className="w-full pl-9 pr-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-transparent text-xs"
             />
           </div>
@@ -278,7 +280,7 @@ export default function UsersPage() {
             onChange={(e) => setRoleFilter(e.target.value as 'ALL' | RoleCode)}
             className="px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs"
           >
-            <option value="ALL">All Roles ({users.length})</option>
+            <option value="ALL">{t('users.allRoles')} ({users.length})</option>
             <option value="SUPER_ADMIN">Super Admin</option>
             <option value="SITE_ADMIN">Site Admin</option>
             <option value="NETWORK_ENGINEER">Network Engineer</option>
@@ -296,8 +298,8 @@ export default function UsersPage() {
             >
               <CheckSquare className="h-3.5 w-3.5 text-blue-600" />
               {allVisibleSelected
-                ? 'Unselect All Shown'
-                : `Select All Configurable (${visibleConfigurable.length})`}
+                ? t('users.unselectAllShown')
+                : `${t('users.selectAllShown')} (${visibleConfigurable.length})`}
             </button>
           )}
           {selectedUserIds.length > 0 && (
@@ -306,7 +308,7 @@ export default function UsersPage() {
               onClick={() => setSelectedUserIds([])}
               className="px-2.5 py-1.5 rounded-lg text-slate-500 hover:text-slate-700 cursor-pointer"
             >
-              Clear ({selectedUserIds.length})
+              {t('users.clearSelection')} ({selectedUserIds.length})
             </button>
           )}
         </div>
@@ -323,15 +325,15 @@ export default function UsersPage() {
                     disabled={visibleConfigurable.length === 0}
                     checked={allVisibleSelected}
                     onChange={(e) => toggleSelectAllVisible(e.target.checked)}
-                    title="Select all configurable users for bulk site permission assignment"
+                    title={t('users.selectAllShown')}
                   />
                 </th>
-                <th className="px-4 py-3">User</th>
-                <th className="px-4 py-3">Role</th>
-                <th className="px-4 py-3">Assigned Sites</th>
-                <th className="px-4 py-3">Status</th>
-                <th className="px-4 py-3">Last Login</th>
-                <th className="px-4 py-3 text-right">Actions</th>
+                <th className="px-4 py-3">{t('users.colUser')}</th>
+                <th className="px-4 py-3">{t('users.colRole')}</th>
+                <th className="px-4 py-3">{t('users.colSites')}</th>
+                <th className="px-4 py-3">{t('users.colStatus')}</th>
+                <th className="px-4 py-3">{t('users.colLastLogin')}</th>
+                <th className="px-4 py-3 text-right">{t('users.colActions')}</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800">

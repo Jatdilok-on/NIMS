@@ -4,6 +4,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { Plus, Trash2, Wrench, X } from 'lucide-react';
 import { ConfirmActionModal } from '@/components/common/ConfirmActionModal';
 import { apiFetch, ApiError } from '@/lib/api';
+import { useI18n } from '@/lib/i18n';
 
 interface MaintenanceItem {
   id: string;
@@ -26,6 +27,7 @@ export function MaintenancePanel({
   siteId: string;
   canEdit?: boolean;
 }) {
+  const { t } = useI18n();
   const [records, setRecords] = useState<MaintenanceItem[]>([]);
   const [showModal, setShowModal] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<MaintenanceItem | null>(null);
@@ -65,9 +67,9 @@ export function MaintenancePanel({
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div>
-          <h3 className="font-bold text-base">Maintenance History</h3>
+          <h3 className="font-bold text-base">{t('maint.title')}</h3>
           <p className="text-xs text-slate-500">
-            Preventive, corrective, firmware upgrade, and hardware replacement logs
+            {t('maint.subtitle')}
           </p>
         </div>
         {canEdit && (
@@ -76,7 +78,7 @@ export function MaintenancePanel({
             className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-blue-600 text-white text-xs font-semibold cursor-pointer"
           >
             <Plus className="h-4 w-4" />
-            Log Maintenance
+            {t('maint.addBtn')}
           </button>
         )}
       </div>
@@ -84,7 +86,7 @@ export function MaintenancePanel({
       <div className="space-y-3">
         {records.length === 0 ? (
           <div className="rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-8 text-center text-sm text-slate-500">
-            No maintenance records logged for this site yet.
+            {t('maint.empty')}
           </div>
         ) : (
           records.map((r) => (
@@ -102,12 +104,14 @@ export function MaintenancePanel({
                 </div>
                 <p className="text-sm text-slate-700 dark:text-slate-300">{r.summary}</p>
                 {r.actionsTaken && (
-                  <p className="text-xs text-slate-500">Actions: {r.actionsTaken}</p>
+                  <p className="text-xs text-slate-500">
+                    {t('maint.actionsPrefix')} {r.actionsTaken}
+                  </p>
                 )}
                 <div className="text-xs text-slate-400">
-                  Date: {new Date(r.performedAt).toLocaleDateString()} • Engineer:{' '}
-                  {r.engineerName || '-'}
-                  {r.device ? ` • Device: ${r.device.name}` : ''}
+                  {t('maint.dateLabel')} {new Date(r.performedAt).toLocaleDateString()} •{' '}
+                  {t('maint.engineerLabel')} {r.engineerName || '-'}
+                  {r.device ? ` • ${t('maint.deviceLabel')} ${r.device.name}` : ''}
                 </div>
               </div>
               {canEdit && (
@@ -136,19 +140,19 @@ export function MaintenancePanel({
 
       {deleteTarget && (
         <ConfirmActionModal
-          title="Delete Maintenance Record"
-          subtitle="Permanent record removal"
+          title={t('maint.deleteTitle')}
+          subtitle={t('maint.deleteSubtitle')}
           itemName={deleteTarget.title}
           badgeText={deleteTarget.maintenanceType}
           details={[
             ...(deleteTarget.device
-              ? [{ label: 'Device', value: deleteTarget.device.name }]
+              ? [{ label: t('maint.deviceLabel'), value: deleteTarget.device.name }]
               : []),
             ...(deleteTarget.engineerName
-              ? [{ label: 'Engineer', value: deleteTarget.engineerName }]
+              ? [{ label: t('maint.engineerLabel'), value: deleteTarget.engineerName }]
               : []),
           ]}
-          message="Are you sure you want to delete this maintenance record?"
+          message={t('maint.deleteConfirm')}
           variant="danger"
           loading={deletingRecord}
           error={deleteError}
@@ -171,6 +175,7 @@ function AddMaintenanceModal({
   onClose: () => void;
   onCreated: () => void;
 }) {
+  const { t } = useI18n();
   const [title, setTitle] = useState('');
   const [maintenanceType, setMaintenanceType] = useState('PREVENTIVE');
   const [summary, setSummary] = useState('');
@@ -203,7 +208,7 @@ function AddMaintenanceModal({
     <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
       <div className="bg-white dark:bg-slate-900 rounded-2xl max-w-md w-full border border-slate-200 dark:border-slate-800 p-6 space-y-4">
         <div className="flex items-center justify-between">
-          <h3 className="font-bold text-base">Log Maintenance Record</h3>
+          <h3 className="font-bold text-base">{t('maint.modalTitle')}</h3>
           <button onClick={onClose}>
             <X className="h-5 w-5" />
           </button>
@@ -244,15 +249,15 @@ function AddMaintenanceModal({
             className="w-full px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-transparent"
           />
           <div className="flex justify-end gap-2">
-            <button type="button" onClick={onClose} className="px-4 py-2 rounded-lg border">
-              Cancel
+            <button type="button" onClick={onClose} className="px-4 py-2 rounded-lg border cursor-pointer">
+              {t('common.cancel')}
             </button>
             <button
               type="submit"
               disabled={saving}
               className="px-4 py-2 rounded-lg bg-blue-600 text-white font-semibold cursor-pointer"
             >
-              {saving ? 'Saving...' : 'Save Record'}
+              {saving ? t('common.saving') : t('common.save')}
             </button>
           </div>
         </form>

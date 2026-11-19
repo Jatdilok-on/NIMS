@@ -2,10 +2,12 @@
 
 import React from 'react';
 import { useAuth } from '@/lib/auth-context';
+import { useI18n } from '@/lib/i18n';
 import { DocumentsPanel } from '@/components/documents/DocumentsPanel';
 
 export default function DocumentsPage() {
   const { user } = useAuth();
+  const { t } = useI18n();
   const canEdit =
     user?.roleCode === 'SUPER_ADMIN' ||
     user?.roleCode === 'SITE_ADMIN' ||
@@ -15,9 +17,9 @@ export default function DocumentsPage() {
   return (
     <div className="space-y-4">
       <div>
-        <h1 className="text-2xl font-bold tracking-tight">Project Document Management</h1>
+        <h1 className="text-2xl font-bold tracking-tight">{t('docs.title')}</h1>
         <p className="text-sm text-slate-500">
-          Centralized version-controlled document repository organized by site and folder category
+          {t('docs.subtitle')}
         </p>
       </div>
       <DocumentsPanel canEdit={canEdit} canDelete={canDelete} />

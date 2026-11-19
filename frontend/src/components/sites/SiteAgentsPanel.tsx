@@ -21,6 +21,7 @@ import {
 } from 'lucide-react';
 import { ConfirmActionModal } from '@/components/common/ConfirmActionModal';
 import { apiFetch, ApiError, copyTextSafe } from '@/lib/api';
+import { useI18n } from '@/lib/i18n';
 import { AgentConnectionState, SiteAgent } from '@/lib/types';
 
 const STATE_BADGE: Record<AgentConnectionState, { label: string; className: string; dot: string }> = {
@@ -406,6 +407,7 @@ export function SiteAgentsPanel({
   siteCode: string;
   canManage?: boolean;
 }) {
+  const { t } = useI18n();
   const [agents, setAgents] = useState<SiteAgent[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -631,10 +633,10 @@ export function SiteAgentsPanel({
         <div>
           <h2 className="text-lg font-bold flex items-center gap-2">
             <Radio className="h-5 w-5 text-blue-600" />
-            Site Ping Agents ({siteCode})
+            {t('agents.title')} ({siteCode})
           </h2>
           <p className="text-xs text-slate-500 mt-0.5">
-            Deploy a zero-dependency Node.js probe inside this site&apos;s LAN to ping devices and report UP/DOWN status automatically.
+            {t('agents.subtitle')}
           </p>
         </div>
 
@@ -647,11 +649,11 @@ export function SiteAgentsPanel({
                 'Get-ScheduledTask -TaskName "NIMS-SiteAgent-*" -ErrorAction SilentlyContinue | Unregister-ScheduledTask -Confirm:$false; Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -match "nims-agent\\.mjs|node-run\\.cmd|run-hidden\\.vbs" } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }; Remove-Item "$env:LOCALAPPDATA\\NIMS-Agent" -Recurse -Force -ErrorAction SilentlyContinue',
               )
             }
-            title="Copy PowerShell command to stop and remove all local agent processes on the agent PC"
+            title={t('agents.copyUninstall')}
             className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-red-200 dark:border-red-900/60 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/30 text-xs font-medium cursor-pointer"
           >
             {copiedKey === 'cleanup' ? <Check className="h-3.5 w-3.5" /> : <Trash2 className="h-3.5 w-3.5" />}
-            {copiedKey === 'cleanup' ? 'Copied Cleanup Cmd' : 'Copy Uninstall Cmd'}
+            {copiedKey === 'cleanup' ? t('agents.copiedUninstall') : t('agents.copyUninstall')}
           </button>
           <button
             type="button"
@@ -659,7 +661,7 @@ export function SiteAgentsPanel({
             className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 text-xs font-medium cursor-pointer"
           >
             <RefreshCw className="h-3.5 w-3.5" />
-            Refresh
+            {t('agents.refresh')}
           </button>
           <a
             href="/api/agents/script"
@@ -667,7 +669,7 @@ export function SiteAgentsPanel({
             className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 text-xs font-medium"
           >
             <Download className="h-3.5 w-3.5 text-blue-600" />
-            Download nims-agent.mjs
+            {t('agents.downloadScript')}
           </a>
           {canManage && (
             <button
@@ -679,7 +681,7 @@ export function SiteAgentsPanel({
               className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold cursor-pointer"
             >
               <Plus className="h-4 w-4" />
-              Add Site Agent
+              {t('agents.addBtn')}
             </button>
           )}
         </div>
@@ -698,10 +700,10 @@ export function SiteAgentsPanel({
             <div>
               <h3 className="font-bold text-sm text-emerald-900 dark:text-emerald-200 flex items-center gap-2">
                 <KeyRound className="h-4 w-4" />
-                Agent Token Generated — {tokenReveal.agentName}
+                {t('agents.tokenTitle')} {tokenReveal.agentName}
               </h3>
               <p className="text-xs text-emerald-800 dark:text-emerald-300 mt-0.5">
-                Copy or download this configuration now. For security, the full token cannot be viewed again after closing this panel.
+                {t('agents.tokenWarn')}
               </p>
             </div>
             <button
@@ -721,7 +723,7 @@ export function SiteAgentsPanel({
               className="inline-flex items-center gap-1 px-2.5 py-1 rounded bg-emerald-600 hover:bg-emerald-700 text-white font-sans font-semibold cursor-pointer"
             >
               {copiedKey === 'token' ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
-              {copiedKey === 'token' ? 'Copied' : 'Copy Token'}
+              {copiedKey === 'token' ? t('common.copied') : t('agents.copyToken')}
             </button>
           </div>
 
@@ -737,7 +739,7 @@ export function SiteAgentsPanel({
                   : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border-emerald-200 dark:border-emerald-800'
               }`}
             >
-              Same LAN (วงเดียวกับ Server)
+              {t('agents.modeLan')}
             </button>
             <button
               type="button"
@@ -751,7 +753,7 @@ export function SiteAgentsPanel({
               }`}
             >
               <Globe className="h-3.5 w-3.5" />
-              Cross-Network / Relay (คนละวงเน็ต)
+              {t('agents.modeRemote')}
             </button>
           </div>
 
@@ -759,7 +761,7 @@ export function SiteAgentsPanel({
             <div className="space-y-2.5">
               <div className="rounded-lg bg-white dark:bg-slate-900 border border-emerald-200 dark:border-emerald-800 p-3 space-y-2">
                 <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-300">
-                  Cloudflare Relay URL (URL ที่เครื่อง Site ปลายทางส่งผลกลับมา)
+                  {t('agents.relayUrlLabel')}
                 </label>
                 <input
                   type="text"
@@ -772,12 +774,12 @@ export function SiteAgentsPanel({
 
               <div className="rounded-lg bg-sky-50/90 dark:bg-sky-950/40 border border-sky-200 dark:border-sky-800 p-3.5 space-y-2.5 text-xs text-sky-900 dark:text-sky-200">
                 <div className="font-bold">
-                  1) เครื่องกลาง (Notebook Bridge): กดโหลดไปรันหรืออัปเดต Token เข้าเครื่องกลาง
+                  {t('agents.bridgeStepTitle')}
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                   <div>
                     <label className="block text-[10px] font-semibold opacity-80 mb-1">
-                      NIMS Server URL (วง LAN)
+                      {t('agents.nimsLanUrlLabel')}
                     </label>
                     <input
                       type="text"
@@ -789,13 +791,13 @@ export function SiteAgentsPanel({
                   </div>
                   <div>
                     <label className="block text-[10px] font-semibold opacity-80 mb-1">
-                      BRIDGE_SECRET (จาก Cloudflare)
+                      {t('agents.bridgeSecretLabel')}
                     </label>
                     <input
                       type="text"
                       value={savedBridgeSecret}
                       onChange={(e) => updateBridgeSecret(e.target.value)}
-                      placeholder="เว้นว่างได้ถ้าเครื่องกลางเคยตั้งไว้แล้ว"
+                      placeholder={t('agents.bridgeSecretPlaceholder')}
                       className="w-full px-2.5 py-1.5 rounded border border-sky-300 dark:border-sky-700 bg-white/80 dark:bg-slate-900 font-mono text-[11px]"
                     />
                   </div>
@@ -808,9 +810,7 @@ export function SiteAgentsPanel({
                     className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold shadow-xs cursor-pointer disabled:opacity-60"
                   >
                     <Download className="h-3.5 w-3.5" />
-                    {downloadingBridgeBat
-                      ? 'Preparing Bridge Installer...'
-                      : '1) Download Bridge 1-Click (.bat) — เครื่องกลาง'}
+                    {downloadingBridgeBat ? t('agents.preparingBridge') : t('agents.downloadBridgeBat')}
                   </button>
                   <a
                     href="/api/agents/relay-script"
@@ -841,14 +841,14 @@ export function SiteAgentsPanel({
                   </button>
                 </div>
                 <p className="text-[11px] opacity-90">
-                  ดับเบิลคลิกไฟล์ Bridge 1-Click (`.bat`) บนเครื่องกลาง — ระบบจะติดตั้ง, <strong>เพิ่ม Token นี้ต่อท้ายใน `nims-relay-bridge.env` อัตโนมัติ (ไม่ทับ Site เดิม)</strong> และรันเบื้องหลังทันที หรือจะก๊อปปี้ Token ไปต่อท้ายเองในไฟล์เดิมก็ได้ครับ
+                  {t('agents.bridgeTip')}
                 </p>
               </div>
             </div>
           ) : (
             <div className="rounded-lg bg-white dark:bg-slate-900 border border-emerald-200 dark:border-emerald-800 p-3 space-y-2">
               <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-300">
-                NIMS Server URL (URL ที่เครื่อง Agent หน้างานเรียกมาถึงได้)
+                {t('agents.agentUrlLabel')}
               </label>
               <input
                 type="text"
@@ -872,7 +872,7 @@ export function SiteAgentsPanel({
                     className="rounded border-slate-300"
                   />
                   <span>
-                    Allow Self-Signed / Internal LAN HTTPS (แนะนำเมื่อใช้ใบรับรองภายในจาก Caddy)
+                    {t('agents.allowInsecureTls')}
                   </span>
                 </label>
               )}
@@ -880,7 +880,7 @@ export function SiteAgentsPanel({
                 <p className="text-[11px] text-amber-700 dark:text-amber-300 flex items-center gap-1.5">
                   <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
                   <span>
-                    ตอนนี้เป็น <code className="font-mono">localhost</code> — ถ้านำไปรันบนเครื่องอื่น กรุณาแก้เป็น IP ของเครื่อง NIMS Server (เช่น <code className="font-mono">http://191.20.110.191:3000</code>) ก่อนกดดาวน์โหลด
+                    localhost — replace with Server LAN IP (e.g. <code className="font-mono">http://191.20.110.191:3000</code>)
                   </span>
                 </p>
               )}
@@ -896,10 +896,10 @@ export function SiteAgentsPanel({
             >
               <Wand2 className="h-4 w-4" />
               {downloadingRemoteBat
-                ? 'Preparing Remote Installer...'
+                ? t('agents.preparingRemote')
                 : tokenReveal.mode === 'REMOTE'
-                ? '2) Download Remote 1-Click (.bat) — ดับเบิลคลิกที่ Site ปลายทาง'
-                : 'Download 1-Click Auto Installer (.bat) — ดับเบิลคลิกจบ'}
+                ? t('agents.downloadRemoteBat')
+                : t('agents.downloadLanBat')}
             </button>
             <a
               href="/api/agents/script"
@@ -932,29 +932,24 @@ export function SiteAgentsPanel({
               className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-slate-900 text-white text-xs font-mono hover:bg-slate-800 cursor-pointer"
             >
               <Terminal className="h-3.5 w-3.5" />
-              {copiedKey === 'cmd' ? 'Copied!' : 'Copy CLI Test'}
+              {copiedKey === 'cmd' ? t('agents.copiedBang') : t('agents.copyCliTest')}
             </button>
           </div>
-          <p className="text-[11px] text-emerald-800 dark:text-emerald-300">
-            {tokenReveal.mode === 'REMOTE'
-              ? 'ไฟล์ Remote 1-Click (.bat) มีโค้ด nims-agent.mjs ฝังมาในตัวเลย — ดับเบิลคลิกบนเครื่องปลายทางคนละวงเน็ตได้ทันที (ติดตั้ง Node.js, สร้าง .env ชี้ไป Relay URL, ทดสอบ Ping และรันเบื้องหลังอัตโนมัติ)'
-              : 'แนะนำ: กด Download 1-Click Auto Installer (.bat) แล้วนำไปดับเบิลคลิกบนเครื่อง Windows หน้างาน — ระบบจะเช็ก/ติดตั้ง Node.js, ดาวน์โหลดสคริปต์, ทดสอบ Ping, รันเบื้องหลังแบบซ่อนหน้าต่าง และตั้ง Auto-Start ตอนเปิดเครื่องให้อัตโนมัติ'}
-          </p>
         </div>
       )}
 
       {/* Agents List */}
       {loading ? (
         <div className="rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-8 text-center text-sm text-slate-500">
-          Loading site agents...
+          {t('agents.loading')}
         </div>
       ) : agents.length === 0 ? (
         <div className="rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-8 text-center space-y-3">
           <Activity className="h-8 w-8 text-slate-400 mx-auto" />
           <div>
-            <h3 className="font-semibold text-sm">No Site Agent Configured</h3>
+            <h3 className="font-semibold text-sm">{t('agents.emptyTitle')}</h3>
             <p className="text-xs text-slate-500 mt-1 max-w-md mx-auto">
-              Add a Site Agent to monitor devices inside {siteCode}&apos;s private network without opening inbound firewall ports or changing overlapping IP ranges.
+              {t('agents.emptyDesc')}
             </p>
           </div>
           {canManage && (
@@ -967,7 +962,7 @@ export function SiteAgentsPanel({
               className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold cursor-pointer"
             >
               <Plus className="h-4 w-4" />
-              Create First Site Agent
+              {t('agents.createFirst')}
             </button>
           )}
         </div>
@@ -1050,33 +1045,33 @@ export function SiteAgentsPanel({
 
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 text-xs bg-slate-50 dark:bg-slate-800/50 rounded-lg p-3">
                   <div>
-                    <span className="text-slate-500 block text-[11px]">Poll Interval</span>
+                    <span className="text-slate-500 block text-[11px]">{t('agents.pollInterval')}</span>
                     <span className="font-semibold">{agent.pollIntervalSec}s</span>
                   </div>
                   <div>
-                    <span className="text-slate-500 block text-[11px]">Offline Threshold</span>
-                    <span className="font-semibold">{agent.offlineThreshold} misses</span>
+                    <span className="text-slate-500 block text-[11px]">{t('agents.offlineMisses')}</span>
+                    <span className="font-semibold">{agent.offlineThreshold}</span>
                   </div>
                   <div>
-                    <span className="text-slate-500 block text-[11px]">Last Heartbeat</span>
+                    <span className="text-slate-500 block text-[11px]">{t('agents.lastHeartbeat')}</span>
                     <span className="font-semibold" title={agent.lastHeartbeatAt || undefined}>
                       {formatRelativeTime(agent.lastHeartbeatAt)}
                     </span>
                   </div>
                   <div>
-                    <span className="text-slate-500 block text-[11px]">Probe Host</span>
+                    <span className="text-slate-500 block text-[11px]">{t('agents.probeHost')}</span>
                     <span className="font-mono font-medium truncate block">
                       {agent.hostname || '-'}
                     </span>
                   </div>
                   <div>
-                    <span className="text-slate-500 block text-[11px]">Probe IP / OS</span>
+                    <span className="text-slate-500 block text-[11px]">{t('agents.probeIpOs')}</span>
                     <span className="font-mono font-medium truncate block">
                       {agent.localIp || '-'} {agent.platform ? `(${agent.platform})` : ''}
                     </span>
                   </div>
                   <div>
-                    <span className="text-slate-500 block text-[11px]">Last Scan</span>
+                    <span className="text-slate-500 block text-[11px]">{t('agents.lastScan')}</span>
                     {summary ? (
                       <span className="font-semibold">
                         <span className="text-emerald-600 dark:text-emerald-400">
@@ -1095,7 +1090,7 @@ export function SiteAgentsPanel({
                         {summary.durationMs != null ? ` (${summary.durationMs}ms)` : ''}
                       </span>
                     ) : (
-                      <span className="text-slate-400">No scans yet</span>
+                      <span className="text-slate-400">{t('agents.noScans')}</span>
                     )}
                   </div>
                 </div>
@@ -1197,6 +1192,7 @@ function AgentFormModal({
     relayUrl?: string;
   }) => void;
 }) {
+  const { t } = useI18n();
   const [name, setName] = useState(editing?.name || '');
   const [networkMode, setNetworkMode] = useState<'LAN' | 'REMOTE'>(initialMode);
   const [relayUrl, setRelayUrl] = useState(initialRelayUrl);
@@ -1256,10 +1252,10 @@ function AgentFormModal({
               <Globe className="h-4 w-4 text-emerald-600" />
             )}
             {editing
-              ? 'Edit Site Agent'
+              ? t('agents.editAgent')
               : networkMode === 'REMOTE'
-              ? 'Add Remote Site Agent (คนละวงเน็ต)'
-              : 'Add Site Ping Agent'}
+              ? t('agents.addRemoteAgent')
+              : t('agents.addLanAgent')}
           </h3>
           <button
             type="button"
@@ -1288,8 +1284,7 @@ function AgentFormModal({
                     : 'border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300'
                 }`}
               >
-                <div>Same LAN</div>
-                <div className="text-[10px] font-normal opacity-80">วงเดียวกับ Server</div>
+                <div>{t('agents.modeLan')}</div>
               </button>
               <button
                 type="button"
@@ -1302,16 +1297,15 @@ function AgentFormModal({
               >
                 <div className="flex items-center gap-1">
                   <Globe className="h-3.5 w-3.5" />
-                  <span>Remote (คนละวง)</span>
+                  <span>{t('agents.modeRemote')}</span>
                 </div>
-                <div className="text-[10px] font-normal opacity-80">ผ่าน Cloudflare Relay</div>
               </button>
             </div>
           )}
 
           <div>
             <label className="block text-xs font-semibold text-slate-500 mb-1">
-              Agent Name *
+              {t('agents.agentName')}
             </label>
             <input
               required
@@ -1327,7 +1321,7 @@ function AgentFormModal({
           {!editing && networkMode === 'REMOTE' && (
             <div>
               <label className="block text-xs font-semibold text-slate-500 mb-1">
-                Cloudflare Relay URL *
+                {t('agents.relayUrlLabel')}
               </label>
               <input
                 required
@@ -1336,16 +1330,13 @@ function AgentFormModal({
                 placeholder="https://nims-relay.xxx.workers.dev"
                 className="w-full px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-transparent font-mono text-xs"
               />
-              <p className="text-[10px] text-slate-500 mt-1">
-                เครื่องหน้างานจะยิง HTTPS ออกไปยัง Relay URL นี้ แล้วให้เครื่องกลางดึงกลับเข้า NIMS Server
-              </p>
             </div>
           )}
 
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block text-xs font-semibold text-slate-500 mb-1">
-                Poll Interval (sec)
+                {t('agents.pollInterval')}
               </label>
               <input
                 type="number"
@@ -1358,7 +1349,7 @@ function AgentFormModal({
             </div>
             <div>
               <label className="block text-xs font-semibold text-slate-500 mb-1">
-                Offline Misses
+                {t('agents.offlineMisses')}
               </label>
               <input
                 type="number"
@@ -1372,7 +1363,7 @@ function AgentFormModal({
           </div>
 
           <p className="text-[11px] text-slate-500 leading-relaxed">
-            Devices are marked OFFLINE only after failing the configured consecutive ping attempts. Devices manually set to MAINTENANCE keep their status.
+            {t('agents.thresholdHint')}
           </p>
 
           <div className="flex justify-end gap-2 pt-2">
@@ -1381,14 +1372,14 @@ function AgentFormModal({
               onClick={onClose}
               className="px-4 py-2 rounded-lg border border-slate-200 dark:border-slate-700 text-xs font-medium cursor-pointer"
             >
-              Cancel
+              {t('common.cancel')}
             </button>
             <button
               type="submit"
               disabled={saving}
               className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold disabled:opacity-50 cursor-pointer"
             >
-              {saving ? 'Saving...' : editing ? 'Save Changes' : 'Create Agent'}
+              {saving ? t('common.saving') : editing ? t('common.saveChanges') : t('agents.createAgentBtn')}
             </button>
           </div>
         </form>

@@ -18,6 +18,7 @@ import {
   UploadNewVersionModal,
 } from './DiagramViewer';
 import { DiagramEditor } from './DiagramEditor';
+import { useI18n } from '@/lib/i18n';
 
 export function DiagramsPanel({
   fixedSiteId,
@@ -26,6 +27,7 @@ export function DiagramsPanel({
   fixedSiteId?: string;
   canEdit?: boolean;
 }) {
+  const { t } = useI18n();
   const [sites, setSites] = useState<Site[]>([]);
   const [diagrams, setDiagrams] = useState<DiagramItem[]>([]);
   const [activeDiagram, setActiveDiagram] = useState<DiagramItem | null>(null);
@@ -95,7 +97,7 @@ export function DiagramsPanel({
           }}
           className="px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 text-xs font-medium cursor-pointer"
         >
-          ← Back to Diagrams
+          {t('diagrams.backToList')}
         </button>
         <DiagramViewer
           diagram={activeDiagram}
@@ -137,9 +139,9 @@ export function DiagramsPanel({
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h2 className="font-bold text-base">Network Diagrams & Topology</h2>
+          <h2 className="font-bold text-base">{t('diagrams.panelTitle')}</h2>
           <p className="text-xs text-slate-500">
-            Supports PNG, JPG, SVG, PDF, Draw.io (.drawio/.xml), Visio (.vsdx), and Web Topology Editor
+            {t('diagrams.panelSubtitle')}
           </p>
         </div>
 
@@ -150,14 +152,14 @@ export function DiagramsPanel({
               className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg border border-blue-600 text-blue-600 dark:text-blue-400 text-xs font-semibold cursor-pointer"
             >
               <Upload className="h-4 w-4" />
-              Upload Diagram
+              {t('diagrams.uploadBtn')}
             </button>
             <button
               onClick={() => setShowCreateModal(true)}
               className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold cursor-pointer"
             >
               <Plus className="h-4 w-4" />
-              New Interactive Topology
+              {t('diagrams.newBtn')}
             </button>
           </div>
         )}
@@ -166,7 +168,7 @@ export function DiagramsPanel({
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
         {diagrams.length === 0 ? (
           <div className="col-span-full rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-8 text-center text-sm text-slate-500">
-            No network diagrams yet. Upload an existing diagram or create a live topology in the web editor.
+            {t('diagrams.empty')}
           </div>
         ) : (
           diagrams.map((d) => {
@@ -197,7 +199,7 @@ export function DiagramsPanel({
                     ) : d.fileFormat === 'PDF' ? (
                       <div className="flex flex-col items-center gap-1.5 text-slate-500">
                         <FileText className="h-9 w-9 text-red-500" />
-                        <span className="text-[11px] font-semibold">PDF Diagram • Click to Preview</span>
+                        <span className="text-[11px] font-semibold">{t('diagrams.pdfClickPreview')}</span>
                       </div>
                     ) : (
                       <div className="flex flex-col items-center gap-1.5 text-slate-500">
@@ -223,7 +225,7 @@ export function DiagramsPanel({
                         </div>
                       </div>
                       <span className="shrink-0 px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-[11px] font-semibold">
-                        {d.kind === 'EDITOR' ? 'Web Editor' : 'Uploaded'}
+                        {d.kind === 'EDITOR' ? t('diagrams.webEditor') : t('diagrams.uploaded')}
                       </span>
                     </div>
                     {d.description && (

@@ -2,10 +2,12 @@
 
 import React from 'react';
 import { useAuth } from '@/lib/auth-context';
+import { useI18n } from '@/lib/i18n';
 import { DiagramsPanel } from '@/components/diagram/DiagramsPanel';
 
 export default function DiagramsPage() {
   const { user } = useAuth();
+  const { t } = useI18n();
   const canEdit =
     user?.roleCode === 'SUPER_ADMIN' ||
     user?.roleCode === 'SITE_ADMIN' ||
@@ -14,9 +16,9 @@ export default function DiagramsPage() {
   return (
     <div className="space-y-4">
       <div>
-        <h1 className="text-2xl font-bold tracking-tight">Network Diagrams & Topology Engine</h1>
+        <h1 className="text-2xl font-bold tracking-tight">{t('diagrams.title')}</h1>
         <p className="text-sm text-slate-500">
-          Interactive web topology editor linked to live device inventory, plus high-res PNG/PDF/Draw.io/Visio preview
+          {t('diagrams.subtitle')}
         </p>
       </div>
       <DiagramsPanel canEdit={canEdit} />

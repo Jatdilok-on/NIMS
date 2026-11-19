@@ -23,6 +23,7 @@ import {
 import { ConfirmActionModal } from '@/components/common/ConfirmActionModal';
 import { apiFetch, ApiError, copyTextSafe, getSafeExternalUrl } from '@/lib/api';
 import { useAuth } from '@/lib/auth-context';
+import { useI18n } from '@/lib/i18n';
 import { CredentialItem, LoginType, Site } from '@/lib/types';
 import { ImportCredentialsModal } from './ImportCredentialsModal';
 
@@ -34,6 +35,7 @@ export function CredentialsPanel({
   canEdit?: boolean;
 }) {
   const { user } = useAuth();
+  const { t } = useI18n();
   const [sites, setSites] = useState<Site[]>([]);
   const [credentials, setCredentials] = useState<CredentialItem[]>([]);
   const [search, setSearch] = useState('');
@@ -85,9 +87,9 @@ export function CredentialsPanel({
     return (
       <div className="rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 p-8 text-center space-y-2">
         <ShieldAlert className="h-8 w-8 text-amber-600 mx-auto" />
-        <h3 className="font-bold text-base">Access Restricted</h3>
+        <h3 className="font-bold text-base">{t('vault.restrictedTitle')}</h3>
         <p className="text-sm text-slate-600 dark:text-slate-300">
-          Your account role (IP Viewer) is strictly prohibited from viewing login credentials or access instructions.
+          {t('vault.restrictedDesc')}
         </p>
       </div>
     );
@@ -229,7 +231,7 @@ export function CredentialsPanel({
           <input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search device name, model, IP..."
+            placeholder={t('vault.searchPlaceholder')}
             className="w-full pl-9 pr-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm"
           />
         </div>
@@ -240,14 +242,14 @@ export function CredentialsPanel({
             className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-medium hover:bg-slate-50 dark:hover:bg-slate-800"
           >
             <FileSpreadsheet className="h-3.5 w-3.5 text-emerald-600" />
-            Export Excel
+            {t('common.exportExcel')}
           </a>
           <a
             href={`/api/credentials/export?format=csv${fixedSiteId ? `&siteId=${encodeURIComponent(fixedSiteId)}` : ''}`}
             className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-medium hover:bg-slate-50 dark:hover:bg-slate-800"
           >
             <Download className="h-3.5 w-3.5 text-slate-600 dark:text-slate-300" />
-            CSV
+            {t('common.exportCsv')}
           </a>
           {canEdit && (
             <button
@@ -255,7 +257,7 @@ export function CredentialsPanel({
               className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 text-xs font-semibold hover:bg-blue-100 cursor-pointer"
             >
               <Upload className="h-3.5 w-3.5" />
-              Import Excel/CSV
+              {t('common.importExcelCsv')}
             </button>
           )}
           {canEdit && (
@@ -264,14 +266,14 @@ export function CredentialsPanel({
               className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold cursor-pointer"
             >
               <Plus className="h-4 w-4" />
-              Add Credential
+              {t('vault.addCred')}
             </button>
           )}
         </div>
       </div>
 
       {error && (
-        <div className="rounded-lg bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700">
+        <div className="rounded-lg bg-red-50 dark:bg-red-950/50 border border-red-200 dark:border-red-900 px-4 py-3 text-sm text-red-700 dark:text-red-300">
           {error}
         </div>
       )}
@@ -279,7 +281,7 @@ export function CredentialsPanel({
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         {credentials.length === 0 ? (
           <div className="col-span-full rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-8 text-center text-sm text-slate-500">
-            No encrypted credentials stored yet.
+            {t('vault.empty')}
           </div>
         ) : (
           credentials.map((cred) => {
@@ -325,11 +327,11 @@ export function CredentialsPanel({
                     <button
                       type="button"
                       onClick={() => copyAllParams(cred)}
-                      title="Copy all parameters + credentials for Login/VPN"
+                      title={t('vault.copyAll')}
                       className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-sky-50 dark:bg-sky-950/60 hover:bg-sky-100 text-sky-700 dark:text-sky-300 border border-sky-200 dark:border-sky-800 text-[11px] font-semibold cursor-pointer"
                     >
                       <ClipboardCopy className="h-3 w-3" />
-                      Copy All
+                      {t('vault.copyAll')}
                     </button>
                     <span className="px-2.5 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-xs font-semibold">
                       {cred.loginType}
@@ -341,7 +343,7 @@ export function CredentialsPanel({
                 {/* Encrypted Username / Password Row */}
                 <div className="rounded-lg bg-slate-50 dark:bg-slate-800/60 p-3 space-y-2 text-xs">
                   <div className="flex items-center justify-between gap-2">
-                    <span className="text-slate-500">Username:</span>
+                    <span className="text-slate-500">{t('vault.username')}</span>
                     <div className="flex items-center gap-1.5 min-w-0">
                       <span className="font-mono font-semibold select-all truncate">
                         {rev ? rev.username : cred.usernameMasked}
@@ -363,7 +365,7 @@ export function CredentialsPanel({
                     </div>
                   </div>
                   <div className="flex items-center justify-between gap-2">
-                    <span className="text-slate-500">Password:</span>
+                    <span className="text-slate-500">{t('vault.password')}</span>
                     <div className="flex items-center gap-1.5 min-w-0">
                       <span className="font-mono font-semibold select-all truncate">
                         {rev ? rev.password : cred.passwordMasked}
@@ -389,7 +391,7 @@ export function CredentialsPanel({
                 {/* All Connection Parameters (Always Visible & Copyable for Login / VPN) */}
                 <div className="rounded-lg border border-slate-200/80 dark:border-slate-800 bg-slate-50/40 dark:bg-slate-800/30 p-3 space-y-2 text-xs">
                   <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                    All Connection Parameters
+                    {t('vault.allParams')}
                   </div>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-3 gap-y-1.5">
                     {paramItems.map((p) => {
@@ -525,7 +527,7 @@ export function CredentialsPanel({
 
                 <div className="flex flex-wrap items-center justify-between gap-2 text-xs pt-1">
                   <div className="text-slate-500">
-                    Updated: {new Date(cred.passwordUpdatedAt).toLocaleDateString()}
+                    {t('vault.updated')} {new Date(cred.passwordUpdatedAt).toLocaleDateString()}
                   </div>
                   <div className="flex flex-wrap items-center gap-1.5">
                     {getSafeExternalUrl(cred.url) && (
@@ -536,7 +538,7 @@ export function CredentialsPanel({
                         className="inline-flex items-center gap-1 px-2.5 py-1 rounded border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800"
                       >
                         <ExternalLink className="h-3 w-3" />
-                        Open URL
+                        {t('vault.openUrl')}
                       </a>
                     )}
                     <button
@@ -544,14 +546,14 @@ export function CredentialsPanel({
                       className="inline-flex items-center gap-1 px-2.5 py-1 rounded border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 cursor-pointer"
                     >
                       <BookOpen className="h-3 w-3" />
-                      Instructions
+                      {t('vault.instructions')}
                     </button>
                     <button
                       onClick={() => openHistory(cred)}
                       className="inline-flex items-center gap-1 px-2.5 py-1 rounded border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 cursor-pointer"
                     >
                       <History className="h-3 w-3" />
-                      History
+                      {t('vault.history')}
                     </button>
                     {canEdit && (
                       <button
