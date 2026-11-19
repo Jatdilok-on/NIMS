@@ -3,7 +3,7 @@
 import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { KeyRound, LogOut, Menu, Search, ShieldAlert, X } from 'lucide-react';
+import { ClipboardCheck, KeyRound, LogOut, Menu, Search, ShieldAlert, X } from 'lucide-react';
 import {
   DeviceCategoryTechIcon,
   TechAuditIcon,
@@ -25,6 +25,10 @@ import { APP_META } from '@/lib/appMeta';
 import { Device } from '@/lib/types';
 import { PreferenceControls } from './PreferenceControls';
 import { ChangePasswordModal } from '@/components/auth/ChangePasswordModal';
+
+function RunbookMenuIcon({ className = 'w-5 h-5' }: { className?: string }) {
+  return <ClipboardCheck className={className} />;
+}
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
@@ -81,6 +85,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     { href: '/diagrams', label: t('nav.diagrams'), icon: TechTopologyIcon, show: true },
     { href: '/documents', label: t('nav.documents'), icon: TechDocumentIcon, show: true },
     { href: '/credentials', label: t('nav.credentials'), icon: TechVaultIcon, show: !isIpViewer },
+    { href: '/runbook', label: t('nav.runbook'), icon: RunbookMenuIcon, show: true },
     { href: '/audit-logs', label: t('nav.auditLogs'), icon: TechAuditIcon, show: isSuperAdmin || isSiteAdmin },
     { href: '/users', label: t('nav.users'), icon: TechUsersIcon, show: isSuperAdmin },
     { href: '/settings', label: t('nav.settings'), icon: TechSettingsIcon, show: isSuperAdmin },
