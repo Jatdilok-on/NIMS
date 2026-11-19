@@ -1,3 +1,5 @@
+> 🌐 **Language:** **🇹🇭 ภาษาไทย** | [🇺🇸 English](README.en.md)
+
 # NIMS – ระบบบริหารจัดการโครงสร้างพื้นฐานเครือข่าย (Network Infrastructure Management System)
 
 เว็บแอปพลิเคชันสำหรับบริหารจัดการระบบเครือข่ายหลายสาขาแบบรวมศูนย์ (On-Premise) ครอบคลุมตั้งแต่ผังเครือข่าย (Network Diagrams), การจัดการ IP Address (IPAM), คลังอุปกรณ์ (Device Inventory), ห้องนิรภัยเก็บรหัสผ่านแบบเข้ารหัส, เอกสารโครงการ, ประวัติการบำรุงรักษา, สิทธิ์การใช้งาน (RBAC) และ Audit Log

@@ -1,3 +1,5 @@
+> 🌐 **Language:** **🇹🇭 ภาษาไทย** | [🇺🇸 English](INSTALLATION.en.md)
+
 # คู่มือการติดตั้งและนำระบบ NIMS ขึ้นใช้งาน (Installation & Deployment Guide)
 
 ## 1. ความต้องการของระบบ (Prerequisites)

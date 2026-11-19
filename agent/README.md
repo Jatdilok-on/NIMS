@@ -1,3 +1,5 @@
+> 🌐 **Language:** **🇹🇭 ภาษาไทย** | [🇺🇸 English](README.en.md)
+
 # NIMS Site Ping Agent
 
 โปรแกรม **Site Ping Agent** แบบไฟล์เดียวไม่ต้องติดตั้ง Library เพิ่ม (`npm install` ไม่จำเป็น ใช้แค่ **Node.js 18+**) สำหรับนำไปวางรันในวง LAN ของแต่ละ Site / โรงงานลูกค้า เพื่อ Ping ตรวจสอบสถานะ **UP / DOWN** ของอุปกรณ์ภายในไซต์นั้นแล้วส่งผลกลับมายัง NIMS Server ส่วนกลางผ่าน HTTP/HTTPS

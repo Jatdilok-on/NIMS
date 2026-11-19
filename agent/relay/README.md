@@ -1,3 +1,5 @@
+> 🌐 **Language:** **🇹🇭 ภาษาไทย** | [🇺🇸 English](README.en.md)
+
 # NIMS Cloudflare D1 HTTPS Relay (สำหรับ NIMS Server ที่ออกอินเทอร์เน็ตไม่ได้ / Air-Gapped)
 
 ชุดนี้ใช้สำหรับกรณีที่ **NIMS Server ออกอินเทอร์เน็ตไม่ได้** แต่มี **Notebook ตัวกลาง** ที่อยู่วง LAN เดียวกับ Server และออกอินเทอร์เน็ตฝั่งลูกค้าได้ (โดยไม่ต้อง Port Forward Router ลูกค้า)
