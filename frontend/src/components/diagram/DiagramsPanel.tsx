@@ -390,6 +390,11 @@ function CreateEditorModal({
   onCreated: (d: DiagramItem) => void;
 }) {
   const [siteId, setSiteId] = useState(fixedSiteId || sites[0]?.id || '');
+  React.useEffect(() => {
+    if (!siteId && sites.length > 0) {
+      setSiteId(fixedSiteId || sites[0].id);
+    }
+  }, [siteId, fixedSiteId, sites]);
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [saving, setSaving] = useState(false);
@@ -483,6 +488,11 @@ function UploadDiagramModal({
   onUploaded: (d: DiagramItem) => void;
 }) {
   const [siteId, setSiteId] = useState(fixedSiteId || sites[0]?.id || '');
+  React.useEffect(() => {
+    if (!siteId && sites.length > 0) {
+      setSiteId(fixedSiteId || sites[0].id);
+    }
+  }, [siteId, fixedSiteId, sites]);
   const [description, setDescription] = useState('');
   const [queue, setQueue] = useState<QueuedUploadItem[]>([]);
   const [uploading, setUploading] = useState(false);

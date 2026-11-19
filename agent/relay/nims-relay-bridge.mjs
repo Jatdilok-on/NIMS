@@ -111,9 +111,21 @@ function reloadTokensIfEnvChanged() {
     if (stat.mtimeMs === lastEnvMtimeMs) return false;
     lastEnvMtimeMs = stat.mtimeMs;
     const content = fs.readFileSync(activeEnvPath, 'utf8');
-    const match = content.match(/^\s*NIMS_AGENT_TOKENS\s*=\s*(.+)$/m);
-    if (!match) return false;
-    const raw = match[1].trim().replace(/^["']|["']$/g, '');
+    let raw = '';
+    for (const rawLine of content.split(/\r?\n/)) {
+      const line = rawLine.trim();
+      if (!line || line.startsWith('#')) continue;
+      const eqIdx = line.indexOf('=');
+      if (eqIdx <= 0) continue;
+      if (line.slice(0, eqIdx).trim() === 'NIMS_AGENT_TOKENS') {
+        raw = line.slice(eqIdx + 1).trim();
+        if ((raw.startsWith('"') && raw.endsWith('"')) || (raw.startsWith("'") && raw.endsWith("'"))) {
+          raw = raw.slice(1, -1);
+        }
+        break;
+      }
+    }
+    if (!raw) return false;
     const nextTokens = parseTokenList(raw);
     if (nextTokens.length === 0) return false;
     rebuildTokenMap(nextTokens);
@@ -210,6 +222,7 @@ async function syncTargetsIfDue() {
   if (now - lastTargetsSyncAt < TARGETS_SYNC_SEC * 1000) return;
 
   const changedItems = [];
+  const deleteTokenHashes = [];
   for (const [tokenHash, token] of tokenByHash.entries()) {
     try {
       const payload = await fetchJson(`${NIMS_URL}/api/agents/runtime/targets`, {
@@ -224,11 +237,16 @@ async function syncTargetsIfDue() {
         changedItems.push({ tokenHash, payload, digest });
       }
     } catch (err) {
-      console.error(`[NIMS Relay Bridge] Failed reading targets from NIMS (${tokenHash.slice(0, 8)}): ${err.message}`);
+      const msg = err.message || '';
+      if ((msg.includes('HTTP 401') || msg.includes('HTTP 403')) && lastTargetDigestByHash.has(tokenHash)) {
+        deleteTokenHashes.push(tokenHash);
+        lastTargetDigestByHash.delete(tokenHash);
+      }
+      console.error(`[NIMS Relay Bridge] Failed reading targets from NIMS (${tokenHash.slice(0, 8)}): ${msg}`);
     }
   }
 
-  if (changedItems.length === 0) {
+  if (changedItems.length === 0 && deleteTokenHashes.length === 0) {
     lastTargetsSyncAt = Date.now();
     return;
   }
@@ -238,6 +256,7 @@ async function syncTargetsIfDue() {
     headers: { 'x-bridge-secret': BRIDGE_SECRET },
     body: JSON.stringify({
       items: changedItems.map(({ tokenHash, payload }) => ({ tokenHash, payload })),
+      deleteTokenHashes,
     }),
   });
 
@@ -246,7 +265,9 @@ async function syncTargetsIfDue() {
   for (const item of changedItems) {
     lastTargetDigestByHash.set(item.tokenHash, item.digest);
   }
-  console.log(`[${new Date().toISOString()}] Synced targets to Cloudflare Relay for ${changedItems.length} site(s).`);
+  console.log(
+    `[${new Date().toISOString()}] Synced targets to Cloudflare Relay (${changedItems.length} updated, ${deleteTokenHashes.length} removed).`,
+  );
 }
 
 async function forwardPendingReports() {

@@ -82,9 +82,20 @@ export default function UsersPage() {
     );
   }, []);
 
+  const isSuperAdmin = currentUser?.roleCode === 'SUPER_ADMIN';
+
   useEffect(() => {
+    if (!isSuperAdmin) return;
     loadData().catch(() => {});
-  }, [loadData]);
+  }, [loadData, isSuperAdmin]);
+
+  if (currentUser && !isSuperAdmin) {
+    return (
+      <div className="p-8 text-center text-sm text-red-600 dark:text-red-400">
+        Access denied: Super Admin privileges are required to manage users.
+      </div>
+    );
+  }
 
   const toggleActive = async (u: ManagedUser) => {
     try {

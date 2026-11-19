@@ -12,6 +12,7 @@ import {
 } from '../lib/excel';
 import { recordAuditLog } from '../lib/audit';
 import { getLiveAgentSiteIds } from '../lib/agentService';
+import { deleteSiteStorageFolder } from '../lib/storage';
 
 const router = Router();
 router.use(authenticate);
@@ -627,6 +628,7 @@ router.delete('/:id', async (req, res, next) => {
     }
 
     const site = await prisma.site.delete({ where: { id: siteId } });
+    deleteSiteStorageFolder(site.siteCode);
     await recordAuditLog({
       req,
       userId: user.id,

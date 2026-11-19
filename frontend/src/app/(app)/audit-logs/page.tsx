@@ -3,6 +3,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { Activity, ShieldCheck } from 'lucide-react';
 import { apiFetch } from '@/lib/api';
+import { useAuth } from '@/lib/auth-context';
 
 interface AuditRow {
   id: string;
@@ -17,6 +18,8 @@ interface AuditRow {
 }
 
 export default function AuditLogsPage() {
+  const { user } = useAuth();
+  const canViewAuditLogs = user?.roleCode === 'SUPER_ADMIN' || user?.roleCode === 'SITE_ADMIN';
   const [logs, setLogs] = useState<AuditRow[]>([]);
   const [username, setUsername] = useState('');
   const [action, setAction] = useState('');
@@ -38,8 +41,17 @@ export default function AuditLogsPage() {
   }, [page, username, action, result]);
 
   useEffect(() => {
+    if (!canViewAuditLogs) return;
     loadLogs().catch(() => {});
-  }, [loadLogs]);
+  }, [loadLogs, canViewAuditLogs]);
+
+  if (user && !canViewAuditLogs) {
+    return (
+      <div className="p-8 text-center text-sm text-red-600 dark:text-red-400">
+        Access denied: Administrator privileges are required to view audit logs.
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-4">
@@ -53,7 +65,7 @@ export default function AuditLogsPage() {
             Tamper-resistant chronological log of logins, inventory changes, document downloads, and credential access
           </p>
         </div>
-        <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-50 text-emerald-700 text-xs font-semibold">
+        <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 text-xs font-semibold">
           <ShieldCheck className="h-4 w-4" />
           Append-Only • Secrets Redacted
         </span>
@@ -124,10 +136,10 @@ export default function AuditLogsPage() {
                     <span
                       className={`px-2 py-0.5 rounded-full text-xs font-semibold ${
                         l.result === 'SUCCESS'
-                          ? 'bg-emerald-50 text-emerald-700'
+                          ? 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300'
                           : l.result === 'DENIED'
-                            ? 'bg-amber-50 text-amber-700'
-                            : 'bg-red-50 text-red-700'
+                            ? 'bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300'
+                            : 'bg-red-50 dark:bg-red-950/60 text-red-700 dark:text-red-300'
                       }`}
                     >
                       {l.result}

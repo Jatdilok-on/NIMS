@@ -99,6 +99,18 @@ export function deleteStoredFile(relativePath: string, root = env.storageRoot): 
   }
 }
 
+export function deleteSiteStorageFolder(siteCode: string, root = env.storageRoot): void {
+  try {
+    const safeSite = sanitizeSegment(siteCode);
+    const fullDir = resolveSafeStoragePath(path.join('sites', safeSite), root);
+    if (fs.existsSync(fullDir)) {
+      fs.rmSync(fullDir, { recursive: true, force: true });
+    }
+  } catch {
+    // ignore site folder cleanup failure
+  }
+}
+
 export const ALLOWED_LOGO_EXTENSIONS = new Set([
   '.png',
   '.jpg',

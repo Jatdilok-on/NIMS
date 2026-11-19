@@ -381,6 +381,11 @@ function UploadDocumentModal({
   onSuccess: () => void;
 }) {
   const [siteId, setSiteId] = useState(replacing?.siteId || fixedSiteId || sites[0]?.id || '');
+  useEffect(() => {
+    if (!siteId && !replacing && sites.length > 0) {
+      setSiteId(fixedSiteId || sites[0].id);
+    }
+  }, [siteId, replacing, fixedSiteId, sites]);
   const [category, setCategory] = useState<DocumentCategory>(
     replacing?.category || 'NETWORK_DESIGN',
   );

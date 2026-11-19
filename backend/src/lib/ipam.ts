@@ -89,6 +89,15 @@ export function isIpInCidr(ip: string, cidr: string): boolean {
   return ipInt >= netInt && ipInt <= bcastInt;
 }
 
+export function isHostIpInCidr(ip: string, cidr: string): boolean {
+  if (!isValidIpv4(ip)) return false;
+  const parsed = parseCidr(cidr);
+  const ipInt = ipv4ToInt(ip);
+  const startInt = ipv4ToInt(parsed.ipRangeStart);
+  const endInt = ipv4ToInt(parsed.ipRangeEnd);
+  return ipInt >= startInt && ipInt <= endInt;
+}
+
 export function parseVlanNumber(vlan?: string | null): number | null {
   if (!vlan) return null;
   const match = vlan.match(/^\s*(?:vlan\s*[-_:]?\s*)?(\d+)\s*$/i);

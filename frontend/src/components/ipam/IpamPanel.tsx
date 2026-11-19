@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { AlertCircle, ExternalLink, Layers, Pencil, Plus, RefreshCw, Search, Trash2, X } from 'lucide-react';
 import { ConfirmActionModal } from '@/components/common/ConfirmActionModal';
@@ -162,8 +162,15 @@ export function IpamPanel({
     }
   };
 
+  const gridRequestSeqRef = useRef(0);
+  const selectedSubnetRef = useRef<Subnet | null>(selectedSubnet);
+  const currentBlockPrefixRef = useRef(currentBlockPrefix);
+  selectedSubnetRef.current = selectedSubnet;
+  currentBlockPrefixRef.current = currentBlockPrefix;
+
   const openSubnetGrid = useCallback(
     async (subnet: Subnet, block?: string, silent = false) => {
+      const reqSeq = ++gridRequestSeqRef.current;
       if (!silent) setLoadingGrid(true);
       try {
         const qs = block ? `?block=${encodeURIComponent(block)}` : '';
@@ -176,6 +183,7 @@ export function IpamPanel({
           currentBlockCidr?: string;
           isLargeSubnet?: boolean;
         }>(`/ipam/subnets/${subnet.id}/ips${qs}`);
+        if (reqSeq !== gridRequestSeqRef.current) return;
         setSelectedSubnet(res.subnet);
         setIpGrid(res.ips);
         setAllocatedIps(res.allocatedIps ?? res.ips.filter((c) => c.status !== 'AVAILABLE'));
@@ -185,7 +193,7 @@ export function IpamPanel({
         setIsLargeSubnet(Boolean(res.isLargeSubnet));
         if (!silent) setBlockSearch(res.currentBlockPrefix ?? '');
       } finally {
-        if (!silent) setLoadingGrid(false);
+        if (!silent && reqSeq === gridRequestSeqRef.current) setLoadingGrid(false);
       }
     },
     [],
@@ -194,13 +202,15 @@ export function IpamPanel({
   // Poll live agent telemetry every 10s for subnets and currently opened IP grid
   useEffect(() => {
     const timer = setInterval(() => {
+      if (typeof document !== 'undefined' && document.hidden) return;
       loadSubnets().catch(() => {});
-      if (selectedSubnet) {
-        openSubnetGrid(selectedSubnet, currentBlockPrefix || undefined, true).catch(() => {});
+      const activeSub = selectedSubnetRef.current;
+      if (activeSub) {
+        openSubnetGrid(activeSub, currentBlockPrefixRef.current || undefined, true).catch(() => {});
       }
     }, 10000);
     return () => clearInterval(timer);
-  }, [loadSubnets, openSubnetGrid, selectedSubnet, currentBlockPrefix]);
+  }, [loadSubnets, openSubnetGrid]);
 
   const handleJumpBlock = (e: React.FormEvent) => {
     e.preventDefault();
@@ -1026,6 +1036,11 @@ function SubnetFormModal({
   const [siteId, setSiteId] = useState(
     editingSubnet?.siteId || fixedSiteId || initialPreset?.siteId || sites[0]?.id || '',
   );
+  useEffect(() => {
+    if (!siteId && !isEditing && sites.length > 0) {
+      setSiteId(fixedSiteId || initialPreset?.siteId || sites[0].id);
+    }
+  }, [siteId, isEditing, fixedSiteId, initialPreset?.siteId, sites]);
   const [vlanNumber, setVlanNumber] = useState(
     editingSubnet?.vlanNumber
       ? String(editingSubnet.vlanNumber)

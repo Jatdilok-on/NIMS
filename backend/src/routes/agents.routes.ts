@@ -263,7 +263,12 @@ router.post('/runtime/report', authenticateAgent, async (req, res, next) => {
     let downCount = 0;
     let ignoredCount = 0;
 
-    for (const r of body.results) {
+    // Deduplicate results by deviceId (latest outcome in payload wins) to avoid duplicate updates
+    const dedupedResults = Array.from(
+      new Map(body.results.map((item) => [item.deviceId, item])).values(),
+    );
+
+    for (const r of dedupedResults) {
       const dev = deviceMap.get(r.deviceId);
       if (!dev || dev.monitorEnabled === false) {
         ignoredCount++;
@@ -737,6 +742,19 @@ router.patch('/devices/:deviceId/monitoring', async (req, res, next) => {
       where: { id: device.id },
       data: { monitorEnabled: parsed.data.monitorEnabled },
       select: { id: true, name: true, monitorEnabled: true },
+    });
+
+    await recordAuditLog({
+      req,
+      userId: req.user!.id,
+      username: req.user!.username,
+      action: 'TOGGLE_DEVICE_MONITORING',
+      module: 'MONITORING',
+      siteId: device.siteId,
+      siteCode: device.site.siteCode,
+      deviceId: device.id,
+      deviceName: device.name,
+      details: { monitorEnabled: updated.monitorEnabled },
     });
 
     res.json({ device: updated });

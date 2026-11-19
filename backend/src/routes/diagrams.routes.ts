@@ -683,6 +683,10 @@ router.post('/:id/restore/:version', async (req, res, next) => {
     }
 
     const versionNum = parseInt(req.params.version, 10);
+    if (Number.isNaN(versionNum) || versionNum < 1) {
+      res.status(400).json({ error: 'Invalid diagram version number' });
+      return;
+    }
     const targetVer = await prisma.diagramVersion.findUnique({
       where: { diagramId_version: { diagramId: diagram.id, version: versionNum } },
     });
@@ -692,12 +696,32 @@ router.post('/:id/restore/:version', async (req, res, next) => {
     }
 
     const nextVer = diagram.currentVersion + 1;
-    const restoredFilePath = targetVer.filePath ?? diagram.filePath;
-    const restoredMimeType = detectContentTypeForFormat(targetVer.fileFormat, diagram.mimeType);
-    let restoredSize = diagram.fileSize;
-    if (targetVer.filePath) {
+    const isJsonVersion = targetVer.fileFormat === DiagramFileFormat.JSON;
+    const restoredFilePath = isJsonVersion ? null : (targetVer.filePath ?? diagram.filePath);
+    const restoredMimeType = isJsonVersion
+      ? null
+      : detectContentTypeForFormat(targetVer.fileFormat, diagram.mimeType);
+    let restoredSize: number | null = isJsonVersion ? null : diagram.fileSize;
+    let restoredPreviewSvgPath: string | null = null;
+
+    if (!isJsonVersion && restoredFilePath) {
       try {
-        restoredSize = readStoredFile(targetVer.filePath).length;
+        const fileBuf = readStoredFile(restoredFilePath);
+        restoredSize = fileBuf.length;
+        if (targetVer.fileFormat === DiagramFileFormat.VSDX) {
+          const previewSvg = await convertVsdxToSvg(fileBuf);
+          if (previewSvg) {
+            const savedPreview = saveSiteFile(
+              diagram.site.siteCode,
+              'diagrams',
+              `${diagram.title}-preview-v${nextVer}.svg`,
+              Buffer.from(previewSvg, 'utf8'),
+            );
+            restoredPreviewSvgPath = savedPreview.relativePath;
+          } else {
+            restoredPreviewSvgPath = diagram.previewSvgPath;
+          }
+        }
       } catch {
         // Fallback to existing fileSize if version file size unavailable
       }
@@ -705,13 +729,13 @@ router.post('/:id/restore/:version', async (req, res, next) => {
     const restored = await prisma.diagram.update({
       where: { id: diagram.id },
       data: {
+        kind: isJsonVersion ? DiagramKind.EDITOR : DiagramKind.UPLOADED,
         fileFormat: targetVer.fileFormat,
-        canvasData: targetVer.canvasData ?? undefined,
+        canvasData: isJsonVersion ? ((targetVer.canvasData ?? { nodes: [], edges: [] }) as object) : null,
         filePath: restoredFilePath,
         mimeType: restoredMimeType,
         fileSize: restoredSize,
-        previewSvgPath:
-          targetVer.fileFormat === DiagramFileFormat.VSDX ? diagram.previewSvgPath : null,
+        previewSvgPath: restoredPreviewSvgPath,
         currentVersion: nextVer,
       },
     });

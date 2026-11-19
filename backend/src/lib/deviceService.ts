@@ -389,6 +389,25 @@ export async function updateDeviceWithDetails(deviceId: string, payload: Partial
   if (categoryChanged) {
     const dt = await prisma.deviceType.findUniqueOrThrow({ where: { code: nextCategory } });
     nextDeviceTypeId = dt.id;
+    // Remove stale subtype detail records from previous category
+    if (existing.category === DeviceCategory.SWITCH) {
+      await prisma.switchDetail.deleteMany({ where: { deviceId } });
+    } else if (existing.category === DeviceCategory.ACCESS_POINT) {
+      await prisma.accessPointDetail.deleteMany({ where: { deviceId } });
+    } else if (existing.category === DeviceCategory.AP_CLIENT) {
+      await prisma.apClientDetail.deleteMany({ where: { deviceId } });
+    } else if (existing.category === DeviceCategory.WLC) {
+      await prisma.controllerDetail.deleteMany({ where: { deviceId } });
+    } else if (
+      nextCategory !== DeviceCategory.SERVER &&
+      nextCategory !== DeviceCategory.ESXI &&
+      nextCategory !== DeviceCategory.VM &&
+      nextCategory !== DeviceCategory.NAS &&
+      nextCategory !== DeviceCategory.PC &&
+      nextCategory !== DeviceCategory.NVR
+    ) {
+      await prisma.serverDetail.deleteMany({ where: { deviceId } });
+    }
   }
 
   const tx = prisma;

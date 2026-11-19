@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   BookOpen,
   ClipboardCopy,
@@ -93,9 +93,17 @@ export function CredentialsPanel({
     );
   }
 
+  const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    return () => {
+      if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    };
+  }, []);
+
   const notify = (msg: string) => {
     setToast(msg);
-    setTimeout(() => setToast(''), 2500);
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    toastTimerRef.current = setTimeout(() => setToast(''), 2500);
   };
 
   const toggleReveal = async (cred: CredentialItem) => {
@@ -725,6 +733,11 @@ function AddCredentialModal({
 }) {
   const firstInst = editing?.instructions?.[0];
   const [siteId, setSiteId] = useState(editing?.siteId || fixedSiteId || sites[0]?.id || '');
+  useEffect(() => {
+    if (!siteId && !editing && sites.length > 0) {
+      setSiteId(fixedSiteId || sites[0].id);
+    }
+  }, [siteId, editing, fixedSiteId, sites]);
   const [deviceName, setDeviceName] = useState(editing?.deviceName || '');
   const [deviceModel, setDeviceModel] = useState(editing?.deviceModel || '');
   const [managementIp, setManagementIp] = useState(editing?.managementIp || '');

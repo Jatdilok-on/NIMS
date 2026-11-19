@@ -42,6 +42,11 @@ export function ImportCredentialsModal({
 }) {
   const [step, setStep] = useState<'UPLOAD' | 'PREVIEW' | 'RESULT'>('UPLOAD');
   const [siteId, setSiteId] = useState(fixedSiteId || sites[0]?.id || '');
+  React.useEffect(() => {
+    if (!siteId && sites.length > 0) {
+      setSiteId(fixedSiteId || sites[0].id);
+    }
+  }, [siteId, fixedSiteId, sites]);
   const [file, setFile] = useState<File | null>(null);
   const [uploadProgress, setUploadProgress] = useState<number | null>(null);
   const [headers, setHeaders] = useState<string[]>([]);

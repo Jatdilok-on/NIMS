@@ -47,9 +47,14 @@ router.get('/summary', async (req, res, next) => {
       recentActivityWhere.siteId = requestedSiteId;
     }
 
+    const now = new Date();
+    const twelveMonthsStart = new Date(now.getFullYear(), now.getMonth() - 11, 1);
+
     const [
       sites,
-      devices,
+      categoryGroups,
+      statusGroups,
+      recentCreatedDevices,
       totalDocuments,
       totalDiagrams,
       recentAuditLogs,
@@ -64,15 +69,19 @@ router.get('/summary', async (req, res, next) => {
         },
         orderBy: { siteCode: 'asc' },
       }),
-      prisma.device.findMany({
+      prisma.device.groupBy({
+        by: ['category'],
         where: deviceWhere,
-        select: {
-          id: true,
-          siteId: true,
-          category: true,
-          status: true,
-          createdAt: true,
-        },
+        _count: { _all: true },
+      }),
+      prisma.device.groupBy({
+        by: ['status'],
+        where: deviceWhere,
+        _count: { _all: true },
+      }),
+      prisma.device.findMany({
+        where: { ...deviceWhere, createdAt: { gte: twelveMonthsStart } },
+        select: { createdAt: true },
       }),
       prisma.document.count({ where: docWhere }),
       prisma.diagram.count({ where: diagWhere }),
@@ -119,17 +128,23 @@ router.get('/summary', async (req, res, next) => {
       UNKNOWN: 0,
     };
 
+    let totalNetworkDevices = 0;
+    for (const grp of categoryGroups) {
+      byCategory[grp.category] = grp._count._all;
+      totalNetworkDevices += grp._count._all;
+    }
+    for (const grp of statusGroups) {
+      byStatus[grp.status] = grp._count._all;
+    }
+
     const monthlyMap = new Map<string, number>();
-    const now = new Date();
     for (let i = 11; i >= 0; i--) {
       const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
       const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
       monthlyMap.set(key, 0);
     }
 
-    for (const dev of devices) {
-      byCategory[dev.category]++;
-      byStatus[dev.status]++;
+    for (const dev of recentCreatedDevices) {
       const d = new Date(dev.createdAt);
       const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
       if (monthlyMap.has(key)) {
@@ -156,7 +171,7 @@ router.get('/summary', async (req, res, next) => {
         totalTv: byCategory.TV,
         totalPrinter: byCategory.PRINTER,
         totalBarcode: byCategory.BARCODE,
-        totalNetworkDevices: devices.length,
+        totalNetworkDevices,
         totalDocuments,
         totalNetworkDiagrams: totalDiagrams,
       },

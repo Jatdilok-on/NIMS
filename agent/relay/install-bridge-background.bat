@@ -80,6 +80,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command "Get-CimInstance Win32_Pr
 >> "%BASE_DIR%\bridge-run.cmd" echo :loop
 >> "%BASE_DIR%\bridge-run.cmd" echo if not exist "%BASE_DIR%\nims-relay-bridge.mjs" exit /b 0
 >> "%BASE_DIR%\bridge-run.cmd" echo if not exist "%BASE_DIR%\nims-relay-bridge.env" exit /b 0
+>> "%BASE_DIR%\bridge-run.cmd" echo for %%%%F in ("%BASE_DIR%\bridge.log") do if exist %%%%F if %%%%~zF GTR 2097152 del /f /q "%BASE_DIR%\bridge.log" ^>nul 2^>^&1
 >> "%BASE_DIR%\bridge-run.cmd" echo "%NODE_EXE%" "%BASE_DIR%\nims-relay-bridge.mjs" ^>^> "%BASE_DIR%\bridge.log" 2^>^&1
 >> "%BASE_DIR%\bridge-run.cmd" echo timeout /t 5 /nobreak ^>nul
 >> "%BASE_DIR%\bridge-run.cmd" echo goto loop
@@ -94,7 +95,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command "Get-CimInstance Win32_Pr
 
 > "%BASE_DIR%\view-bridge-log.bat" echo @echo off
 >> "%BASE_DIR%\view-bridge-log.bat" echo title NIMS Relay Bridge Log
->> "%BASE_DIR%\view-bridge-log.bat" echo powershell -NoProfile -Command "Get-Content -Path '%BASE_DIR%\bridge.log' -Tail 30 -Wait"
+>> "%BASE_DIR%\view-bridge-log.bat" echo set "BRIDGE_LOG_FILE=%BASE_DIR%\bridge.log"
+>> "%BASE_DIR%\view-bridge-log.bat" echo powershell -NoProfile -Command "Get-Content -LiteralPath $env:BRIDGE_LOG_FILE -Tail 30 -Wait"
 
 > "%BASE_DIR%\uninstall-bridge.bat" echo @echo off
 >> "%BASE_DIR%\uninstall-bridge.bat" echo echo Stopping NIMS Relay Bridge and removing Auto-Start...
@@ -125,7 +127,8 @@ echo ============================================================
 echo.
 if exist "%BASE_DIR%\bridge.log" (
   echo --- Latest bridge.log ---
-  powershell -NoProfile -Command "Get-Content -Path '%BASE_DIR%\bridge.log' -Tail 12"
+  set "BRIDGE_LOG_FILE=%BASE_DIR%\bridge.log"
+  powershell -NoProfile -Command "Get-Content -LiteralPath $env:BRIDGE_LOG_FILE -Tail 12"
 )
 echo.
 pause

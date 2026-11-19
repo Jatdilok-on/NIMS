@@ -8,6 +8,7 @@ import {
   enumerateBlock24Hosts,
   getIpv4Block24Prefix,
   ipv4ToInt,
+  isHostIpInCidr,
   isIpInCidr,
   isValidIpv4,
   parseCidr,
@@ -91,6 +92,15 @@ router.post(
           description: body.description ?? null,
         },
       });
+      await recordAuditLog({
+        req,
+        userId: req.user!.id,
+        username: req.user!.username,
+        action: 'CREATE_VLAN',
+        module: 'IPAM',
+        siteId: vlan.siteId,
+        details: { vlanId: vlan.vlanId, name: vlan.name },
+      });
       res.status(201).json({ vlan });
     } catch (err) {
       next(err);
@@ -110,6 +120,15 @@ router.delete('/vlans/:id', async (req, res, next) => {
       return;
     }
     await prisma.vlan.delete({ where: { id: vlan.id } });
+    await recordAuditLog({
+      req,
+      userId: req.user!.id,
+      username: req.user!.username,
+      action: 'DELETE_VLAN',
+      module: 'IPAM',
+      siteId: vlan.siteId,
+      details: { vlanId: vlan.vlanId, name: vlan.name },
+    });
     res.json({ message: 'VLAN deleted' });
   } catch (err) {
     next(err);
@@ -185,11 +204,29 @@ router.post(
           return;
         }
       }
+      if (body.gateway && body.gateway.trim() && !isHostIpInCidr(body.gateway.trim(), cidrInfo.cidr)) {
+        res.status(400).json({
+          error: `Gateway ${body.gateway.trim()} must be a valid host address inside ${cidrInfo.cidr}`,
+        });
+        return;
+      }
+
+      const siteExists = await prisma.site.findUnique({ where: { id: body.siteId }, select: { id: true } });
+      if (!siteExists) {
+        res.status(404).json({ error: 'Site not found' });
+        return;
+      }
 
       const tx = prisma;
-      // Ensure VLAN exists if vlanNumber specified without vlanDbId
+      // Ensure VLAN exists & belongs to this site
       let vlanDbId = body.vlanDbId ?? null;
-      if (!vlanDbId && body.vlanNumber) {
+      if (vlanDbId) {
+        const refVlan = await tx.vlan.findFirst({ where: { id: vlanDbId, siteId: body.siteId } });
+        if (!refVlan) {
+          res.status(400).json({ error: 'Referenced vlanDbId does not belong to this site' });
+          return;
+        }
+      } else if (body.vlanNumber) {
         let existingVlan = await tx.vlan.findUnique({
           where: { siteId_vlanId: { siteId: body.siteId, vlanId: body.vlanNumber } },
         });
@@ -322,6 +359,12 @@ router.put('/subnets/:id', async (req, res, next) => {
         res.status(400).json({ error: `Invalid IPv4 address: ${ipField}` });
         return;
       }
+    }
+    if (nextGateway && !isHostIpInCidr(nextGateway, cidrInfo.cidr)) {
+      res.status(400).json({
+        error: `Gateway ${nextGateway} must be a valid host address inside ${cidrInfo.cidr}`,
+      });
+      return;
     }
 
     let vlanDbId = existing.vlanDbId;
@@ -482,6 +525,15 @@ router.delete('/subnets/:id', async (req, res, next) => {
       return;
     }
     await prisma.subnet.delete({ where: { id: subnet.id } });
+    await recordAuditLog({
+      req,
+      userId: req.user!.id,
+      username: req.user!.username,
+      action: 'DELETE_SUBNET',
+      module: 'IPAM',
+      siteId: subnet.siteId,
+      details: { subnetId: subnet.id, cidr: subnet.cidr },
+    });
     res.json({ message: 'Subnet deleted' });
   } catch (err) {
     next(err);
@@ -590,8 +642,9 @@ router.get('/subnets/:id/ips', async (req, res, next) => {
       };
     });
 
+    const { ipAddresses: _rawIpAddresses, ...subnetMeta } = subnet;
     res.json({
-      subnet,
+      subnet: subnetMeta,
       ips: grid,
       allocatedIps,
       activeBlocks,
@@ -616,8 +669,10 @@ router.post('/ips/allocate', async (req, res, next) => {
       res.status(403).json({ error: 'Permission denied' });
       return;
     }
-    if (!isIpInCidr(body.ipAddress, subnet.cidr)) {
-      res.status(400).json({ error: `IP ${body.ipAddress} does not belong to ${subnet.cidr}` });
+    if (!isHostIpInCidr(body.ipAddress, subnet.cidr)) {
+      res.status(400).json({
+        error: `IP ${body.ipAddress} must be a usable host address inside ${subnet.cidr}`,
+      });
       return;
     }
 

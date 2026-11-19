@@ -11,7 +11,13 @@ import {
   isAllowedExtension,
   resolveSafeMimeType,
 } from '../lib/storage';
-import { buildInventoryCsv, normalizeDeviceCategory } from '../lib/excel';
+import {
+  buildInventoryCsv,
+  normalizeDeviceCategory,
+  parseSpreadsheetBuffer,
+} from '../lib/excel';
+import { isHostIpInCidr } from '../lib/ipam';
+import ExcelJS from 'exceljs';
 
 function mockSessionLookup(opts: {
   userId: string;
@@ -240,5 +246,78 @@ describe('Security Hardening & API Regression Tests', () => {
 
     expect(normalizeDeviceCategory('PLC Controller')).toBe(DeviceCategory.PLC);
     expect(normalizeDeviceCategory('Storage Server')).toBe(DeviceCategory.SERVER);
+  });
+
+  it('excludes network and broadcast addresses from host IP allocation checks for <= /30', () => {
+    expect(isHostIpInCidr('192.168.10.0', '192.168.10.0/24')).toBe(false);
+    expect(isHostIpInCidr('192.168.10.255', '192.168.10.0/24')).toBe(false);
+    expect(isHostIpInCidr('192.168.10.1', '192.168.10.0/24')).toBe(true);
+    expect(isHostIpInCidr('192.168.10.254', '192.168.10.0/24')).toBe(true);
+    expect(isHostIpInCidr('10.0.0.0', '10.0.0.0/31')).toBe(true);
+    expect(isHostIpInCidr('10.0.0.5', '10.0.0.5/32')).toBe(true);
+  });
+
+  it('preserves columns accurately when Excel worksheet has an empty Column A header', async () => {
+    const wb = new ExcelJS.Workbook();
+    const ws = wb.addWorksheet('Devices');
+    ws.getCell('B1').value = 'Device Name';
+    ws.getCell('C1').value = 'Management IP';
+    ws.getCell('B2').value = 'CORE-SW-01';
+    ws.getCell('C2').value = '10.20.30.1';
+    const buf = Buffer.from(await wb.xlsx.writeBuffer());
+
+    const parsed = await parseSpreadsheetBuffer(buf, 'sparse-col-a.xlsx');
+    expect(parsed.headers).toEqual(['Column_1', 'Device Name', 'Management IP']);
+    expect(parsed.rows).toHaveLength(1);
+    expect(parsed.rows[0]['Device Name']).toBe('CORE-SW-01');
+    expect(parsed.rows[0]['Management IP']).toBe('10.20.30.1');
+  });
+
+  it('returns 400 on non-numeric diagram version restore and records audit log on monitoring toggle', async () => {
+    const app = createApp();
+    const { rawJwt, sessionSpy } = mockSessionLookup({
+      userId: 'diag-admin',
+      roleCode: RoleCode.SUPER_ADMIN,
+    });
+
+    const diagSpy = vi.spyOn(prisma.diagram, 'findUnique').mockResolvedValue({
+      id: 'diag-1',
+      siteId: 'site-1',
+      title: 'Test Topology',
+      currentVersion: 2,
+      site: { siteCode: 'BTV' },
+    } as never);
+
+    const badVerRes = await request(app)
+      .post('/api/diagrams/diag-1/restore/not-a-number')
+      .set('Authorization', `Bearer ${rawJwt}`);
+    expect(badVerRes.status).toBe(400);
+
+    const devSpy = vi.spyOn(prisma.device, 'findUnique').mockResolvedValue({
+      id: 'dev-1',
+      siteId: 'site-1',
+      name: 'SW-01',
+      site: { id: 'site-1', siteCode: 'BTV' },
+    } as never);
+    const devUpdateSpy = vi.spyOn(prisma.device, 'update').mockResolvedValue({
+      id: 'dev-1',
+      name: 'SW-01',
+      monitorEnabled: false,
+    } as never);
+    const auditSpy = vi.spyOn(prisma.auditLog, 'create').mockResolvedValue({} as never);
+
+    const monRes = await request(app)
+      .patch('/api/agents/devices/dev-1/monitoring')
+      .set('Authorization', `Bearer ${rawJwt}`)
+      .send({ monitorEnabled: false });
+
+    expect(monRes.status).toBe(200);
+    expect(auditSpy).toHaveBeenCalledTimes(1);
+
+    diagSpy.mockRestore();
+    devSpy.mockRestore();
+    devUpdateSpy.mockRestore();
+    auditSpy.mockRestore();
+    sessionSpy.mockRestore();
   });
 });

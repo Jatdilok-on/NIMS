@@ -130,6 +130,7 @@ export default function SiteDetailPage() {
     { id: 'settings', label: t('sites.tabSettings'), icon: Settings, show: permissions.canManageSite || user?.roleCode === 'SUPER_ADMIN' },
   ];
   const tabs = allTabs.filter((tabItem) => tabItem.show);
+  const effectiveTab: SiteTab = tabs.some((tabItem) => tabItem.id === tab) ? tab : 'overview';
 
   return (
     <div className="space-y-5">
@@ -326,11 +327,11 @@ export default function SiteDetailPage() {
         </div>
       )}
 
-      {tab === 'diagram' && (
+      {effectiveTab === 'diagram' && (
         <DiagramsPanel fixedSiteId={site.id} canEdit={permissions.canEditDiagram} />
       )}
 
-      {tab === 'inventory' && (
+      {effectiveTab === 'inventory' && (
         <InventoryPanel
           fixedSiteId={site.id}
           canEdit={permissions.canEditInventory}
@@ -338,15 +339,15 @@ export default function SiteDetailPage() {
         />
       )}
 
-      {tab === 'ipam' && (
+      {effectiveTab === 'ipam' && (
         <IpamPanel fixedSiteId={site.id} canEdit={permissions.canEditIpam} />
       )}
 
-      {tab === 'access' && !isIpViewer && (
+      {effectiveTab === 'access' && !isIpViewer && (
         <CredentialsPanel fixedSiteId={site.id} canEdit={permissions.canEditCredentials} />
       )}
 
-      {tab === 'documents' && (
+      {effectiveTab === 'documents' && (
         <DocumentsPanel
           fixedSiteId={site.id}
           canEdit={permissions.canEditDocuments}
@@ -354,11 +355,11 @@ export default function SiteDetailPage() {
         />
       )}
 
-      {tab === 'maintenance' && (
+      {effectiveTab === 'maintenance' && (
         <MaintenancePanel siteId={site.id} canEdit={permissions.canEditMaintenance} />
       )}
 
-      {tab === 'agents' && canAccessSiteAgents && (
+      {effectiveTab === 'agents' && canAccessSiteAgents && (
         <SiteAgentsPanel
           siteId={site.id}
           siteCode={site.siteCode}
@@ -366,7 +367,7 @@ export default function SiteDetailPage() {
         />
       )}
 
-      {tab === 'settings' && (
+      {effectiveTab === 'settings' && (
         <SiteSettingsForm site={site} onUpdated={loadSite} />
       )}
     </div>

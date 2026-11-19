@@ -85,7 +85,7 @@ export default function SetupPage() {
 
         <form onSubmit={handleSubmit} className="p-8 space-y-4">
           {error && (
-            <div className="rounded-lg bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700">
+            <div className="rounded-lg bg-red-50 dark:bg-red-950/50 border border-red-200 dark:border-red-900 px-4 py-3 text-sm text-red-700 dark:text-red-300">
               {error}
             </div>
           )}

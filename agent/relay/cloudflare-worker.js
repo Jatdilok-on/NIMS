@@ -144,6 +144,7 @@ export default {
         }
 
         const items = Array.isArray(body?.items) ? body.items : [];
+        const deleteHashes = Array.isArray(body?.deleteTokenHashes) ? body.deleteTokenHashes : [];
         const now = new Date().toISOString();
 
         for (const item of items) {
@@ -159,10 +160,23 @@ export default {
             .run();
         }
 
-        return json({ ok: true, synced: items.length });
+        for (const hash of deleteHashes) {
+          if (!hash) continue;
+          await env.DB.prepare('DELETE FROM relay_targets WHERE token_hash = ?')
+            .bind(String(hash))
+            .run();
+        }
+
+        return json({ ok: true, synced: items.length, deleted: deleteHashes.length });
       }
 
       if (method === 'GET' && path === '/bridge/reports') {
+        // Purge orphan/unclaimed reports older than 24h so they cannot block LIMIT 100 queue slots
+        const staleCutoff = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+        await env.DB.prepare('DELETE FROM relay_reports WHERE reported_at < ?')
+          .bind(staleCutoff)
+          .run();
+
         const { results } = await env.DB.prepare(
           'SELECT token_hash, payload_json, reported_at FROM relay_reports ORDER BY reported_at ASC LIMIT 100',
         ).all();

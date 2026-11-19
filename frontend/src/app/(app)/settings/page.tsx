@@ -58,7 +58,8 @@ interface SystemInfo {
 
 export default function SettingsAndBackupPage() {
   const { t } = useI18n();
-  const { refreshUser } = useAuth();
+  const { user, refreshUser } = useAuth();
+  const isSuperAdmin = user?.roleCode === 'SUPER_ADMIN';
   const [settings, setSettings] = useState<SystemSettings | null>(null);
   const [backups, setBackups] = useState<BackupJob[]>([]);
   const [sysInfo, setSysInfo] = useState<SystemInfo | null>(null);
@@ -91,8 +92,17 @@ export default function SettingsAndBackupPage() {
   }, []);
 
   useEffect(() => {
+    if (!isSuperAdmin) return;
     loadAll();
-  }, [loadAll]);
+  }, [loadAll, isSuperAdmin]);
+
+  if (user && !isSuperAdmin) {
+    return (
+      <div className="p-8 text-center text-sm text-red-600 dark:text-red-400">
+        Access denied: Super Admin privileges are required to view system settings and backups.
+      </div>
+    );
+  }
 
   const handleSaveSettings = async (e: React.FormEvent) => {
     e.preventDefault();

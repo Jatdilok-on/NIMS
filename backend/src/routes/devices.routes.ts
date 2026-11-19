@@ -30,11 +30,58 @@ const deviceInputSchema = z.object({
   status: z.nativeEnum(DeviceStatus).optional(),
   responsiblePerson: z.string().max(160).optional().nullable(),
   remark: z.string().max(1000).optional().nullable(),
-  switchDetail: z.record(z.any()).optional(),
-  accessPointDetail: z.record(z.any()).optional(),
-  apClientDetail: z.record(z.any()).optional(),
-  controllerDetail: z.record(z.any()).optional(),
-  serverDetail: z.record(z.any()).optional(),
+  switchDetail: z
+    .object({
+      managementVlan: z.string().max(60).optional().nullable(),
+      rack: z.string().max(80).optional().nullable(),
+      floor: z.string().max(80).optional().nullable(),
+      portCount: z.number().int().min(0).max(2048).optional().nullable(),
+      firmwareVersion: z.string().max(120).optional().nullable(),
+      maintainer: z.string().max(160).optional().nullable(),
+      installationDate: z.string().max(60).optional().nullable(),
+      warrantyExpiration: z.string().max(60).optional().nullable(),
+    })
+    .optional(),
+  accessPointDetail: z
+    .object({
+      ssid: z.string().max(120).optional().nullable(),
+      channel: z.string().max(40).optional().nullable(),
+      frequency: z.string().max(40).optional().nullable(),
+      floor: z.string().max(80).optional().nullable(),
+      installationPosition: z.string().max(160).optional().nullable(),
+      controller: z.string().max(120).optional().nullable(),
+    })
+    .optional(),
+  apClientDetail: z
+    .object({
+      connectedAp: z.string().max(160).optional().nullable(),
+      wirelessMode: z.string().max(80).optional().nullable(),
+      ssid: z.string().max(120).optional().nullable(),
+      frequency: z.string().max(40).optional().nullable(),
+      connectedDevice: z.string().max(160).optional().nullable(),
+    })
+    .optional(),
+  controllerDetail: z
+    .object({
+      controllerVersion: z.string().max(120).optional().nullable(),
+      managedApCount: z.number().int().min(0).max(100000).optional().nullable(),
+    })
+    .optional(),
+  serverDetail: z
+    .object({
+      hostname: z.string().max(160).optional().nullable(),
+      manufacturer: z.string().max(120).optional().nullable(),
+      productionIp: z.string().max(60).optional().nullable(),
+      operatingSystem: z.string().max(160).optional().nullable(),
+      cpu: z.string().max(160).optional().nullable(),
+      ram: z.string().max(120).optional().nullable(),
+      storage: z.string().max(160).optional().nullable(),
+      hypervisor: z.string().max(120).optional().nullable(),
+      serviceApplication: z.string().max(240).optional().nullable(),
+      rack: z.string().max(80).optional().nullable(),
+      maintenanceDate: z.string().max(60).optional().nullable(),
+    })
+    .optional(),
 });
 
 router.get('/global-search', async (req, res, next) => {
@@ -176,33 +223,93 @@ router.get('/', async (req, res, next) => {
       ];
     }
 
-    const [total, devices] = await Promise.all([
-      prisma.device.count({ where }),
-      prisma.device.findMany({
+    const deviceInclude = {
+      site: { select: { id: true, siteCode: true, siteName: true } },
+      switchDetail: true,
+      accessPointDetail: true,
+      apClientDetail: true,
+      controllerDetail: true,
+      serverDetail: true,
+    } as const;
+
+    const total = await prisma.device.count({ where });
+    let devices;
+
+    if (sortBy === 'itemNo' && !isAllPageSize) {
+      const skip = (page - 1) * pageSize;
+      const nonNullWhere: Prisma.DeviceWhereInput = { ...where, itemNo: { not: null } };
+      const nullWhere: Prisma.DeviceWhereInput = { ...where, itemNo: null };
+
+      if (sortOrder === 'asc') {
+        const nonNullCount = await prisma.device.count({ where: nonNullWhere });
+        const nonNullRows =
+          skip < nonNullCount
+            ? await prisma.device.findMany({
+                where: nonNullWhere,
+                include: deviceInclude,
+                orderBy: [{ itemNo: 'asc' }, { createdAt: 'asc' }],
+                skip,
+                take: pageSize,
+              })
+            : [];
+        const remaining = pageSize - nonNullRows.length;
+        const nullSkip = Math.max(0, skip - nonNullCount);
+        const nullRows =
+          remaining > 0
+            ? await prisma.device.findMany({
+                where: nullWhere,
+                include: deviceInclude,
+                orderBy: [{ createdAt: 'asc' }],
+                skip: nullSkip,
+                take: remaining,
+              })
+            : [];
+        devices = [...nonNullRows, ...nullRows];
+      } else {
+        const nullCount = await prisma.device.count({ where: nullWhere });
+        const nullRows =
+          skip < nullCount
+            ? await prisma.device.findMany({
+                where: nullWhere,
+                include: deviceInclude,
+                orderBy: [{ createdAt: 'asc' }],
+                skip,
+                take: pageSize,
+              })
+            : [];
+        const remaining = pageSize - nullRows.length;
+        const nonNullSkip = Math.max(0, skip - nullCount);
+        const nonNullRows =
+          remaining > 0
+            ? await prisma.device.findMany({
+                where: nonNullWhere,
+                include: deviceInclude,
+                orderBy: [{ itemNo: 'desc' }, { createdAt: 'asc' }],
+                skip: nonNullSkip,
+                take: remaining,
+              })
+            : [];
+        devices = [...nullRows, ...nonNullRows];
+      }
+    } else {
+      devices = await prisma.device.findMany({
         where,
-        include: {
-          site: { select: { id: true, siteCode: true, siteName: true } },
-          switchDetail: true,
-          accessPointDetail: true,
-          apClientDetail: true,
-          controllerDetail: true,
-          serverDetail: true,
-        },
+        include: deviceInclude,
         orderBy:
           sortBy === 'itemNo'
             ? [{ itemNo: sortOrder }, { createdAt: 'asc' }]
             : [{ [sortBy]: sortOrder }, { itemNo: 'asc' }],
         skip: isAllPageSize ? 0 : (page - 1) * pageSize,
         take: pageSize,
-      }),
-    ]);
-
-    if (sortBy === 'itemNo') {
-      devices.sort((a, b) => {
-        const av = a.itemNo ?? Number.MAX_SAFE_INTEGER;
-        const bv = b.itemNo ?? Number.MAX_SAFE_INTEGER;
-        return sortOrder === 'asc' ? av - bv : bv - av;
       });
+
+      if (sortBy === 'itemNo') {
+        devices.sort((a, b) => {
+          const av = a.itemNo ?? Number.MAX_SAFE_INTEGER;
+          const bv = b.itemNo ?? Number.MAX_SAFE_INTEGER;
+          return sortOrder === 'asc' ? av - bv : bv - av;
+        });
+      }
     }
 
     const uniqueSiteIds = Array.from(new Set(devices.map((d) => d.siteId)));
@@ -320,10 +427,16 @@ router.put('/bulk', async (req, res, next) => {
       return;
     }
 
+    let nextDeviceTypeId: string | undefined = undefined;
+    if (body.category) {
+      const dt = await prisma.deviceType.findUniqueOrThrow({ where: { code: body.category } });
+      nextDeviceTypeId = dt.id;
+    }
+
     const result = await prisma.device.updateMany({
       where: { id: { in: authorizedIds } },
       data: {
-        ...(body.category ? { category: body.category } : {}),
+        ...(body.category ? { category: body.category, deviceTypeId: nextDeviceTypeId } : {}),
         ...(body.status ? { status: body.status } : {}),
       },
     });

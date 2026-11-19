@@ -6,6 +6,9 @@ import { CredentialsPanel } from '@/components/credentials/CredentialsPanel';
 
 export default function CredentialsPage() {
   const { user } = useAuth();
+  if (user?.roleCode === 'IP_VIEWER') {
+    return <CredentialsPanel canEdit={false} />;
+  }
   const canEdit =
     user?.roleCode === 'SUPER_ADMIN' ||
     user?.roleCode === 'SITE_ADMIN' ||

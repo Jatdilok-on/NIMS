@@ -351,6 +351,7 @@ function InnerDiagramEditor({
   const [showVersions, setShowVersions] = useState(false);
   const [showImportMenu, setShowImportMenu] = useState(false);
   const [showBgMenu, setShowBgMenu] = useState(false);
+  const [showMobilePalette, setShowMobilePalette] = useState(false);
   const [deviceFilter, setDeviceFilter] = useState('');
   const [inventoryDevices, setInventoryDevices] = useState<Device[]>(siteDevices);
   const clipboardRef = useRef<{ nodes: Node[]; edges: Edge[]; pasteCount: number } | null>(null);
@@ -1379,6 +1380,15 @@ function InnerDiagramEditor({
                 <span className="hidden sm:inline">Duplicate</span>
               </button>
 
+              <button
+                type="button"
+                onClick={() => setShowMobilePalette((v) => !v)}
+                className="md:hidden inline-flex items-center gap-1 px-2.5 py-1.5 rounded border border-slate-200 dark:border-slate-700 text-xs font-medium cursor-pointer"
+              >
+                <Layers className="h-3.5 w-3.5" />
+                {showMobilePalette ? 'Hide Palette' : 'Shapes'}
+              </button>
+
               {/* Import Menu */}
               <div className="relative" ref={importMenuRef}>
                 <button
@@ -1742,10 +1752,16 @@ function InnerDiagramEditor({
       )}
 
       {/* Main 3-Pane Workspace */}
-      <div className="flex-1 flex min-h-0 overflow-hidden">
+      <div className="relative flex-1 flex min-h-0 overflow-hidden">
         {/* Left Sidebar: Palette + Site Inventory Drag & Drop */}
         {canEdit && (
-          <aside className="hidden md:flex flex-col w-60 border-r border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-950 overflow-y-auto p-3 space-y-4">
+          <aside
+            className={`${
+              showMobilePalette
+                ? 'flex absolute inset-y-0 left-0 z-30 shadow-2xl md:static md:shadow-none'
+                : 'hidden md:flex'
+            } flex-col w-60 border-r border-slate-200 dark:border-slate-800 bg-slate-50/95 md:bg-slate-50/70 dark:bg-slate-950 overflow-y-auto p-3 space-y-4`}
+          >
             <div>
               <div className="text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-2">
                 Network Shapes (Drag / Click)

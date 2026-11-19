@@ -235,15 +235,24 @@ async function extractWorksheetTable(
 
   const headers: string[] = [];
   const headerRow = worksheet.getRow(1);
+  let maxCol = 0;
   headerRow.eachCell({ includeEmpty: false }, (cell, colNumber) => {
     const label = cellToString(cell.value);
+    if (colNumber > maxCol) maxCol = colNumber;
     if (label) {
       headers[colNumber - 1] = label;
     }
   });
 
-  // Fill gaps if any empty header columns exist
-  const cleanHeaders = headers.map((h, i) => h || `Column_${i + 1}`);
+  // Fill gaps safely without Array.prototype.map skipping sparse undefined slots
+  const cleanHeaders: string[] = [];
+  const seenHeaderCounts = new Map<string, number>();
+  for (let i = 0; i < maxCol; i++) {
+    const base = headers[i] || `Column_${i + 1}`;
+    const count = (seenHeaderCounts.get(base) ?? 0) + 1;
+    seenHeaderCounts.set(base, count);
+    cleanHeaders.push(count > 1 ? `${base}_${count}` : base);
+  }
   const rows: Record<string, string>[] = [];
 
   worksheet.eachRow({ includeEmpty: false }, (row, rowNumber) => {
