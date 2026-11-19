@@ -975,11 +975,13 @@ export function TroubleshootingRunbook() {
       {deleteTarget && (
         <ConfirmActionModal
           title={t('runbook.deleteConfirmTitle')}
-          description={t('runbook.deleteConfirmDesc')}
+          itemName={isTh ? deleteTarget.thTitle : deleteTarget.enTitle}
+          badgeText={deleteTarget.codeBadge}
+          message={t('runbook.deleteConfirmDesc')}
           confirmLabel={t('runbook.deleteGuide')}
-          danger
-          busy={deleting}
-          errorMessage={actionError}
+          variant="danger"
+          loading={deleting}
+          error={actionError}
           onCancel={() => {
             if (!deleting) {
               setDeleteTarget(null);
@@ -994,11 +996,11 @@ export function TroubleshootingRunbook() {
       {showResetConfirm && (
         <ConfirmActionModal
           title={t('runbook.resetConfirmTitle')}
-          description={t('runbook.resetConfirmDesc')}
+          message={t('runbook.resetConfirmDesc')}
           confirmLabel={t('runbook.resetDefaults')}
-          danger
-          busy={resetting}
-          errorMessage={actionError}
+          variant="danger"
+          loading={resetting}
+          error={actionError}
           onCancel={() => {
             if (!resetting) {
               setShowResetConfirm(false);
