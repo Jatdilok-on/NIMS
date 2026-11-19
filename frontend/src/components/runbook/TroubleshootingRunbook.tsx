@@ -32,7 +32,7 @@ import { apiFetch, ApiError, apiUploadWithProgress, copyTextSafe } from '@/lib/a
 import { useAuth } from '@/lib/auth-context';
 import { getDeviceLedClass, isDeviceAgentLive } from '@/lib/deviceTelemetry';
 import { useI18n } from '@/lib/i18n';
-import { Device, DeviceCategory, Site } from '@/lib/types';
+import { Device, Site } from '@/lib/types';
 import { RunbookVisualDiagram } from './RunbookVisualDiagram';
 
 type RunbookIconType =
@@ -125,36 +125,6 @@ function linesToArray(raw: string): string[] {
     .split(/\r?\n/)
     .map((line) => line.trim())
     .filter(Boolean);
-}
-
-const GUIDE_LIVE_CATEGORIES: Partial<Record<string, DeviceCategory[]>> = {
-  SRM: ['PLC', 'AP_CLIENT'],
-  AMR: ['ACCESS_POINT', 'PC'],
-  SHU: ['AP_CLIENT', 'PLC', 'BARCODE'],
-  PLC_MAIN: ['PLC', 'SWITCH'],
-  ACCESS_POINT: ['ACCESS_POINT', 'WLC'],
-  AP_CLIENT: ['AP_CLIENT'],
-};
-
-function getLiveBadgeForGuide(guide: RunbookGuide, siteDevices: Device[]) {
-  if (siteDevices.length === 0) return null;
-  const cats = GUIDE_LIVE_CATEGORIES[guide.id];
-  const live = siteDevices.filter((d) => {
-    if (!isDeviceAgentLive(d)) return false;
-    if (cats) return cats.includes(d.category);
-    // Custom guides: match any live device if iconType hints a category
-    if (guide.iconType === 'CAMERA') return d.category === 'IP_CAM' || d.category === 'NVR';
-    if (guide.iconType === 'SWITCH') return d.category === 'SWITCH';
-    if (guide.iconType === 'SERVER') return d.category === 'SERVER' || d.category === 'UPS';
-    if (guide.iconType === 'PLC') return d.category === 'PLC';
-    if (guide.iconType === 'AP') return d.category === 'ACCESS_POINT' || d.category === 'WLC';
-    if (guide.iconType === 'CLIENT') return d.category === 'AP_CLIENT';
-    return true;
-  });
-  if (live.length === 0) return null;
-  const offlineCount = live.filter((d) => d.status === 'OFFLINE').length;
-  const status = offlineCount > 0 ? 'OFFLINE' : 'ONLINE';
-  return { count: live.length, offlineCount, status };
 }
 
 export function TroubleshootingRunbook() {
@@ -768,7 +738,6 @@ export function TroubleshootingRunbook() {
             <div className="flex flex-wrap gap-2 print:hidden">
               {guides.map((item) => {
                 const active = activeGuide?.id === item.id;
-                const liveBadge = siteId ? getLiveBadgeForGuide(item, siteDevices) : null;
                 return (
                   <button
                     key={item.id}
@@ -782,12 +751,6 @@ export function TroubleshootingRunbook() {
                   >
                     {renderGuideIcon(item.iconType)}
                     <span>{isTh ? item.thTitle : item.enTitle}</span>
-                    {liveBadge && (
-                      <span
-                        title={`${liveBadge.count} Agent-pinged device(s)`}
-                        className={getDeviceLedClass(liveBadge.status, true)}
-                      />
-                    )}
                   </button>
                 );
               })}
@@ -875,7 +838,6 @@ export function TroubleshootingRunbook() {
                   guideId={activeGuide.id}
                   pathText={isTh ? activeGuide.thPath : activeGuide.enPath}
                   isTh={isTh}
-                  siteDevices={siteId ? siteDevices : undefined}
                 />
 
                 {/* Optional Field Photo uploaded by Network Engineer / Admin */}
