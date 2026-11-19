@@ -98,9 +98,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     .join('');
 
   return (
-    <div className="min-h-screen flex bg-[var(--nims-bg)] text-[var(--nims-text)]">
+    <div className="min-h-screen flex bg-[var(--nims-bg)] text-[var(--nims-text)] print:block print:bg-white print:text-slate-900">
       {/* Desktop Command Sidebar */}
-      <aside className="hidden lg:flex lg:flex-col lg:w-64 lg:h-screen lg:sticky lg:top-0 bg-[var(--nims-sidebar)] text-white shrink-0 border-r border-[var(--nims-sidebar-border)] overflow-hidden">
+      <aside className="hidden lg:flex lg:flex-col lg:w-64 lg:h-screen lg:sticky lg:top-0 bg-[var(--nims-sidebar)] text-white shrink-0 border-r border-[var(--nims-sidebar-border)] overflow-hidden print:hidden">
         <div
           aria-hidden="true"
           className="pointer-events-none absolute -top-24 -left-16 h-60 w-60 rounded-full blur-3xl opacity-25"
@@ -278,8 +278,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       )}
 
       {/* Main Content Column */}
-      <div className="flex-1 flex flex-col min-w-0 nims-cyber-bg">
-        <header className="h-16 nims-glass-header border-b border-[var(--nims-border)] px-4 lg:px-6 flex items-center justify-between gap-3 sticky top-0 z-30">
+      <div className="flex-1 flex flex-col min-w-0 nims-cyber-bg print:bg-none">
+        <header className="h-16 nims-glass-header border-b border-[var(--nims-border)] px-4 lg:px-6 flex items-center justify-between gap-3 sticky top-0 z-30 print:hidden">
           <div className="flex items-center gap-3 flex-1 min-w-0">
             <button
               onClick={() => setMobileMenuOpen(true)}
@@ -398,10 +398,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </div>
         </header>
 
-        <main className="flex-1 p-4 lg:p-6 pb-20 lg:pb-6 overflow-x-hidden">{children}</main>
+        <main className="flex-1 p-4 lg:p-6 pb-20 lg:pb-6 overflow-x-hidden print:p-0 print:overflow-visible">{children}</main>
 
         {/* Mobile Bottom Navigation */}
-        <nav className="lg:hidden fixed bottom-0 left-0 right-0 nims-glass-header border-t border-[var(--nims-border)] flex justify-around py-1.5 z-30">
+        <nav className="lg:hidden fixed bottom-0 left-0 right-0 nims-glass-header border-t border-[var(--nims-border)] flex justify-around py-1.5 z-30 print:hidden">
           {[
             { href: '/', label: t('nav.home'), icon: TechDashboardIcon },
             { href: '/sites', label: t('nav.sites'), icon: TechSiteNodeIcon },

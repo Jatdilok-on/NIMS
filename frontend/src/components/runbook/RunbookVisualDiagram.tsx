@@ -157,12 +157,24 @@ export function RunbookVisualDiagram({
   pathText: string;
   isTh: boolean;
 }) {
-  const nodes = useMemo(() => parsePathToNodes(pathText), [pathText]);
+  const rawNodes = useMemo(() => parsePathToNodes(pathText), [pathText]);
+  const [direction, setDirection] = useState<'PING' | 'FIELD'>('PING');
   const [failedIdx, setFailedIdx] = useState<number | null>(null);
 
   useEffect(() => {
     setFailedIdx(null);
-  }, [guideId, pathText]);
+  }, [guideId, pathText, direction]);
+
+  const nodes = useMemo(() => {
+    if (direction === 'PING' || rawNodes.length <= 1) return rawNodes;
+    const reversed = [...rawNodes].reverse();
+    return reversed.map((node, idx) => {
+      if (idx === 0) return { ...node, linkTypeBefore: null };
+      // When reversed, the link before `reversed[idx]` was the link originally before `rawNodes[rawNodes.length - idx]`
+      const origRightIdx = rawNodes.length - idx;
+      return { ...node, linkTypeBefore: rawNodes[origRightIdx].linkTypeBefore };
+    });
+  }, [rawNodes, direction]);
 
   if (nodes.length === 0) return null;
 
@@ -171,7 +183,7 @@ export function RunbookVisualDiagram({
   return (
     <div className="space-y-4">
       {/* Interactive Connection Path Diagram */}
-      <div className="rounded-xl border border-slate-200 dark:border-slate-700 bg-gradient-to-br from-slate-50 via-white to-blue-50/40 dark:from-slate-900 dark:via-slate-900 dark:to-slate-800/60 p-4 space-y-3">
+      <div className="rounded-xl border border-slate-200 dark:border-slate-700 bg-gradient-to-br from-slate-50 via-white to-blue-50/40 dark:from-slate-900 dark:via-slate-900 dark:to-slate-800/60 p-4 space-y-3 break-inside-avoid">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="flex items-center gap-2 text-xs font-bold text-slate-700 dark:text-slate-200">
             <Network className="h-4 w-4 text-blue-600" />
@@ -181,21 +193,50 @@ export function RunbookVisualDiagram({
                 : 'Interactive Triage Map (Click the node where Ping stops to see what to check)'}
             </span>
           </div>
-          <div className="flex items-center gap-3 text-[11px] text-slate-500">
-            <span className="inline-flex items-center gap-1.5">
-              <span className="inline-block w-5 h-0.5 bg-blue-500" />
-              {isTh ? 'สาย LAN / Fiber' : 'Wired LAN'}
-            </span>
-            <span className="inline-flex items-center gap-1.5">
-              <span className="inline-block w-5 border-t-2 border-dashed border-emerald-500" />
-              {isTh ? 'สัญญาณ Wi-Fi / Bridge' : 'Wireless RF'}
-            </span>
+
+          <div className="flex flex-wrap items-center gap-3">
+            {/* Ping vs Field Walk-up Direction Switcher */}
+            <div className="inline-flex rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-0.5 text-[11px] font-semibold print:hidden">
+              <button
+                type="button"
+                onClick={() => setDirection('PING')}
+                className={`px-2.5 py-1 rounded-md cursor-pointer transition ${
+                  direction === 'PING'
+                    ? 'bg-blue-600 text-white'
+                    : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
+                }`}
+              >
+                {isTh ? '🖥️ Ping จากคอมฯ (ต้นทาง → ปลายทาง)' : '🖥️ Ping Order (Source → End)'}
+              </button>
+              <button
+                type="button"
+                onClick={() => setDirection('FIELD')}
+                className={`px-2.5 py-1 rounded-md cursor-pointer transition ${
+                  direction === 'FIELD'
+                    ? 'bg-emerald-600 text-white'
+                    : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
+                }`}
+              >
+                {isTh ? '🚶 เดินดูหน้างาน (ตัวเครื่อง → Switch)' : '🚶 Floor Check (Unit → Switch)'}
+              </button>
+            </div>
+
+            <div className="flex items-center gap-3 text-[11px] text-slate-500">
+              <span className="inline-flex items-center gap-1.5">
+                <span className="inline-block w-5 h-0.5 bg-blue-500" />
+                {isTh ? 'สาย LAN / Fiber' : 'Wired LAN'}
+              </span>
+              <span className="inline-flex items-center gap-1.5">
+                <span className="inline-block w-5 border-t-2 border-dashed border-emerald-500" />
+                {isTh ? 'สัญญาณ Wi-Fi / Bridge' : 'Wireless RF'}
+              </span>
+            </div>
           </div>
         </div>
 
         {/* Visual Node Chain */}
-        <div className="overflow-x-auto pb-1">
-          <div className="flex items-center justify-start lg:justify-between gap-1 min-w-[600px] py-2">
+        <div className="overflow-x-auto pb-1 print:overflow-visible">
+          <div className="flex items-center justify-start lg:justify-between gap-1 min-w-[600px] py-2 print:min-w-0 print:flex-wrap print:gap-2">
             {nodes.map((node, idx) => {
               const isFailed = failedIdx === idx;
               const isPassed = failedIdx !== null && idx < failedIdx;
@@ -333,7 +374,7 @@ export function RunbookVisualDiagram({
       </div>
 
       {/* LED Visual Status Reference Strip */}
-      <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-3.5">
+      <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-3.5 break-inside-avoid">
         <div className="text-[11px] font-bold uppercase tracking-wide text-slate-500 mb-2.5 flex items-center gap-1.5">
           <Wrench className="h-3.5 w-3.5 text-blue-600" />
           {isTh

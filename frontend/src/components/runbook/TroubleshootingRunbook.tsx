@@ -152,10 +152,12 @@ export function TroubleshootingRunbook() {
   const [actionError, setActionError] = useState<string | null>(null);
   const [zoomPhotoUrl, setZoomPhotoUrl] = useState<string | null>(null);
 
-  // Escalation Ticket Builder state
+  // Escalation Ticket Builder & Live IP Helper state
   const [sites, setSites] = useState<Site[]>([]);
   const [siteDevices, setSiteDevices] = useState<Device[]>([]);
   const [siteId, setSiteId] = useState('');
+  const [lookupSearch, setLookupSearch] = useState('');
+  const [copiedPingIp, setCopiedPingIp] = useState<string | null>(null);
   const [deviceType, setDeviceType] = useState<string>('SRM');
   const [selectedDeviceId, setSelectedDeviceId] = useState('');
   const [customUnit, setCustomUnit] = useState('');
@@ -328,6 +330,16 @@ export function TroubleshootingRunbook() {
     }
   };
 
+  const handleCopyPingCommand = async (ip: string) => {
+    try {
+      await copyTextSafe(`ping -n 5 ${ip}`);
+      setCopiedPingIp(ip);
+      setTimeout(() => setCopiedPingIp(null), 1800);
+    } catch {
+      // ignore
+    }
+  };
+
   const resetBuilder = () => {
     setSelectedDeviceId('');
     setCustomUnit('');
@@ -394,7 +406,7 @@ export function TroubleshootingRunbook() {
           <p className="text-sm text-slate-500 mt-1 max-w-3xl">{t('runbook.subtitle')}</p>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2 print:hidden">
           {canEdit && viewMode === 'GUIDE' && (
             <button
               type="button"
@@ -449,8 +461,8 @@ export function TroubleshootingRunbook() {
 
       {viewMode === 'GUIDE' ? (
         <>
-          {/* Step 0: Scope Triage */}
-          <div className="rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-4 space-y-3">
+          {/* Step 1: Scope Triage */}
+          <div className="rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-4 space-y-3 break-inside-avoid">
             <h2 className="text-sm font-bold flex items-center gap-2">
               <AlertTriangle className="h-4 w-4 text-amber-500" />
               {t('runbook.step0Title')}
@@ -489,8 +501,8 @@ export function TroubleshootingRunbook() {
             </div>
           </div>
 
-          {/* Step 1: 4-Stage Sequential Ping */}
-          <div className="rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-4 space-y-3">
+          {/* Step 2: 4-Stage Sequential Ping */}
+          <div className="rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-4 space-y-3 break-inside-avoid">
             <div>
               <h2 className="text-sm font-bold flex items-center gap-2">
                 <Server className="h-4 w-4 text-cyan-600" />
@@ -542,14 +554,150 @@ export function TroubleshootingRunbook() {
             </div>
           </div>
 
-          {/* Step 2: Per-Device Check Selector & Card */}
+          {/* Step 3: Per-Device Check Selector, Live Site IP Helper & Guide Card */}
           <div className="space-y-3">
             <h2 className="text-sm font-bold flex items-center gap-2">
               <Wrench className="h-4 w-4 text-blue-600" />
               {t('runbook.step2Title')}
             </h2>
 
-            <div className="flex flex-wrap gap-2">
+            {/* Plain-Language Quick Symptom Buttons */}
+            <div className="rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-3 space-y-2 print:hidden">
+              <div className="text-[11px] font-bold text-slate-500">{t('runbook.symptomTitle')}</div>
+              <div className="flex flex-wrap gap-1.5 text-xs">
+                {[
+                  { targetId: 'SRM', text: isTh ? '🏗️ เครน SRM หยุด / Bridge หลุด' : '🏗️ Crane SRM Stopped' },
+                  { targetId: 'AMR', text: isTh ? '🤖 รถ AMR หยุดวิ่ง / สะดุด' : '🤖 AMR Stopped / Flapping' },
+                  { targetId: 'SHU', text: isTh ? '🚋 รถ Shuttle / บาร์โค้ดไม่ยิง' : '🚋 Shuttle / Barcode Issue' },
+                  { targetId: 'PLC_MAIN', text: isTh ? '🏭 ตู้ PLC Main ไม่ตอบสนอง' : '🏭 PLC Main Unreachable' },
+                  { targetId: 'ACCESS_POINT', text: isTh ? '📶 ตัวปล่อย Wi-Fi / AP ดับ' : '📶 Access Point Down' },
+                  { targetId: 'AP_CLIENT', text: isTh ? '📡 AP Client / Bridge เชื่อมไม่ได้' : '📡 AP Client / Bridge Drop' },
+                ]
+                  .filter((btn) => guides.some((g) => g.id === btn.targetId))
+                  .map((btn) => (
+                    <button
+                      key={btn.targetId}
+                      type="button"
+                      onClick={() => setSelectedGuideId(btn.targetId)}
+                      className={`px-2.5 py-1 rounded-lg border text-xs font-medium cursor-pointer transition ${
+                        activeGuide?.id === btn.targetId
+                          ? 'bg-blue-50 border-blue-300 text-blue-700 dark:bg-blue-950/60 dark:border-blue-700 dark:text-blue-300 font-semibold'
+                          : 'border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300'
+                      }`}
+                    >
+                      {btn.text}
+                    </button>
+                  ))}
+              </div>
+            </div>
+
+            {/* Live Site Device IP & Copy Ping Helper */}
+            <div className="rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-3 space-y-2.5 print:hidden">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="text-xs font-bold flex items-center gap-1.5 text-slate-700 dark:text-slate-200">
+                  <Network className="h-3.5 w-3.5 text-emerald-600" />
+                  {t('runbook.liveLookupTitle')}
+                </div>
+                <div className="flex flex-wrap items-center gap-2 text-xs">
+                  <select
+                    value={siteId}
+                    onChange={(e) => setSiteId(e.target.value)}
+                    className="px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900"
+                  >
+                    <option value="">-- {t('runbook.siteSelect')} --</option>
+                    {sites.map((s) => (
+                      <option key={s.id} value={s.id}>
+                        {s.siteCode} — {s.siteName}
+                      </option>
+                    ))}
+                  </select>
+                  {siteId && (
+                    <input
+                      value={lookupSearch}
+                      onChange={(e) => setLookupSearch(e.target.value)}
+                      placeholder="Filter device / IP..."
+                      className="px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-transparent w-44"
+                    />
+                  )}
+                </div>
+              </div>
+
+              {siteId && (
+                <div className="max-h-44 overflow-y-auto divide-y divide-slate-100 dark:divide-slate-800 border border-slate-100 dark:border-slate-800 rounded-lg">
+                  {siteDevices
+                    .filter((d) => {
+                      if (!d.managementIp) return false;
+                      if (!lookupSearch.trim()) return true;
+                      const q = lookupSearch.toLowerCase();
+                      return `${d.name} ${d.managementIp} ${d.category} ${d.location || ''}`
+                        .toLowerCase()
+                        .includes(q);
+                    })
+                    .slice(0, 20)
+                    .map((d) => (
+                      <div
+                        key={d.id}
+                        className="flex flex-wrap items-center justify-between gap-2 px-3 py-1.5 text-xs hover:bg-slate-50 dark:hover:bg-slate-800/50"
+                      >
+                        <div className="flex items-center gap-2 min-w-0">
+                          <span
+                            className={`h-2 w-2 rounded-full shrink-0 ${
+                              d.status === 'ONLINE'
+                                ? 'bg-emerald-500'
+                                : d.status === 'OFFLINE'
+                                  ? 'bg-red-500'
+                                  : 'bg-slate-400'
+                            }`}
+                          />
+                          <span className="font-semibold truncate">{d.name}</span>
+                          <span className="font-mono text-[11px] text-slate-500">{d.managementIp}</span>
+                          <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-500">
+                            {d.status}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => handleCopyPingCommand(d.managementIp!)}
+                            className="inline-flex items-center gap-1 px-2 py-0.5 rounded border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 font-mono text-[11px] cursor-pointer"
+                          >
+                            {copiedPingIp === d.managementIp ? (
+                              <>
+                                <Check className="h-3 w-3 text-emerald-600" />
+                                {t('runbook.copiedPingCmd')}
+                              </>
+                            ) : (
+                              <>
+                                <Copy className="h-3 w-3 text-blue-600" />
+                                {t('runbook.copyPingCmd')}
+                              </>
+                            )}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setSelectedDeviceId(d.id);
+                              setCustomUnit(`${d.name} (${d.managementIp})`);
+                              if (activeGuide) setDeviceType(activeGuide.id);
+                              setViewMode('TICKET');
+                            }}
+                            className="px-2 py-0.5 rounded bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 font-semibold text-[11px] hover:bg-emerald-100 cursor-pointer"
+                          >
+                            + Ticket
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  {siteDevices.filter((d) => d.managementIp).length === 0 && (
+                    <div className="p-3 text-center text-xs text-slate-400">
+                      {isTh ? 'ไม่พบอุปกรณ์ที่มี IP ใน Site นี้' : 'No devices with management IP in this site.'}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
+            <div className="flex flex-wrap gap-2 print:hidden">
               {guides.map((item) => {
                 const active = activeGuide?.id === item.id;
                 return (
@@ -578,7 +726,7 @@ export function TroubleshootingRunbook() {
               <div className="rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-5 space-y-5">
                 <div className="flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-slate-100 dark:border-slate-800">
                   <div>
-                    <div className="flex flex-wrap items-center gap-2">
+                    <div className="flex flex-wrap items-center gap-2 print:hidden">
                       <span className="px-2 py-0.5 rounded bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 font-mono text-[11px] font-bold">
                         {activeGuide.codeBadge}
                       </span>
@@ -688,7 +836,7 @@ export function TroubleshootingRunbook() {
                   </div>
                 )}
 
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 break-inside-avoid">
                   <div className="space-y-2">
                     <h4 className="text-xs font-bold uppercase tracking-wide text-slate-500">
                       {t('runbook.physicalLabel')}
