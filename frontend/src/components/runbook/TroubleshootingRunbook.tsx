@@ -567,10 +567,12 @@ export function TroubleshootingRunbook() {
   ]);
 
   const handleCopySummary = async () => {
-    const ok = await copyTextSafe(formattedSummary);
-    if (ok) {
+    try {
+      await copyTextSafe(formattedSummary);
       setCopied(true);
       setTimeout(() => setCopied(false), 2200);
+    } catch {
+      // ignore clipboard errors
     }
   };
 
