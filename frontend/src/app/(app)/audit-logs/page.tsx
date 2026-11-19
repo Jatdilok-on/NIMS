@@ -55,7 +55,7 @@ const CATEGORY_TABS: Array<{ key: CategoryKey; labelKey: TranslationKey; modules
   { key: 'MONITORING', labelKey: 'audit.catMonitoring', modules: 'MONITORING' },
   { key: 'NETWORK', labelKey: 'audit.catNetwork', modules: 'INVENTORY,IPAM,DIAGRAM' },
   { key: 'VAULT_DOCS', labelKey: 'audit.catVaultDocs', modules: 'CREDENTIALS,DOCUMENT,MAINTENANCE' },
-  { key: 'ADMIN', labelKey: 'audit.catAdmin', modules: 'USER,SITE,BACKUP,SETTINGS,SETUP,AUDIT' },
+  { key: 'ADMIN', labelKey: 'audit.catAdmin', modules: 'USER,SITE,BACKUP,SETTINGS,SETUP,AUDIT,RUNBOOK' },
 ];
 
 const MODULE_BADGE_CLASS: Record<string, string> = {

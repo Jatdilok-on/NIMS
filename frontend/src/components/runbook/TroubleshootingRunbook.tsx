@@ -1,10 +1,11 @@
 'use client';
 
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   AlertTriangle,
   ArrowRight,
   Bot,
+  Camera,
   Check,
   CheckCircle2,
   ClipboardCheck,
@@ -12,402 +13,73 @@ import {
   Cpu,
   HardDrive,
   Network,
+  Pencil,
+  Plus,
   Radio,
   RotateCcw,
   Server,
   TrainFront,
+  Trash2,
   Wifi,
   Wrench,
+  X,
 } from 'lucide-react';
-import { apiFetch, copyTextSafe } from '@/lib/api';
+import { ConfirmActionModal } from '@/components/common/ConfirmActionModal';
+import { apiFetch, ApiError, copyTextSafe } from '@/lib/api';
+import { useAuth } from '@/lib/auth-context';
 import { useI18n } from '@/lib/i18n';
 import { Device, Site } from '@/lib/types';
 
-type GuideDeviceKey = 'SRM' | 'AMR' | 'SHU' | 'PLC_MAIN' | 'ACCESS_POINT' | 'AP_CLIENT';
+type RunbookIconType =
+  | 'CRANE'
+  | 'AMR'
+  | 'SHUTTLE'
+  | 'PLC'
+  | 'AP'
+  | 'CLIENT'
+  | 'SWITCH'
+  | 'SERVER'
+  | 'CAMERA'
+  | 'OTHER';
+
 type PingStageResult = 'UNCHECKED' | 'OK' | 'FAIL';
 
-interface LocalizedGuideEntry {
-  key: GuideDeviceKey;
+interface PingRule {
+  condition: string;
+  meaning: string;
+}
+
+interface RunbookGuide {
+  id: string;
   codeBadge: string;
+  iconType: RunbookIconType;
   thTitle: string;
   enTitle: string;
   thPath: string;
   enPath: string;
   thPhysical: string[];
   enPhysical: string[];
-  thNetworkMatrix: Array<{ condition: string; meaning: string }>;
-  enNetworkMatrix: Array<{ condition: string; meaning: string }>;
+  thNetworkMatrix: PingRule[];
+  enNetworkMatrix: PingRule[];
   thSelfFix: string[];
   enSelfFix: string[];
   thEscalate: string[];
   enEscalate: string[];
+  updatedBy?: string | null;
+  updatedAt?: string | null;
 }
 
-const GUIDE_DATA: LocalizedGuideEntry[] = [
-  {
-    key: 'SRM',
-    codeBadge: 'SRM • Crane',
-    thTitle: 'SRM (เครน Miniload)',
-    enTitle: 'SRM (Miniload Crane)',
-    thPath: 'PLC Main → Bridge AP (ฝั่งผนัง/เสา) → Bridge CL (ฝั่งเครน) → PLC บนเครน',
-    enPath: 'PLC Main → Bridge AP (Fixed Side) → Bridge CL (Crane Side) → Onboard Crane PLC',
-    thPhysical: [
-      'ตรวจสอบเบรกเกอร์ / ตู้ไฟหลักของเครน และถามหน้างานว่าเพิ่งกด E-Stop หรือเปิดประตู Safety รอบรางหรือไม่',
-      'ดูไฟตู้ PLC บนเครน: POWER / RUN ต้องติดเขียว (หากขึ้น SF/ERR สีแดง ให้จดรหัส Error)',
-      'ดูไฟสัญญาณบนตัว Wireless Bridge CL ที่ติดอยู่บนเครน (Power, LAN Link, ระดับขีดสัญญาณ Signal)',
-    ],
-    enPhysical: [
-      'Check crane main breaker / panel power and confirm if E-Stop or safety gate interlock was triggered.',
-      'Check PLC LEDs on the crane: POWER / RUN should be green (note any red SF/ERR fault code).',
-      'Verify Wireless Bridge CL LEDs on the crane: Power, LAN Link, and wireless signal bars.',
-    ],
-    thNetworkMatrix: [
-      {
-        condition: 'Ping PLC Main เจอ ✅ แต่ Bridge AP ไม่เจอ ❌',
-        meaning: 'ปัญหาอยู่ระหว่าง Access Switch → สาย UTP/PoE → ตัว Bridge AP ฝั่งผนัง',
-      },
-      {
-        condition: 'Ping Bridge AP เจอ ✅ แต่ Bridge CL ไม่เจอ ❌',
-        meaning: 'คู่ Wireless Bridge หลุด: ไฟฝั่งเครนดับ, จาน Bridge เคลื่อนไม่ตรงแนว, หรือมีพาเลท/โครงเหล็กบังคลื่น',
-      },
-      {
-        condition: 'Ping Bridge AP & CL เจอ ✅ แต่ PLC เครนไม่เจอ ❌',
-        meaning: 'Wi-Fi Bridge เชื่อมปกติ! ปัญหาอยู่ที่สาย LAN เส้นสั้นบนเครน (จาก CL เข้า PLC) หรือตัว PLC บนเครนดับ/ค้าง',
-      },
-    ],
-    enNetworkMatrix: [
-      {
-        condition: 'PLC Main OK ✅ but Bridge AP Timeout ❌',
-        meaning: 'Issue between Access Switch, PoE/UTP cable, and the fixed Bridge AP unit.',
-      },
-      {
-        condition: 'Bridge AP OK ✅ but Bridge CL Timeout ❌',
-        meaning: 'Wireless bridge link down: crane panel off, dish misaligned, or physical line-of-sight obstruction.',
-      },
-      {
-        condition: 'Bridge AP & CL OK ✅ but Crane PLC Timeout ❌',
-        meaning: 'Bridge is healthy; check short patch cable from CL to PLC or crane PLC power/boot status.',
-      },
-    ],
-    thSelfFix: [
-      'ขยับ/เปลี่ยนสาย LAN เส้นสั้นระหว่าง Bridge CL กับ PLC บนตัวเครน (ถ้าไฟพอร์ตไม่ขึ้น)',
-      'ตรวจเช็กไฟเลี้ยงและเบรกเกอร์/E-Stop ตู้เครนกับทีมหน้างาน',
-    ],
-    enSelfFix: [
-      'Reseat or test the short LAN cable between Bridge CL and crane PLC if Link LED is dark.',
-      'Verify crane cabinet breaker and E-Stop release with floor operators.',
-    ],
-    thEscalate: [
-      'Ping Bridge AP ไม่ตอบหรือพอร์ต Switch PoE ดับ (ให้ทีม Network เช็ก Switch / สาย UTP / PoE)',
-      'Bridge AP↔CL สัญญาณแกว่ง หลุดซ้ำทุกครั้งที่เครนวิ่งเข้าจุดเดิม',
-    ],
-    enEscalate: [
-      'Bridge AP unreachable or switch PoE port down.',
-      'Bridge AP↔CL flaps repeatedly when crane reaches a specific aisle position.',
-    ],
-  },
-  {
-    key: 'AMR',
-    codeBadge: 'AMR • AGV',
-    thTitle: 'AMR (รถขนส่งอัตโนมัติ)',
-    enTitle: 'AMR (Autonomous Mobile Robot)',
-    thPath: 'Switch → Access Point (โซน AMR) → การ์ด Wi-Fi บนรถ AMR',
-    enPath: 'Switch → Access Point (AMR SSID) → Onboard AMR Wi-Fi Module',
-    thPhysical: [
-      'ดูหน้าจอ/ไฟสถานะบนรถ AMR: เช็กว่าติด Alarm, Bumper ชนสิ่งกีดขวาง, E-Stop ค้าง, หรือแบตเตอรี่ต่ำ (<15%) หรือไม่',
-      'ดูว่ามีอาการค้างแค่ **คันเดียว** หรือหยุดพร้อมกัน **หลายคันในโซนเดียว**',
-      'จดตำแหน่งจุดที่รถหยุด (เลขเสา / ซอย / หน้าจุดชาร์จ)',
-    ],
-    enPhysical: [
-      'Check onboard AMR display/LEDs for Obstacle/Bumper fault, E-Stop lock, or critical low battery.',
-      'Confirm whether only ONE AMR stopped or MULTIPLE AMRs stopped in the same aisle.',
-      'Record the exact aisle / pillar location where the vehicle disconnected.',
-    ],
-    thNetworkMatrix: [
-      {
-        condition: 'ดับทั้งโซนหลายคันพร้อมกันในจุดเดียว ❌',
-        meaning: 'Access Point จุดนั้นอาจ Offline หรือสาย PoE เข้า Switch หลุด (เปิด NIMS เช็กสถานะ AP โซนนั้นได้ทันที)',
-      },
-      {
-        condition: 'รถวิ่งได้แต่ Ping สะดุด (Request timed out สลับ ms สูง) ⚠️',
-        meaning: 'สัญญาณ Wi-Fi อ่อน / จุดอับสัญญาณ / การย้ายเกาะ AP (Roaming) ช้า',
-      },
-      {
-        condition: 'Ping รถเจอปกติ ms ต่ำ ✅ แต่รถไม่ยอมเดิน',
-        meaning: 'Network ปกติ — มักเป็นที่ Safety บนรถ, แผนที่/Task ในระบบ RCS/WCS ค้าง',
-      },
-    ],
-    enNetworkMatrix: [
-      {
-        condition: 'Multiple AMRs drop in the same zone ❌',
-        meaning: 'Local Access Point or Switch PoE uplink down (verify AP status in NIMS).',
-      },
-      {
-        condition: 'Intermittent timeouts / high latency while moving ⚠️',
-        meaning: 'Weak Wi-Fi coverage (dead spot) or slow AP roaming handoff.',
-      },
-      {
-        condition: 'Low-latency Ping OK ✅ but AMR does not move',
-        meaning: 'Network is healthy; check vehicle safety interlocks or WCS/RCS fleet dispatcher.',
-      },
-    ],
-    thSelfFix: [
-      'เคลียร์สิ่งกีดขวาง / ปลด E-Stop / รีสตาร์ตรถกรณีค้างคันเดียวและไฟ Alarm ขึ้นที่ตัวรถ',
-      'เช็กใน NIMS → Site → Inventory / IPAM ว่า Access Point บริเวณนั้นยัง Online ครบทุกตัว',
-    ],
-    enSelfFix: [
-      'Clear obstacles, release E-Stop, or reboot vehicle if isolated to a single AMR with onboard alarm.',
-      'Verify in NIMS Inventory/IPAM that all zone Access Points remain ONLINE.',
-    ],
-    thEscalate: [
-      'AP โซน AMR ขึ้น OFFLINE หรือรีบูตเองบ่อย',
-      'AMR หลุด/สะดุดซ้ำที่ตำแหน่งเดิมทุกครั้ง (แจ้งทีม Network เช็ก RSSI / Channel / Roaming)',
-    ],
-    enEscalate: [
-      'Zone Access Point is OFFLINE or rebooting.',
-      'AMR drops repeatedly at the same aisle coordinate (Network team to tune RSSI / roaming / channel).',
-    ],
-  },
-  {
-    key: 'SHU',
-    codeBadge: 'SHU • Shuttle',
-    thTitle: 'SHU (รถ Shuttle ในชั้น Racking)',
-    enTitle: 'SHU (4-Way Shuttle Car)',
-    thPath: 'PLC Main → Sundray AP (SSID: SHU) → AP Client บนรถ (RUTX10) → PLC & Barcode บนรถ',
-    enPath: 'PLC Main → Sundray AP (SHU SSID) → Onboard Client (RUTX10) → Onboard PLC & Barcode',
-    thPhysical: [
-      'ตรวจแบตเตอรี่รถและเบรกเกอร์เลี้ยงชุดควบคุม (RUTX10 + PLC + Barcode)',
-      'ดูเสาอากาศ Wi-Fi บนตัวรถ Shuttle ว่าหลวม, หัก, หรือเอียงหลุดขั้วหรือไม่',
-      'ดูไฟ LAN บน Teltonika / AP Client บนรถ ว่าติดครบ 2 เส้น (เส้นเข้า PLC รถ และเส้นเข้า Barcode Reader)',
-    ],
-    enPhysical: [
-      'Check shuttle battery level and control breaker feeding AP Client, PLC, and Barcode Reader.',
-      'Inspect onboard Wi-Fi antennas for loose SMA connectors or physical damage.',
-      'Verify LAN Link LEDs on the onboard router/client for both PLC and Barcode Reader ports.',
-    ],
-    thNetworkMatrix: [
-      {
-        condition: 'Ping AP Client บนรถไม่เจอ ❌ (แต่ PLC Main & AP โซน SHU ปกติ ✅)',
-        meaning: 'Wi-Fi บนรถหลุด / รถดับ / เสาหลวม / หรือรถเข้าไปในช่อง Racking ที่มีจุดอับสัญญาณ',
-      },
-      {
-        condition: 'Ping AP Client บนรถเจอ ✅ แต่ PLC บนรถ หรือ Barcode ไม่เจอ ❌',
-        meaning: 'Wi-Fi มาถึงตัวรถแล้ว! ปัญหาอยู่บนตัวรถเอง (เช็กสาย LAN เส้นสั้น หรือไฟเลี้ยงตัว PLC / Barcode)',
-      },
-      {
-        condition: 'Ping เจอครบทุกตัว ✅ แต่ Barcode ไม่อ่าน/ไม่ส่งค่า',
-        meaning: 'เช็กหน้าเลนส์สแกนเนอร์, Trigger จาก PLC รถ, หรือ WCS Port',
-      },
-    ],
-    enNetworkMatrix: [
-      {
-        condition: 'Onboard AP Client Timeout ❌ (PLC Main & AP OK ✅)',
-        meaning: 'Shuttle off, Wi-Fi antenna/client issue, or deep-aisle RF dead zone.',
-      },
-      {
-        condition: 'Onboard AP Client OK ✅ but Onboard PLC or Barcode Timeout ❌',
-        meaning: 'Wi-Fi reached the shuttle! Inspect onboard LAN cables or PLC/Barcode power.',
-      },
-      {
-        condition: 'All onboard IPs Ping OK ✅ but Barcode fails to scan',
-        meaning: 'Check scanner lens, PLC trigger, or WCS socket service.',
-      },
-    ],
-    thSelfFix: [
-      'ขันเสาอากาศบนรถให้แน่น, ตรวจเช็กสาย LAN ระหว่าง AP Client → PLC / Barcode บนตัวรถ',
-      'รีบูตรถ 1 รอบเมื่อรถค้างคันเดียวและไฟไม่ตอบสนอง',
-    ],
-    enSelfFix: [
-      'Tighten loose Wi-Fi antennas and check onboard LAN patch cables to PLC and Barcode.',
-      'Power-cycle the single affected shuttle after confirming battery charge.',
-    ],
-    thEscalate: [
-      'รถหลุดทุกคันในชั้น/ซอยเดียวกัน หรือ AP โซน SHU ขึ้น OFFLINE',
-      'รถอยู่นิ่งใช้ได้แต่พอวิ่งเข้าซอยลึกแล้ว Ping RUTX10 ขาดประจำ (ส่ง Network ปรับจุดวาง AP)',
-    ],
-    enEscalate: [
-      'All shuttles in an aisle drop simultaneously or SHU Access Point goes OFFLINE.',
-      'Shuttles work near aisle entry but consistently drop inside deep racking lanes.',
-    ],
-  },
-  {
-    key: 'PLC_MAIN',
-    codeBadge: 'PLC • Main',
-    thTitle: 'PLC Main (ตู้ควบคุมหลักประจำโซน)',
-    enTitle: 'PLC Main (Zone Master Controller)',
-    thPath: 'Dell Server (WCS) → Core Switch → Access Switch → สาย UTP → PLC Main',
-    enPath: 'Dell Server (WCS) → Core Switch → Access Switch → UTP Cable → PLC Main',
-    thPhysical: [
-      'ตรวจหน้าตู้คอนโทรล: ไฟ POWER และ RUN ต้องติดเขียวคงที่ (ห้ามมีไฟ ERR/SF/FAULT สีแดง)',
-      'ก้มดูที่พอร์ต Ethernet ของ PLC: ไฟ Link (เขียว/ส้ม) ต้องติดและกระพริบตอนรับ-ส่งข้อมูล',
-      'เช็กหัว RJ45 ที่ตัว PLC และปลายสายที่ Switch ว่าคลิปล็อกหลวมหรือไม่',
-    ],
-    enPhysical: [
-      'Inspect control cabinet: POWER and RUN LEDs must be solid green without red ERR/SF fault LEDs.',
-      'Check Ethernet port Link/ACT LED directly on the PLC module.',
-      'Verify RJ45 latch integrity at both the PLC cabinet and Access Switch patch panel.',
-    ],
-    thNetworkMatrix: [
-      {
-        condition: 'ไฟพอร์ต Ethernet บน PLC ดับสนิท ❌',
-        meaning: 'Layer 1 ขาด: สาย UTP ขาด/หัวหลวม, พอร์ต Switch ปิดอยู่, หรือการ์ด LAN PLC เสีย',
-      },
-      {
-        condition: 'Ping Gateway ได้ ✅ แต่ Ping PLC Main ไม่เจอ ❌ (ไฟพอร์ตติด)',
-        meaning: 'อาจติด VLAN พอร์ตผิด, IP/Subnet Mask ใน PLC โดนเปลี่ยน, หรือ Firewall/WCS วงอื่นบล็อก',
-      },
-      {
-        condition: 'Ping PLC Main เจอ ✅ แต่สั่งงานโซนไม่ได้',
-        meaning: 'เช็กสถานะ RUN/STOP Switch บนตัว PLC และสถานะเชื่อมต่อฝั่ง WCS Server',
-      },
-    ],
-    enNetworkMatrix: [
-      {
-        condition: 'Ethernet Link LED on PLC is completely OFF ❌',
-        meaning: 'Layer-1 break: bad UTP cable/RJ45, disabled switch port, or faulty PLC port.',
-      },
-      {
-        condition: 'Gateway OK ✅, PLC Link LED ON, but Ping Timeout ❌',
-        meaning: 'Check switch VLAN assignment, PLC IP/Subnet config, or routing between WCS & PLC VLAN.',
-      },
-      {
-        condition: 'PLC Main Ping OK ✅ but zone automation stalled',
-        meaning: 'Check PLC RUN/STOP mode and WCS communication service.',
-      },
-    ],
-    thSelfFix: [
-      'ลองขยับหัวสาย LAN ทั้ง 2 ฝั่ง (PLC และ Patch Panel) หรือเปลี่ยนสาย Patch Cord เส้นใหม่ฝั่งตู้',
-      'เช็กว่าสายหลุดจากการทำความสะอาด/ซ่อมบำรุงหน้างานหรือไม่',
-    ],
-    enSelfFix: [
-      'Reseat or swap the UTP patch cord inside the cabinet.',
-      'Verify the PLC RUN switch wasn’t turned to STOP during maintenance.',
-    ],
-    thEscalate: [
-      'เปลี่ยนสายแล้วยังไฟ Link ไม่ติด หรือ Ping Gateway วง PLC ไม่เจอ (ทีม Network เช็ก Port Switch / VLAN)',
-    ],
-    enEscalate: [
-      'Link LED stays off after cable swap, or Ping fails with Link UP (Network team to verify switch port/VLAN).',
-    ],
-  },
-  {
-    key: 'ACCESS_POINT',
-    codeBadge: 'AP • Wi-Fi',
-    thTitle: 'Access Point (ตัวปล่อยสัญญาณ Wi-Fi เช่น Sundray)',
-    enTitle: 'Access Point (Zone Wi-Fi — e.g. Sundray NAP)',
-    thPath: 'Access Switch (PoE) → สาย UTP (Cat6) → Access Point → ปล่อย SSID (AMR / SHU)',
-    enPath: 'Access Switch (PoE) → UTP Cable → Access Point → SSID Broadcast',
-    thPhysical: [
-      'เงยดูไฟ LED บนตัว Access Point: ดับสนิท = ไม่มีไฟ PoE เข้า / สีส้ม-กระพริบถี่ = กำลังบูตหรือหา Controller ไม่เจอ',
-      'เปิด NIMS → เมนู IPAM / Inventory / Diagram เช็กว่า AP ในโซนนั้นดับ **1 ตัว** หรือดับ **ยกแผงทั้ง Switch**',
-      'ตรวจดูว่าไม่มีคนถอดปลั๊ก/สาย LAN ที่ตู้ Switch ประจำโซน',
-    ],
-    enPhysical: [
-      'Check AP ceiling/wall LED: dark = no PoE power; amber/fast blink = booting or lost controller link.',
-      'Check NIMS Inventory/Diagram to see if ONE AP is offline or an entire Switch bank of APs went down.',
-      'Inspect patch panel / Access Switch inside zone rack for unplugged cables.',
-    ],
-    thNetworkMatrix: [
-      {
-        condition: 'AP ดับ 1 ตัว และไฟตัวเครื่องดับสนิท ❌',
-        meaning: 'สาย UTP จาก Access Switch หลุด/ขาด หรือ PoE พอร์ตนั้นจ่ายไฟไม่ได้',
-      },
-      {
-        condition: 'AP ดับหลายตัวพร้อมกันบน Access Switch ตัวเดียวกัน ❌',
-        meaning: 'Switch โซนนั้นดับ / ไฟตู้ Rack ดับ / หรือสาย Fiber Uplink กลับ Core Switch ขาด',
-      },
-      {
-        condition: 'Ping AP เจอ ✅ แต่รถ AMR/SHU เกาะไม่ได้ ❌',
-        meaning: 'AP อาจปล่อย SSID ไม่ครบ, Controller Offline, หรือรหัส Wi-Fi / VLAN ผิด',
-      },
-    ],
-    enNetworkMatrix: [
-      {
-        condition: 'Single AP dark & Ping Timeout ❌',
-        meaning: 'UTP cable fault or PoE budget/port down on the Access Switch.',
-      },
-      {
-        condition: 'Multiple APs on the same Access Switch down ❌',
-        meaning: 'Zone Access Switch lost power or Core Switch fiber uplink dropped.',
-      },
-      {
-        condition: 'AP Ping OK ✅ but vehicles cannot associate ❌',
-        meaning: 'Check SSID broadcast profile, VLAN tagging, or Wireless Controller connectivity.',
-      },
-    ],
-    thSelfFix: [
-      'ตรวจสอบสาย LAN หน้าตู้ Rack ของโซนนั้นว่ามีสายหลวม/หลุดหรือไม่ และเช็กไฟเลี้ยงตู้ Rack (UPS/Breaker)',
-    ],
-    enSelfFix: [
-      'Verify zone rack UPS/power and check for visibly loose patch cords.',
-    ],
-    thEscalate: [
-      'ไฟ Rack ติดปกติแต่ AP ไม่มีไฟ PoE / Ping ไม่เจอ → ส่ง Network Reset พอร์ต PoE หรือเช็ก Switch / สาย UTP',
-      'AP Ping เจอแต่ไม่ปล่อย SSID หรือรถ Roaming ไม่สลับ AP',
-    ],
-    enEscalate: [
-      'Rack has power but AP shows no PoE or stays unreachable (Network team to bounce PoE port / trace cable).',
-      'AP reachable via Ping but SSID missing or roaming fails.',
-    ],
-  },
-  {
-    key: 'AP_CLIENT',
-    codeBadge: 'Client / Bridge',
-    thTitle: 'AP Client / Wireless Bridge (EST350 CL / Teltonika RUTX10)',
-    enTitle: 'AP Client / Wireless Bridge (EST350 CL / Teltonika)',
-    thPath: 'Access Point / Bridge AP ~~~~~ ลิงก์ไร้สาย ~~~~~ AP Client / Bridge CL → อุปกรณ์บนรถ/เครน',
-    enPath: 'Fixed AP / Bridge AP ~~~~~ Wireless Link ~~~~~ Client / Bridge CL → Onboard Devices',
-    thPhysical: [
-      'ตรวจไฟเลี้ยง DC/PoE ที่เข้าตัว AP Client หรือ Bridge (บนเครน/รถ Shuttle)',
-      'กรณี Wireless Bridge (EST350): ตรวจมุมหันของจานทั้ง 2 ฝั่งตรงกัน และไม่มีพาเลท/รถโฟล์คลิฟท์/เหล็กมาขวางทางคลื่น',
-      'กรณี AP Client (Teltonika RUTX10): ตรวจขั้วเสาอากาศ Wi-Fi ทั้ง 2 เสา และไฟพอร์ต LAN ที่ต่อเข้า PLC/Barcode',
-    ],
-    enPhysical: [
-      'Verify DC/PoE power input to the onboard AP Client or Bridge unit.',
-      'For PTP Wireless Bridges (EST350): verify dish alignment and clear physical line-of-sight.',
-      'For Vehicle Wi-Fi Clients (Teltonika): check dual Wi-Fi antenna tightness and onboard LAN LEDs.',
-    ],
-    thNetworkMatrix: [
-      {
-        condition: 'Ping AP ฝั่งนิ่งเจอ ✅ แต่ AP Client ฝั่งเคลื่อนที่ไม่เจอ ❌',
-        meaning: 'การเชื่อมไร้สายหลุด: ไฟฝั่งรถ/เครนดับ, จานเบี้ยว, เสาหลุด, หรืออยู่ในจุดอับสัญญาณ',
-      },
-      {
-        condition: 'Ping AP Client เจอ ✅ (Latency < 20ms) แต่ Ping PLC/Barcode หลังมันไม่เจอ ❌',
-        meaning: 'ลิงก์ Wi-Fi ใช้ได้สมบูรณ์! ปัญหาอยู่ที่ฝั่งมีสาย LAN บนรถ/เครนหลังตัว Client เท่านั้น',
-      },
-      {
-        condition: 'Ping AP Client ได้บ้างขาดบ้าง / Latency พุ่ง > 100ms ⚠️',
-        meaning: 'สัญญาณกวน (Interference), ช่องสัญญาณชน, หรือจานรับ-ส่งเหลื่อมมุม',
-      },
-    ],
-    enNetworkMatrix: [
-      {
-        condition: 'Fixed AP OK ✅, Moving Client/Bridge Timeout ❌',
-        meaning: 'Wireless drop: client power loss, loose antenna, dish misalignment, or RF shadow.',
-      },
-      {
-        condition: 'AP Client OK ✅ (<20ms) but behind-client PLC/Barcode Timeout ❌',
-        meaning: 'Wireless link is healthy! Fault is strictly in onboard wired LAN or end-device power.',
-      },
-      {
-        condition: 'High packet loss or >100ms latency spikes ⚠️',
-        meaning: 'RF interference, co-channel congestion, or partial beam misalignment.',
-      },
-    ],
-    thSelfFix: [
-      'รีสตาร์ตไฟเลี้ยงตัว AP Client / ขันเสาอากาศ / ตรวจเคลียร์สิ่งกีดขวางหน้าจาน Bridge และสาย LAN บนรถ',
-    ],
-    enSelfFix: [
-      'Power-cycle the client/bridge, tighten antennas, clear line-of-sight, and reseat onboard LAN cords.',
-    ],
-    thEscalate: [
-      'รีบูตและเช็กไฟ/สายครบแล้วยังเชื่อม AP ไม่ได้ หรือ Latency แกว่งรุนแรง (ให้ทีม Network รีโมตดู Signal RSSI / SNR / Channel)',
-    ],
-    enEscalate: [
-      'Client stays disconnected or shows severe latency jitter after physical checks (Network team to inspect RSSI / SNR / Channel).',
-    ],
-  },
+const ICON_OPTIONS: Array<{ type: RunbookIconType; label: string }> = [
+  { type: 'CRANE', label: 'Crane' },
+  { type: 'AMR', label: 'AMR / AGV' },
+  { type: 'SHUTTLE', label: 'Shuttle' },
+  { type: 'PLC', label: 'PLC' },
+  { type: 'AP', label: 'AP / Wi-Fi' },
+  { type: 'CLIENT', label: 'Client / Bridge' },
+  { type: 'SWITCH', label: 'Switch' },
+  { type: 'SERVER', label: 'Server' },
+  { type: 'CAMERA', label: 'Camera' },
+  { type: 'OTHER', label: 'Tool / Other' },
 ];
 
 const PHYSICAL_ITEMS = [
@@ -417,18 +89,68 @@ const PHYSICAL_ITEMS = [
   { key: 'rf', th: 'เสา Wi-Fi แน่น / หน้าจาน Bridge ไม่ถูกบังแนวคลื่น', en: 'Wi-Fi antenna tight / Bridge LoS unobstructed' },
 ];
 
+function renderGuideIcon(iconType: RunbookIconType, className = 'h-4 w-4') {
+  switch (iconType) {
+    case 'CRANE':
+      return <HardDrive className={className} />;
+    case 'AMR':
+      return <Bot className={className} />;
+    case 'SHUTTLE':
+      return <TrainFront className={className} />;
+    case 'PLC':
+      return <Cpu className={className} />;
+    case 'AP':
+      return <Wifi className={className} />;
+    case 'CLIENT':
+      return <Radio className={className} />;
+    case 'SWITCH':
+      return <Network className={className} />;
+    case 'SERVER':
+      return <Server className={className} />;
+    case 'CAMERA':
+      return <Camera className={className} />;
+    default:
+      return <Wrench className={className} />;
+  }
+}
+
+function linesToArray(raw: string): string[] {
+  return raw
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+}
+
 export function TroubleshootingRunbook() {
+  const { user } = useAuth();
   const { lang, t } = useI18n();
   const isTh = lang === 'th';
 
+  const canEdit =
+    user?.roleCode === 'SUPER_ADMIN' ||
+    user?.roleCode === 'SITE_ADMIN' ||
+    user?.roleCode === 'NETWORK_ENGINEER';
+  const canResetDefaults =
+    user?.roleCode === 'SUPER_ADMIN' || user?.roleCode === 'SITE_ADMIN';
+
   const [viewMode, setViewMode] = useState<'GUIDE' | 'TICKET'>('GUIDE');
-  const [selectedGuide, setSelectedGuide] = useState<GuideDeviceKey>('SRM');
+  const [guides, setGuides] = useState<RunbookGuide[]>([]);
+  const [selectedGuideId, setSelectedGuideId] = useState<string>('SRM');
+  const [loadingGuides, setLoadingGuides] = useState(true);
+
+  // Modal state for Easy Add / Edit
+  const [editingGuide, setEditingGuide] = useState<RunbookGuide | 'NEW' | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<RunbookGuide | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const [showResetConfirm, setShowResetConfirm] = useState(false);
+  const [resetting, setResetting] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
 
   // Escalation Ticket Builder state
   const [sites, setSites] = useState<Site[]>([]);
   const [siteDevices, setSiteDevices] = useState<Device[]>([]);
   const [siteId, setSiteId] = useState('');
-  const [deviceType, setDeviceType] = useState<GuideDeviceKey>('SRM');
+  const [deviceType, setDeviceType] = useState<string>('SRM');
   const [selectedDeviceId, setSelectedDeviceId] = useState('');
   const [customUnit, setCustomUnit] = useState('');
   const [scope, setScope] = useState<'SINGLE' | 'ZONE' | 'FACTORY'>('SINGLE');
@@ -452,11 +174,32 @@ export function TroubleshootingRunbook() {
   const [notes, setNotes] = useState('');
   const [copied, setCopied] = useState(false);
 
+  const loadGuides = useCallback(async () => {
+    try {
+      const res = await apiFetch<{ guides: RunbookGuide[] }>('/runbook');
+      const list = res.guides || [];
+      setGuides(list);
+      if (list.length > 0) {
+        setSelectedGuideId((prev) =>
+          list.some((g) => g.id === prev) ? prev : list[0].id,
+        );
+        setDeviceType((prev) =>
+          list.some((g) => g.id === prev) ? prev : list[0].id,
+        );
+      }
+    } catch {
+      // ignore
+    } finally {
+      setLoadingGuides(false);
+    }
+  }, []);
+
   useEffect(() => {
+    loadGuides();
     apiFetch<{ sites: Site[] }>('/sites')
       .then((res) => setSites(res.sites || []))
       .catch(() => {});
-  }, []);
+  }, [loadGuides]);
 
   useEffect(() => {
     if (!siteId) {
@@ -469,8 +212,8 @@ export function TroubleshootingRunbook() {
   }, [siteId]);
 
   const activeGuide = useMemo(
-    () => GUIDE_DATA.find((g) => g.key === selectedGuide) || GUIDE_DATA[0],
-    [selectedGuide],
+    () => guides.find((g) => g.id === selectedGuideId) || guides[0] || null,
+    [guides, selectedGuideId],
   );
 
   const selectedSite = useMemo(() => sites.find((s) => s.id === siteId) || null, [sites, siteId]);
@@ -513,6 +256,8 @@ export function TroubleshootingRunbook() {
 
   const formattedSummary = useMemo(() => {
     const siteLabel = selectedSite ? `${selectedSite.siteCode} (${selectedSite.siteName})` : '-';
+    const guideObj = guides.find((g) => g.id === deviceType);
+    const typeLabel = guideObj ? (isTh ? guideObj.thTitle : guideObj.enTitle) : deviceType;
     const unitLabel = selectedDevice
       ? `${selectedDevice.name} [${selectedDevice.managementIp || 'No IP'}]`
       : customUnit.trim() || '-';
@@ -536,7 +281,7 @@ export function TroubleshootingRunbook() {
     return [
       `[NIMS IT Service → Network Escalation]`,
       `Site: ${siteLabel}`,
-      `System/Type: ${deviceType}`,
+      `System/Type: ${typeLabel}`,
       `Unit / IP: ${unitLabel}`,
       `Scope: ${scopeLabel}`,
       ``,
@@ -554,11 +299,12 @@ export function TroubleshootingRunbook() {
     ].join('\n');
   }, [
     selectedSite,
+    guides,
+    deviceType,
     selectedDevice,
     customUnit,
     scope,
     t,
-    deviceType,
     physChecks,
     isTh,
     pingStages,
@@ -590,20 +336,43 @@ export function TroubleshootingRunbook() {
     setNotes('');
   };
 
-  const iconForGuide = (key: GuideDeviceKey) => {
-    switch (key) {
-      case 'SRM':
-        return <HardDrive className="h-4 w-4" />;
-      case 'AMR':
-        return <Bot className="h-4 w-4" />;
-      case 'SHU':
-        return <TrainFront className="h-4 w-4" />;
-      case 'PLC_MAIN':
-        return <Cpu className="h-4 w-4" />;
-      case 'ACCESS_POINT':
-        return <Wifi className="h-4 w-4" />;
-      case 'AP_CLIENT':
-        return <Radio className="h-4 w-4" />;
+  const confirmDeleteGuide = async () => {
+    if (!deleteTarget) return;
+    setDeleting(true);
+    setActionError(null);
+    try {
+      const res = await apiFetch<{ guides: RunbookGuide[] }>(
+        `/runbook/${encodeURIComponent(deleteTarget.id)}`,
+        { method: 'DELETE' },
+      );
+      setGuides(res.guides || []);
+      if (res.guides?.length > 0) {
+        setSelectedGuideId(res.guides[0].id);
+      }
+      setDeleteTarget(null);
+    } catch (err) {
+      setActionError(err instanceof ApiError ? err.message : 'Failed to delete guide');
+    } finally {
+      setDeleting(false);
+    }
+  };
+
+  const confirmResetDefaults = async () => {
+    setResetting(true);
+    setActionError(null);
+    try {
+      const res = await apiFetch<{ guides: RunbookGuide[] }>('/runbook/reset-defaults', {
+        method: 'POST',
+      });
+      setGuides(res.guides || []);
+      if (res.guides?.length > 0) {
+        setSelectedGuideId(res.guides[0].id);
+      }
+      setShowResetConfirm(false);
+    } catch (err) {
+      setActionError(err instanceof ApiError ? err.message : 'Failed to reset defaults');
+    } finally {
+      setResetting(false);
     }
   };
 
@@ -619,31 +388,56 @@ export function TroubleshootingRunbook() {
           <p className="text-sm text-slate-500 mt-1 max-w-3xl">{t('runbook.subtitle')}</p>
         </div>
 
-        <div className="inline-flex rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-0.5 text-xs font-semibold">
-          <button
-            type="button"
-            onClick={() => setViewMode('GUIDE')}
-            className={`inline-flex items-center gap-1.5 px-3.5 py-2 rounded-md cursor-pointer transition ${
-              viewMode === 'GUIDE'
-                ? 'bg-blue-600 text-white shadow-sm'
-                : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
-            }`}
-          >
-            <Wrench className="h-3.5 w-3.5" />
-            {t('runbook.tabGuide')}
-          </button>
-          <button
-            type="button"
-            onClick={() => setViewMode('TICKET')}
-            className={`inline-flex items-center gap-1.5 px-3.5 py-2 rounded-md cursor-pointer transition ${
-              viewMode === 'TICKET'
-                ? 'bg-emerald-600 text-white shadow-sm'
-                : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
-            }`}
-          >
-            <Network className="h-3.5 w-3.5" />
-            {t('runbook.tabTicket')}
-          </button>
+        <div className="flex flex-wrap items-center gap-2">
+          {canEdit && viewMode === 'GUIDE' && (
+            <button
+              type="button"
+              onClick={() => setEditingGuide('NEW')}
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold shadow-sm cursor-pointer"
+            >
+              <Plus className="h-4 w-4" />
+              {t('runbook.addGuide')}
+            </button>
+          )}
+          {canResetDefaults && viewMode === 'GUIDE' && (
+            <button
+              type="button"
+              onClick={() => {
+                setActionError(null);
+                setShowResetConfirm(true);
+              }}
+              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800 text-xs font-semibold cursor-pointer"
+            >
+              <RotateCcw className="h-3.5 w-3.5" />
+              {t('runbook.resetDefaults')}
+            </button>
+          )}
+          <div className="inline-flex rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-0.5 text-xs font-semibold">
+            <button
+              type="button"
+              onClick={() => setViewMode('GUIDE')}
+              className={`inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-md cursor-pointer transition ${
+                viewMode === 'GUIDE'
+                  ? 'bg-blue-600 text-white shadow-sm'
+                  : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
+              }`}
+            >
+              <Wrench className="h-3.5 w-3.5" />
+              {t('runbook.tabGuide')}
+            </button>
+            <button
+              type="button"
+              onClick={() => setViewMode('TICKET')}
+              className={`inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-md cursor-pointer transition ${
+                viewMode === 'TICKET'
+                  ? 'bg-emerald-600 text-white shadow-sm'
+                  : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
+              }`}
+            >
+              <Network className="h-3.5 w-3.5" />
+              {t('runbook.tabTicket')}
+            </button>
+          </div>
         </div>
       </div>
 
@@ -702,37 +496,38 @@ export function TroubleshootingRunbook() {
               {[
                 {
                   step: '1',
-                  title: isTh ? 'Gateway / PLC Main' : 'Gateway / PLC Main',
+                  title: 'Gateway / PLC Main',
                   sub: isTh ? 'เช็ก Core / Switch หลักและเส้นสายตู้ควบคุม' : 'Verify core switch & wired main PLC',
                   color: 'border-slate-300 dark:border-slate-700',
                 },
                 {
                   step: '2',
-                  title: isTh ? 'Access Point / Bridge AP' : 'Access Point / Bridge AP',
+                  title: 'Access Point / Bridge AP',
                   sub: isTh ? 'เช็กไฟ PoE และตัวกระจายสัญญาณฝั่งผนัง' : 'Verify PoE & fixed AP/Bridge side',
                   color: 'border-cyan-300 dark:border-cyan-800',
                 },
                 {
                   step: '3',
-                  title: isTh ? 'AP Client / Bridge CL' : 'AP Client / Bridge CL',
+                  title: 'AP Client / Bridge CL',
                   sub: isTh ? 'เช็กลิงก์ Wi-Fi ถึงตัวรับบนเครน / รถ Shuttle' : 'Verify wireless reach to moving vehicle',
                   color: 'border-amber-300 dark:border-amber-800',
                 },
                 {
                   step: '4',
-                  title: isTh ? 'End Device (PLC / AMR / Barcode)' : 'End Device (PLC / AMR / Barcode)',
+                  title: 'End Device (PLC / AMR / Barcode)',
                   sub: isTh ? 'เช็กสายบนตัวรถ/เครน และไฟเลี้ยงปลายทาง' : 'Verify onboard LAN & device health',
                   color: 'border-emerald-300 dark:border-emerald-800',
                 },
               ].map((s, idx) => (
-                <div key={s.step} className={`relative rounded-lg border ${s.color} p-3 bg-slate-50/60 dark:bg-slate-800/40`}>
+                <div
+                  key={s.step}
+                  className={`relative rounded-lg border ${s.color} p-3 bg-slate-50/60 dark:bg-slate-800/40`}
+                >
                   <div className="flex items-center justify-between">
                     <span className="inline-flex items-center justify-center h-5 w-5 rounded-full bg-blue-600 text-white text-[11px] font-bold">
                       {s.step}
                     </span>
-                    {idx < 3 && (
-                      <ArrowRight className="hidden lg:block h-4 w-4 text-slate-400" />
-                    )}
+                    {idx < 3 && <ArrowRight className="hidden lg:block h-4 w-4 text-slate-400" />}
                   </div>
                   <div className="font-bold mt-2">{s.title}</div>
                   <div className="text-slate-500 dark:text-slate-400 mt-0.5">{s.sub}</div>
@@ -749,120 +544,162 @@ export function TroubleshootingRunbook() {
             </h2>
 
             <div className="flex flex-wrap gap-2">
-              {GUIDE_DATA.map((item) => {
-                const active = selectedGuide === item.key;
+              {guides.map((item) => {
+                const active = activeGuide?.id === item.id;
                 return (
                   <button
-                    key={item.key}
+                    key={item.id}
                     type="button"
-                    onClick={() => setSelectedGuide(item.key)}
+                    onClick={() => setSelectedGuideId(item.id)}
                     className={`inline-flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-semibold border transition cursor-pointer ${
                       active
                         ? 'bg-blue-600 border-blue-600 text-white shadow-sm'
                         : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800'
                     }`}
                   >
-                    {iconForGuide(item.key)}
+                    {renderGuideIcon(item.iconType)}
                     <span>{isTh ? item.thTitle : item.enTitle}</span>
                   </button>
                 );
               })}
             </div>
 
-            <div className="rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-5 space-y-5">
-              <div className="flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-slate-100 dark:border-slate-800">
-                <div>
-                  <span className="px-2 py-0.5 rounded bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 font-mono text-[11px] font-bold">
-                    {activeGuide.codeBadge}
-                  </span>
-                  <h3 className="text-lg font-bold mt-1">
-                    {isTh ? activeGuide.thTitle : activeGuide.enTitle}
-                  </h3>
-                  <div className="text-xs text-slate-500 font-mono mt-0.5">
-                    Path: {isTh ? activeGuide.thPath : activeGuide.enPath}
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setDeviceType(activeGuide.key);
-                    setViewMode('TICKET');
-                  }}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold cursor-pointer"
-                >
-                  <Network className="h-3.5 w-3.5" />
-                  {t('runbook.tabTicket')}
-                </button>
+            {loadingGuides ? (
+              <div className="rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-8 text-center text-xs text-slate-400">
+                Loading runbook guides...
               </div>
+            ) : activeGuide ? (
+              <div className="rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-5 space-y-5">
+                <div className="flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-slate-100 dark:border-slate-800">
+                  <div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="px-2 py-0.5 rounded bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 font-mono text-[11px] font-bold">
+                        {activeGuide.codeBadge}
+                      </span>
+                      {activeGuide.updatedBy && (
+                        <span className="text-[11px] text-slate-400">
+                          {t('runbook.updatedBy')}: {activeGuide.updatedBy}
+                          {activeGuide.updatedAt
+                            ? ` • ${new Date(activeGuide.updatedAt).toLocaleString()}`
+                            : ''}
+                        </span>
+                      )}
+                    </div>
+                    <h3 className="text-lg font-bold mt-1">
+                      {isTh ? activeGuide.thTitle : activeGuide.enTitle}
+                    </h3>
+                    <div className="text-xs text-slate-500 font-mono mt-0.5">
+                      Path: {isTh ? activeGuide.thPath : activeGuide.enPath}
+                    </div>
+                  </div>
 
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-                {/* Physical Check */}
-                <div className="space-y-2">
-                  <h4 className="text-xs font-bold uppercase tracking-wide text-slate-500">
-                    {t('runbook.physicalLabel')}
-                  </h4>
-                  <ul className="space-y-2 text-xs">
-                    {(isTh ? activeGuide.thPhysical : activeGuide.enPhysical).map((line, i) => (
-                      <li
-                        key={i}
-                        className="flex items-start gap-2 p-2.5 rounded-lg bg-slate-50 dark:bg-slate-800/60 border border-slate-100 dark:border-slate-800"
-                      >
-                        <CheckCircle2 className="h-4 w-4 text-blue-600 shrink-0 mt-0.5" />
-                        <span className="leading-relaxed">{line}</span>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-
-                {/* Network Matrix */}
-                <div className="space-y-2">
-                  <h4 className="text-xs font-bold uppercase tracking-wide text-slate-500">
-                    {t('runbook.networkLabel')}
-                  </h4>
-                  <div className="space-y-2 text-xs">
-                    {(isTh ? activeGuide.thNetworkMatrix : activeGuide.enNetworkMatrix).map(
-                      (row, i) => (
-                        <div
-                          key={i}
-                          className="p-2.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50/40 dark:bg-slate-800/30"
+                  <div className="flex flex-wrap items-center gap-2">
+                    {canEdit && (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => setEditingGuide(activeGuide)}
+                          className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 text-xs font-semibold cursor-pointer"
                         >
-                          <div className="font-bold text-slate-800 dark:text-slate-100">
-                            {row.condition}
-                          </div>
-                          <div className="text-slate-600 dark:text-slate-300 mt-0.5 leading-relaxed">
-                            → {row.meaning}
-                          </div>
-                        </div>
-                      ),
+                          <Pencil className="h-3.5 w-3.5 text-blue-600" />
+                          {t('runbook.editGuide')}
+                        </button>
+                        {guides.length > 1 && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setActionError(null);
+                              setDeleteTarget(activeGuide);
+                            }}
+                            className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border border-red-200 dark:border-red-900 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/40 text-xs font-semibold cursor-pointer"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                            {t('runbook.deleteGuide')}
+                          </button>
+                        )}
+                      </>
                     )}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setDeviceType(activeGuide.id);
+                        setViewMode('TICKET');
+                      }}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold cursor-pointer"
+                    >
+                      <Network className="h-3.5 w-3.5" />
+                      {t('runbook.tabTicket')}
+                    </button>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+                  <div className="space-y-2">
+                    <h4 className="text-xs font-bold uppercase tracking-wide text-slate-500">
+                      {t('runbook.physicalLabel')}
+                    </h4>
+                    <ul className="space-y-2 text-xs">
+                      {(isTh ? activeGuide.thPhysical : activeGuide.enPhysical).map((line, i) => (
+                        <li
+                          key={i}
+                          className="flex items-start gap-2 p-2.5 rounded-lg bg-slate-50 dark:bg-slate-800/60 border border-slate-100 dark:border-slate-800"
+                        >
+                          <CheckCircle2 className="h-4 w-4 text-blue-600 shrink-0 mt-0.5" />
+                          <span className="leading-relaxed">{line}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+
+                  <div className="space-y-2">
+                    <h4 className="text-xs font-bold uppercase tracking-wide text-slate-500">
+                      {t('runbook.networkLabel')}
+                    </h4>
+                    <div className="space-y-2 text-xs">
+                      {(isTh ? activeGuide.thNetworkMatrix : activeGuide.enNetworkMatrix).map(
+                        (row, i) => (
+                          <div
+                            key={i}
+                            className="p-2.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50/40 dark:bg-slate-800/30"
+                          >
+                            <div className="font-bold text-slate-800 dark:text-slate-100">
+                              {row.condition}
+                            </div>
+                            <div className="text-slate-600 dark:text-slate-300 mt-0.5 leading-relaxed">
+                              → {row.meaning}
+                            </div>
+                          </div>
+                        ),
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 pt-2">
+                  <div className="rounded-lg p-3.5 bg-emerald-50/60 dark:bg-emerald-950/25 border border-emerald-200 dark:border-emerald-900/60 text-xs space-y-1.5">
+                    <div className="font-bold text-emerald-700 dark:text-emerald-300">
+                      🛠️ {t('runbook.actionSelf')}
+                    </div>
+                    {(isTh ? activeGuide.thSelfFix : activeGuide.enSelfFix).map((item, idx) => (
+                      <div key={idx} className="text-slate-700 dark:text-slate-200">
+                        • {item}
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="rounded-lg p-3.5 bg-amber-50/60 dark:bg-amber-950/25 border border-amber-200 dark:border-amber-900/60 text-xs space-y-1.5">
+                    <div className="font-bold text-amber-700 dark:text-amber-300">
+                      📩 {t('runbook.actionEscalate')}
+                    </div>
+                    {(isTh ? activeGuide.thEscalate : activeGuide.enEscalate).map((item, idx) => (
+                      <div key={idx} className="text-slate-700 dark:text-slate-200">
+                        • {item}
+                      </div>
+                    ))}
                   </div>
                 </div>
               </div>
-
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 pt-2">
-                <div className="rounded-lg p-3.5 bg-emerald-50/60 dark:bg-emerald-950/25 border border-emerald-200 dark:border-emerald-900/60 text-xs space-y-1.5">
-                  <div className="font-bold text-emerald-700 dark:text-emerald-300">
-                    🛠️ {t('runbook.actionSelf')}
-                  </div>
-                  {(isTh ? activeGuide.thSelfFix : activeGuide.enSelfFix).map((item, idx) => (
-                    <div key={idx} className="text-slate-700 dark:text-slate-200">
-                      • {item}
-                    </div>
-                  ))}
-                </div>
-
-                <div className="rounded-lg p-3.5 bg-amber-50/60 dark:bg-amber-950/25 border border-amber-200 dark:border-amber-900/60 text-xs space-y-1.5">
-                  <div className="font-bold text-amber-700 dark:text-amber-300">
-                    📩 {t('runbook.actionEscalate')}
-                  </div>
-                  {(isTh ? activeGuide.thEscalate : activeGuide.enEscalate).map((item, idx) => (
-                    <div key={idx} className="text-slate-700 dark:text-slate-200">
-                      • {item}
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
+            ) : null}
           </div>
         </>
       ) : (
@@ -909,11 +746,11 @@ export function TroubleshootingRunbook() {
                 </label>
                 <select
                   value={deviceType}
-                  onChange={(e) => setDeviceType(e.target.value as GuideDeviceKey)}
+                  onChange={(e) => setDeviceType(e.target.value)}
                   className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900"
                 >
-                  {GUIDE_DATA.map((g) => (
-                    <option key={g.key} value={g.key}>
+                  {guides.map((g) => (
+                    <option key={g.id} value={g.id}>
                       {isTh ? g.thTitle : g.enTitle}
                     </option>
                   ))}
@@ -953,7 +790,6 @@ export function TroubleshootingRunbook() {
               </div>
             </div>
 
-            {/* Scope */}
             <div className="text-xs">
               <div className="font-semibold mb-1.5 text-slate-600 dark:text-slate-300">
                 {t('runbook.scopeLabel')}
@@ -982,7 +818,6 @@ export function TroubleshootingRunbook() {
               </div>
             </div>
 
-            {/* Physical Checkboxes */}
             <div className="text-xs space-y-2">
               <div className="font-semibold text-slate-600 dark:text-slate-300">
                 {t('runbook.physChecks')}
@@ -1007,17 +842,16 @@ export function TroubleshootingRunbook() {
               </div>
             </div>
 
-            {/* 4-Stage Ping Check */}
             <div className="text-xs space-y-2">
               <div className="font-semibold text-slate-600 dark:text-slate-300">
                 {t('runbook.ping4Title')}
               </div>
               {(
                 [
-                  ['s1', isTh ? '1. Gateway / PLC Main' : '1. Gateway / PLC Main'],
-                  ['s2', isTh ? '2. Access Point / Bridge AP' : '2. Access Point / Bridge AP'],
-                  ['s3', isTh ? '3. AP Client (RUTX10) / Bridge CL' : '3. AP Client / Bridge CL'],
-                  ['s4', isTh ? '4. End Device (PLC / AMR / Barcode)' : '4. End Device (PLC / AMR / Barcode)'],
+                  ['s1', '1. Gateway / PLC Main'],
+                  ['s2', '2. Access Point / Bridge AP'],
+                  ['s3', '3. AP Client (RUTX10) / Bridge CL'],
+                  ['s4', '4. End Device (PLC / AMR / Barcode)'],
                 ] as const
               ).map(([stageKey, stageLabel]) => {
                 const st = pingStages[stageKey];
@@ -1092,7 +926,6 @@ export function TroubleshootingRunbook() {
             </div>
           </div>
 
-          {/* Right Preview + Auto Diagnosis + Copy */}
           <div className="lg:col-span-5 space-y-4">
             <div className="rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-4 space-y-2">
               <div className="text-xs font-bold uppercase tracking-wide text-slate-500">
@@ -1124,6 +957,375 @@ export function TroubleshootingRunbook() {
           </div>
         </div>
       )}
+
+      {/* Easy Add / Edit Guide Modal */}
+      {editingGuide && (
+        <RunbookEditorModal
+          initialGuide={editingGuide === 'NEW' ? null : editingGuide}
+          onClose={() => setEditingGuide(null)}
+          onSaved={(nextGuides, focusId) => {
+            setGuides(nextGuides);
+            if (focusId) setSelectedGuideId(focusId);
+            setEditingGuide(null);
+          }}
+        />
+      )}
+
+      {/* Delete Confirmation Modal */}
+      {deleteTarget && (
+        <ConfirmActionModal
+          title={t('runbook.deleteConfirmTitle')}
+          description={t('runbook.deleteConfirmDesc')}
+          confirmLabel={t('runbook.deleteGuide')}
+          danger
+          busy={deleting}
+          errorMessage={actionError}
+          onCancel={() => {
+            if (!deleting) {
+              setDeleteTarget(null);
+              setActionError(null);
+            }
+          }}
+          onConfirm={confirmDeleteGuide}
+        />
+      )}
+
+      {/* Reset Defaults Confirmation Modal */}
+      {showResetConfirm && (
+        <ConfirmActionModal
+          title={t('runbook.resetConfirmTitle')}
+          description={t('runbook.resetConfirmDesc')}
+          confirmLabel={t('runbook.resetDefaults')}
+          danger
+          busy={resetting}
+          errorMessage={actionError}
+          onCancel={() => {
+            if (!resetting) {
+              setShowResetConfirm(false);
+              setActionError(null);
+            }
+          }}
+          onConfirm={confirmResetDefaults}
+        />
+      )}
+    </div>
+  );
+}
+
+function RunbookEditorModal({
+  initialGuide,
+  onClose,
+  onSaved,
+}: {
+  initialGuide: RunbookGuide | null;
+  onClose: () => void;
+  onSaved: (guides: RunbookGuide[], focusId?: string) => void;
+}) {
+  const { t } = useI18n();
+  const isNew = !initialGuide;
+
+  const [thTitle, setThTitle] = useState(initialGuide?.thTitle || '');
+  const [codeBadge, setCodeBadge] = useState(initialGuide?.codeBadge || '');
+  const [iconType, setIconType] = useState<RunbookIconType>(initialGuide?.iconType || 'OTHER');
+  const [thPath, setThPath] = useState(initialGuide?.thPath || '');
+  const [thPhysicalText, setThPhysicalText] = useState(
+    (initialGuide?.thPhysical || []).join('\n'),
+  );
+  const [pingRules, setPingRules] = useState<PingRule[]>(
+    initialGuide?.thNetworkMatrix?.length
+      ? initialGuide.thNetworkMatrix.map((r) => ({ ...r }))
+      : [{ condition: '', meaning: '' }],
+  );
+  const [thSelfFixText, setThSelfFixText] = useState(
+    (initialGuide?.thSelfFix || []).join('\n'),
+  );
+  const [thEscalateText, setThEscalateText] = useState(
+    (initialGuide?.thEscalate || []).join('\n'),
+  );
+
+  // Optional English override
+  const [showEnglishOverride, setShowEnglishOverride] = useState(false);
+  const [enTitle, setEnTitle] = useState(
+    initialGuide && initialGuide.enTitle !== initialGuide.thTitle ? initialGuide.enTitle : '',
+  );
+  const [enPath, setEnPath] = useState(
+    initialGuide && initialGuide.enPath !== initialGuide.thPath ? initialGuide.enPath : '',
+  );
+
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!thTitle.trim() || !codeBadge.trim()) {
+      setError('กรุณากรอกชื่อหัวข้อและป้ายย่อ (Title & Badge)');
+      return;
+    }
+
+    setSaving(true);
+    setError('');
+
+    const cleanMatrix = pingRules
+      .map((r) => ({ condition: r.condition.trim(), meaning: r.meaning.trim() }))
+      .filter((r) => r.condition && r.meaning);
+
+    const payload = {
+      codeBadge: codeBadge.trim(),
+      iconType,
+      thTitle: thTitle.trim(),
+      enTitle: enTitle.trim(),
+      thPath: thPath.trim(),
+      enPath: enPath.trim(),
+      thPhysical: linesToArray(thPhysicalText),
+      enPhysical: [],
+      thNetworkMatrix: cleanMatrix,
+      enNetworkMatrix: [],
+      thSelfFix: linesToArray(thSelfFixText),
+      enSelfFix: [],
+      thEscalate: linesToArray(thEscalateText),
+      enEscalate: [],
+    };
+
+    try {
+      if (isNew) {
+        const res = await apiFetch<{ guide: RunbookGuide; guides: RunbookGuide[] }>('/runbook', {
+          method: 'POST',
+          body: JSON.stringify(payload),
+        });
+        onSaved(res.guides, res.guide.id);
+      } else {
+        const res = await apiFetch<{ guide: RunbookGuide; guides: RunbookGuide[] }>(
+          `/runbook/${encodeURIComponent(initialGuide.id)}`,
+          {
+            method: 'PUT',
+            body: JSON.stringify(payload),
+          },
+        );
+        onSaved(res.guides, res.guide.id);
+      }
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Failed to save runbook guide');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 overflow-y-auto">
+      <div className="w-full max-w-3xl max-h-[92vh] overflow-y-auto rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-2xl p-6 space-y-4">
+        <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
+          <h3 className="text-lg font-bold flex items-center gap-2">
+            <Wrench className="h-5 w-5 text-blue-600" />
+            {isNew ? t('runbook.modalAddTitle') : t('runbook.modalEditTitle')}
+          </h3>
+          <button
+            type="button"
+            onClick={onClose}
+            className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+
+        <form onSubmit={handleSubmit} className="space-y-4 text-xs">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label className="block font-semibold mb-1">{t('runbook.fieldTitle')}</label>
+              <input
+                required
+                value={thTitle}
+                onChange={(e) => setThTitle(e.target.value)}
+                placeholder="เช่น กล้องวงจรปิดคลังสินค้า (IP Cam)"
+                className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-transparent"
+              />
+            </div>
+            <div>
+              <label className="block font-semibold mb-1">{t('runbook.fieldBadge')}</label>
+              <input
+                required
+                value={codeBadge}
+                onChange={(e) => setCodeBadge(e.target.value)}
+                placeholder="เช่น CCTV • Camera"
+                className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-transparent"
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="block font-semibold mb-1.5">{t('runbook.fieldIcon')}</label>
+            <div className="flex flex-wrap gap-1.5">
+              {ICON_OPTIONS.map((opt) => (
+                <button
+                  key={opt.type}
+                  type="button"
+                  onClick={() => setIconType(opt.type)}
+                  className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border font-medium cursor-pointer ${
+                    iconType === opt.type
+                      ? 'bg-blue-600 border-blue-600 text-white'
+                      : 'border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800'
+                  }`}
+                >
+                  {renderGuideIcon(opt.type, 'h-3.5 w-3.5')}
+                  <span>{opt.label}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div>
+            <label className="block font-semibold mb-1">{t('runbook.fieldPath')}</label>
+            <input
+              value={thPath}
+              onChange={(e) => setThPath(e.target.value)}
+              placeholder="เช่น Core Switch → Access Switch (PoE) → กล้อง CCTV"
+              className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-transparent font-mono"
+            />
+          </div>
+
+          <div>
+            <label className="block font-semibold mb-1">{t('runbook.fieldPhysical')}</label>
+            <textarea
+              rows={3}
+              value={thPhysicalText}
+              onChange={(e) => setThPhysicalText(e.target.value)}
+              placeholder={'ตรวจสอบไฟสถานะ IR / Power ที่ตัวกล้อง\nตรวจสอบหัวสาย LAN PoE และสายไม่ขาด/หลวม'}
+              className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-transparent leading-relaxed"
+            />
+          </div>
+
+          {/* Easy Ping Matrix Row Builder */}
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <label className="font-semibold">{t('runbook.fieldPingMatrix')}</label>
+              <button
+                type="button"
+                onClick={() =>
+                  setPingRules((prev) => [...prev, { condition: '', meaning: '' }])
+                }
+                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 font-semibold cursor-pointer hover:bg-blue-100"
+              >
+                <Plus className="h-3.5 w-3.5" />
+                {t('runbook.addPingRule')}
+              </button>
+            </div>
+            <div className="space-y-2">
+              {pingRules.map((rule, idx) => (
+                <div
+                  key={idx}
+                  className="grid grid-cols-1 sm:grid-cols-12 gap-2 items-start p-2.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-800/30"
+                >
+                  <input
+                    value={rule.condition}
+                    onChange={(e) =>
+                      setPingRules((prev) =>
+                        prev.map((r, i) => (i === idx ? { ...r, condition: e.target.value } : r)),
+                      )
+                    }
+                    placeholder={t('runbook.pingCondPlaceholder')}
+                    className="sm:col-span-5 px-2.5 py-1.5 rounded border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900"
+                  />
+                  <input
+                    value={rule.meaning}
+                    onChange={(e) =>
+                      setPingRules((prev) =>
+                        prev.map((r, i) => (i === idx ? { ...r, meaning: e.target.value } : r)),
+                      )
+                    }
+                    placeholder={t('runbook.pingMeanPlaceholder')}
+                    className="sm:col-span-6 px-2.5 py-1.5 rounded border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900"
+                  />
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setPingRules((prev) =>
+                        prev.length > 1 ? prev.filter((_, i) => i !== idx) : [{ condition: '', meaning: '' }],
+                      )
+                    }
+                    className="sm:col-span-1 p-1.5 rounded text-red-500 hover:bg-red-50 dark:hover:bg-red-950/40 flex items-center justify-center cursor-pointer"
+                    title="Remove rule"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label className="block font-semibold mb-1">{t('runbook.fieldSelfFix')}</label>
+              <textarea
+                rows={3}
+                value={thSelfFixText}
+                onChange={(e) => setThSelfFixText(e.target.value)}
+                placeholder={'ขยับ/เปลี่ยนสาย LAN ฝั่งหน้างาน\nตรวจปลั๊กไฟและรีบูตอุปกรณ์ 1 ครั้ง'}
+                className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-transparent leading-relaxed"
+              />
+            </div>
+            <div>
+              <label className="block font-semibold mb-1">{t('runbook.fieldEscalate')}</label>
+              <textarea
+                rows={3}
+                value={thEscalateText}
+                onChange={(e) => setThEscalateText(e.target.value)}
+                placeholder={'ไฟพอร์ต Switch PoE ดับหรือ Ping ไม่เจอหลังเปลี่ยนสาย\nIP ชนหรืออุปกรณ์หลุดเป็นช่วงทุกวัน'}
+                className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-transparent leading-relaxed"
+              />
+            </div>
+          </div>
+
+          {/* Optional English override collapse */}
+          <div className="border-t border-slate-100 dark:border-slate-800 pt-2">
+            <button
+              type="button"
+              onClick={() => setShowEnglishOverride((v) => !v)}
+              className="text-xs font-semibold text-blue-600 dark:text-blue-400 hover:underline cursor-pointer"
+            >
+              {showEnglishOverride ? '▾ ' : '▸ '}
+              {t('runbook.optionalEn')}
+            </button>
+            {showEnglishOverride && (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-2">
+                <input
+                  value={enTitle}
+                  onChange={(e) => setEnTitle(e.target.value)}
+                  placeholder="English Title (optional)"
+                  className="px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-transparent"
+                />
+                <input
+                  value={enPath}
+                  onChange={(e) => setEnPath(e.target.value)}
+                  placeholder="English Connection Path (optional)"
+                  className="px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-transparent font-mono"
+                />
+              </div>
+            )}
+          </div>
+
+          {error && (
+            <div className="p-2.5 rounded-lg bg-red-50 dark:bg-red-950/60 border border-red-200 dark:border-red-900 text-red-700 dark:text-red-300">
+              {error}
+            </div>
+          )}
+
+          <div className="flex justify-end gap-2 pt-2 border-t border-slate-100 dark:border-slate-800">
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-4 py-2 rounded-lg border border-slate-200 dark:border-slate-700 font-semibold cursor-pointer"
+            >
+              {t('common.cancel')}
+            </button>
+            <button
+              type="submit"
+              disabled={saving}
+              className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-semibold disabled:opacity-50 cursor-pointer"
+            >
+              {saving ? t('common.saving') : t('common.save')}
+            </button>
+          </div>
+        </form>
+      </div>
     </div>
   );
 }
