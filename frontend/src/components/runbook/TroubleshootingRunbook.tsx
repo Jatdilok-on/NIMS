@@ -15,20 +15,24 @@ import {
   Network,
   Pencil,
   Plus,
+  Printer,
   Radio,
   RotateCcw,
   Server,
   TrainFront,
   Trash2,
+  Upload,
   Wifi,
   Wrench,
   X,
+  ZoomIn,
 } from 'lucide-react';
 import { ConfirmActionModal } from '@/components/common/ConfirmActionModal';
-import { apiFetch, ApiError, copyTextSafe } from '@/lib/api';
+import { apiFetch, ApiError, apiUploadWithProgress, copyTextSafe } from '@/lib/api';
 import { useAuth } from '@/lib/auth-context';
 import { useI18n } from '@/lib/i18n';
 import { Device, Site } from '@/lib/types';
+import { RunbookVisualDiagram } from './RunbookVisualDiagram';
 
 type RunbookIconType =
   | 'CRANE'
@@ -65,6 +69,7 @@ interface RunbookGuide {
   enSelfFix: string[];
   thEscalate: string[];
   enEscalate: string[];
+  imageFile?: string | null;
   updatedBy?: string | null;
   updatedAt?: string | null;
 }
@@ -145,6 +150,7 @@ export function TroubleshootingRunbook() {
   const [showResetConfirm, setShowResetConfirm] = useState(false);
   const [resetting, setResetting] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [zoomPhotoUrl, setZoomPhotoUrl] = useState<string | null>(null);
 
   // Escalation Ticket Builder state
   const [sites, setSites] = useState<Site[]>([]);
@@ -593,7 +599,15 @@ export function TroubleshootingRunbook() {
                     </div>
                   </div>
 
-                  <div className="flex flex-wrap items-center gap-2">
+                  <div className="flex flex-wrap items-center gap-2 print:hidden">
+                    <button
+                      type="button"
+                      onClick={() => window.print()}
+                      className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 text-xs font-semibold cursor-pointer"
+                    >
+                      <Printer className="h-3.5 w-3.5 text-slate-600 dark:text-slate-300" />
+                      {t('runbook.printBtn')}
+                    </button>
                     {canEdit && (
                       <>
                         <button
@@ -632,6 +646,47 @@ export function TroubleshootingRunbook() {
                     </button>
                   </div>
                 </div>
+
+                {/* Visual Interactive Flow Diagram + LED Guide */}
+                <RunbookVisualDiagram
+                  guideId={activeGuide.id}
+                  pathText={isTh ? activeGuide.thPath : activeGuide.enPath}
+                  isTh={isTh}
+                />
+
+                {/* Optional Field Photo uploaded by Network Engineer / Admin */}
+                {activeGuide.imageFile && (
+                  <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/30 p-3.5 space-y-2">
+                    <div className="flex items-center justify-between text-xs font-bold text-slate-600 dark:text-slate-300">
+                      <span className="flex items-center gap-1.5">
+                        <Camera className="h-4 w-4 text-blue-600" />
+                        {t('runbook.fieldPhotoTitle')}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setZoomPhotoUrl(
+                            `/api/runbook/images/${encodeURIComponent(activeGuide.imageFile!)}`,
+                          )
+                        }
+                        className="inline-flex items-center gap-1 text-[11px] text-blue-600 hover:underline cursor-pointer print:hidden"
+                      >
+                        <ZoomIn className="h-3.5 w-3.5" />
+                        Zoom
+                      </button>
+                    </div>
+                    <img
+                      src={`/api/runbook/images/${encodeURIComponent(activeGuide.imageFile)}`}
+                      alt={isTh ? activeGuide.thTitle : activeGuide.enTitle}
+                      onClick={() =>
+                        setZoomPhotoUrl(
+                          `/api/runbook/images/${encodeURIComponent(activeGuide.imageFile!)}`,
+                        )
+                      }
+                      className="max-h-72 w-auto rounded-lg border border-slate-200 dark:border-slate-700 cursor-zoom-in object-contain bg-white dark:bg-slate-950"
+                    />
+                  </div>
+                )}
 
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
                   <div className="space-y-2">
@@ -1010,6 +1065,20 @@ export function TroubleshootingRunbook() {
           onConfirm={confirmResetDefaults}
         />
       )}
+
+      {/* Photo Zoom Lightbox */}
+      {zoomPhotoUrl && (
+        <div
+          onClick={() => setZoomPhotoUrl(null)}
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 cursor-zoom-out"
+        >
+          <img
+            src={zoomPhotoUrl}
+            alt="Field reference"
+            className="max-w-full max-h-[90vh] rounded-xl shadow-2xl object-contain bg-white"
+          />
+        </div>
+      )}
     </div>
   );
 }
@@ -1056,6 +1125,8 @@ function RunbookEditorModal({
 
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const [photoFile, setPhotoFile] = useState<File | null>(null);
+  const [clearImage, setClearImage] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -1086,15 +1157,19 @@ function RunbookEditorModal({
       enSelfFix: [],
       thEscalate: linesToArray(thEscalateText),
       enEscalate: [],
+      clearImage,
     };
 
     try {
+      let savedGuides: RunbookGuide[];
+      let savedId: string;
       if (isNew) {
         const res = await apiFetch<{ guide: RunbookGuide; guides: RunbookGuide[] }>('/runbook', {
           method: 'POST',
           body: JSON.stringify(payload),
         });
-        onSaved(res.guides, res.guide.id);
+        savedGuides = res.guides;
+        savedId = res.guide.id;
       } else {
         const res = await apiFetch<{ guide: RunbookGuide; guides: RunbookGuide[] }>(
           `/runbook/${encodeURIComponent(initialGuide.id)}`,
@@ -1103,8 +1178,21 @@ function RunbookEditorModal({
             body: JSON.stringify(payload),
           },
         );
-        onSaved(res.guides, res.guide.id);
+        savedGuides = res.guides;
+        savedId = res.guide.id;
       }
+
+      if (photoFile) {
+        const formData = new FormData();
+        formData.append('image', photoFile);
+        const imgRes = await apiUploadWithProgress<{ guide: RunbookGuide; guides: RunbookGuide[] }>(
+          `/runbook/${encodeURIComponent(savedId)}/image`,
+          formData,
+        );
+        savedGuides = imgRes.guides;
+      }
+
+      onSaved(savedGuides, savedId);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Failed to save runbook guide');
     } finally {
@@ -1274,6 +1362,40 @@ function RunbookEditorModal({
                 className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-transparent leading-relaxed"
               />
             </div>
+          </div>
+
+          {/* Optional Field Photo Upload */}
+          <div className="rounded-lg border border-slate-200 dark:border-slate-700 p-3 space-y-2 bg-slate-50/50 dark:bg-slate-800/30">
+            <div className="flex items-center justify-between flex-wrap gap-2">
+              <label className="font-semibold flex items-center gap-1.5">
+                <Camera className="h-4 w-4 text-blue-600" />
+                {t('runbook.uploadPhoto')}
+              </label>
+              {initialGuide?.imageFile && !clearImage && !photoFile && (
+                <button
+                  type="button"
+                  onClick={() => setClearImage(true)}
+                  className="text-red-600 hover:underline font-semibold cursor-pointer"
+                >
+                  {t('runbook.removePhoto')}
+                </button>
+              )}
+            </div>
+            <p className="text-[11px] text-slate-500">{t('runbook.photoHint')}</p>
+            <label className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 font-semibold cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800">
+              <Upload className="h-3.5 w-3.5 text-blue-600" />
+              <span>{photoFile ? photoFile.name : t('runbook.uploadPhoto')}</span>
+              <input
+                type="file"
+                accept="image/png,image/jpeg,image/webp,image/gif"
+                className="hidden"
+                onChange={(e) => {
+                  const f = e.target.files?.[0] || null;
+                  setPhotoFile(f);
+                  if (f) setClearImage(false);
+                }}
+              />
+            </label>
           </div>
 
           {/* Optional English override collapse */}

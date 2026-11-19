@@ -36,6 +36,7 @@ export interface RunbookGuide {
   enSelfFix: string[];
   thEscalate: string[];
   enEscalate: string[];
+  imageFile?: string | null;
   updatedBy?: string | null;
   updatedAt?: string | null;
 }

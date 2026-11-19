@@ -431,6 +431,11 @@ const DICTIONARY = {
     'runbook.resetConfirmTitle': 'คืนค่าคู่มือเริ่มต้นทั้งหมด',
     'runbook.resetConfirmDesc': 'ต้องการคืนค่าคู่มือ 6 หมวดมาตรฐาน (SRM, AMR, SHU, PLC Main, Access Point, AP Client) กลับเป็นค่าเริ่มต้นหรือไม่? รายการที่เพิ่ม/แก้ไว้จะถูกแทนที่',
     'runbook.updatedBy': 'แก้ไขล่าสุดโดย',
+    'runbook.printBtn': 'พิมพ์คู่มือ (A4)',
+    'runbook.fieldPhotoTitle': 'ภาพถ่าย / ไดอะแกรมประกอบหน้างาน',
+    'runbook.uploadPhoto': 'แนบรูปภาพประกอบ (PNG/JPG, ไม่เกิน 5MB)',
+    'runbook.removePhoto': 'ลบรูปภาพประกอบ',
+    'runbook.photoHint': 'แนบรูปตู้จริง, ตำแหน่งไฟ LED, หรือวิธีดูหน้าจาน/เสาบนรถเพื่อช่วยให้ทีมหน้างานหาจุดตรวจเจอทันที',
   },
   en: {
     'nav.dashboard': 'Dashboard',
@@ -845,6 +850,11 @@ const DICTIONARY = {
     'runbook.resetConfirmTitle': 'Restore Default Guides',
     'runbook.resetConfirmDesc': 'Restore the 6 factory default guides (SRM, AMR, SHU, PLC Main, Access Point, AP Client)? Custom edits will be replaced.',
     'runbook.updatedBy': 'Last updated by',
+    'runbook.printBtn': 'Print Guide (A4)',
+    'runbook.fieldPhotoTitle': 'Field Reference Photo / Diagram',
+    'runbook.uploadPhoto': 'Attach Reference Photo (PNG/JPG, max 5MB)',
+    'runbook.removePhoto': 'Remove Photo',
+    'runbook.photoHint': 'Attach a real cabinet photo, LED legend, or antenna mounting reference for field staff.',
   },
   zh: {
     'nav.dashboard': '仪表盘概览',
@@ -1259,6 +1269,11 @@ const DICTIONARY = {
     'runbook.resetConfirmTitle': '恢复默认指南',
     'runbook.resetConfirmDesc': '确定要恢复默认的 6 类设备指南吗？当前自定义内容将被覆盖。',
     'runbook.updatedBy': '最后更新',
+    'runbook.printBtn': '打印指南 (A4)',
+    'runbook.fieldPhotoTitle': '现场参考照片 / 拓扑图',
+    'runbook.uploadPhoto': '上传参考图片（PNG/JPG，最大 5MB）',
+    'runbook.removePhoto': '移除图片',
+    'runbook.photoHint': '可附上机柜实拍图、指示灯说明或天线位置照片，方便现场快速排查。',
   },
   ja: {
     'nav.dashboard': 'ダッシュボード',
@@ -1673,6 +1688,11 @@ const DICTIONARY = {
     'runbook.resetConfirmTitle': '初期手順に戻す',
     'runbook.resetConfirmDesc': '標準の 6 種類のガイドに戻しますか？カスタム編集は上書きされます。',
     'runbook.updatedBy': '最終更新',
+    'runbook.printBtn': '手順を印刷 (A4)',
+    'runbook.fieldPhotoTitle': '現地参考写真 / 構成図',
+    'runbook.uploadPhoto': '参考画像を添付（PNG/JPG、最大 5MB）',
+    'runbook.removePhoto': '画像を削除',
+    'runbook.photoHint': '実機キャビネットや LED 表示、アンテナ位置の写真を添付すると現場確認がスムーズです。',
   },
 } as const;
 
