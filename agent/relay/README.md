@@ -17,21 +17,27 @@
 4. ทดสอบเปิดใน Browser: `https://nims-relay.<subdomain>.workers.dev/health` (ต้องขึ้น `{"ok":true,"service":"nims-cloudflare-relay"}`)
 
 ## 3. รัน Bridge บน Notebook ตัวกลาง (อยู่ในวง LAN เดียวกับ NIMS Server)
+
+### วิธีที่ 1: ดาวน์โหลดสคริปต์ 1-Click Bridge จากหน้าเว็บ NIMS (แนะนำ)
+1. เข้าเว็บ NIMS → **Sites** → แท็บ **Site Agents** → **+ Add Site Agent** → เลือกแท็บ **Remote (Cross-Network)**
+2. ในส่วน **Step 1: Notebook Bridge** กรอก URL ของ Cloudflare Worker และ `BRIDGE_SECRET` แล้วกดดาวน์โหลด **1-Click Bridge Installer (`install-bridge.bat`)** ไปรันบน Notebook ตัวกลางได้เลย
+
+### วิธีที่ 2: ติดตั้งจากโฟลเดอร์ `agent/relay/` ด้วยตนเอง
 1. ก๊อปปี้โฟลเดอร์ `agent/relay/` ไปวางบน Notebook (เช่น `C:\nims-bridge`) แล้วเปลี่ยนชื่อ `nims-relay-bridge.env.example` เป็น `nims-relay-bridge.env`
 2. กรอกค่าใน `nims-relay-bridge.env`:
    - `NIMS_URL=https://191.20.110.191:3000`
    - `NIMS_ALLOW_INSECURE_TLS=true`
    - `RELAY_URL=https://nims-relay.<subdomain>.workers.dev`
    - `BRIDGE_SECRET=<รหัสลับเดียวกับ Worker>`
-   - `NIMS_AGENT_TOKENS=<Token ของแต่ละ Site ที่สร้างใน NIMS คั่นด้วยเครื่องหมาย ,>`
+   - *(เลือกใส่หรือไม่ใส่ก็ได้)* `NIMS_AGENT_TOKENS=<Token คั่นด้วย ,>` — หากเว้นว่าง Bridge จะดึงเฉพาะ Token ของ Remote Agent ที่เปิดใช้งานอยู่จาก Server อัตโนมัติ และหยุดส่งข้อมูลให้ Agent ที่ถูกลบ/ปิดใช้งานทันที
 3. เลือกวิธีรันบน Notebook:
    - **แบบรันเบื้องหลังอัตโนมัติ (แนะนำ):** ดับเบิลคลิก **`install-bridge-background.bat`** (ซ่อนหน้าต่างทำงาน, ตั้งเปิดเครื่องรันเองอัตโนมัติ และสร้าง `view-bridge-log.bat` / `uninstall-bridge.bat` ให้พร้อม)
    - **แบบดูหน้าต่าง Console สด:** ดับเบิลคลิก **`start-bridge.bat`** หรือรัน `node nims-relay-bridge.mjs`
 
 ## 4. ติดตั้ง Agent ที่เครื่อง Site ปลายทาง (Site อื่น ๆ)
-วาง `agent/nims-agent.mjs` บนเครื่องของ Site ปลายทาง แล้วตั้ง `nims-agent.env`:
+ดาวน์โหลด **Step 2: 1-Click Remote Agent Installer** จากหน้า **+ Add Site Agent → Remote** ไปรันบนเครื่องปลายทาง หรือวาง `agent/nims-agent.mjs` แล้วตั้ง `nims-agent.env`:
 ```env
 NIMS_URL=https://nims-relay.<subdomain>.workers.dev
 NIMS_AGENT_TOKEN=<Token ของ Site นั้น>
 ```
-แล้วรัน `node nims-agent.mjs` — ผล Ping ของ Site ปลายทางจะไหลเข้า Cloudflare Worker และถูก Notebook ดึงมาโชว์บน Server `191.20.110.191` อัตโนมัติ!
+แล้วรัน `node nims-agent.mjs` — ผล Ping ของ Site ปลายทางจะไหลเข้า Cloudflare Worker และถูก Notebook ดึงมาโชว์บน Server `191.20.110.191` อัตโนมัติ! (หากกด Pause/Delete Agent ในหน้าเว็บ ข้อมูลค้างใน Worker/DB จะถูกล้างและสถานะ Ping บน Server จะถูกรีเซ็ตให้อัตโนมัติ)
