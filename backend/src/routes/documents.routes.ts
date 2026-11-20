@@ -1,6 +1,7 @@
 import path from 'path';
-import { Router } from 'express';
+import { NextFunction, Request, Response, Router } from 'express';
 import multer from 'multer';
+import { z } from 'zod';
 import { DocumentCategory, Prisma } from '@prisma/client';
 import { prisma } from '../lib/prisma';
 import { authenticate } from '../middleware/auth';
@@ -460,6 +461,188 @@ router.get('/:id/preview', async (req, res, next) => {
     next(err);
   }
 });
+
+const updateDocumentSchema = z.object({
+  siteId: z.string().min(1).optional(),
+  category: z.nativeEnum(DocumentCategory).optional(),
+  documentName: z.string().trim().min(1).max(200).optional(),
+  projectName: z.string().trim().max(200).optional().nullable(),
+  description: z.string().trim().max(1000).optional().nullable(),
+  responsiblePerson: z.string().trim().max(160).optional().nullable(),
+  remark: z.string().trim().max(1000).optional().nullable(),
+});
+
+async function handleUpdateDocument(req: Request, res: Response, next: NextFunction) {
+  try {
+    const parsed = updateDocumentSchema.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: parsed.error.errors[0]?.message || 'Invalid document payload' });
+      return;
+    }
+
+    const existing = await prisma.document.findUnique({
+      where: { id: String(req.params.id) },
+      include: { site: { select: { id: true, siteCode: true } }, versions: true },
+    });
+    if (!existing) {
+      res.status(404).json({ error: 'Document not found' });
+      return;
+    }
+    if (!hasSitePermission(req.user!, existing.siteId, 'canEditDocuments')) {
+      res.status(403).json({ error: 'Permission denied to edit documents in this site' });
+      return;
+    }
+
+    const payload = parsed.data;
+    let targetSiteId = existing.siteId;
+    let targetSiteCode = existing.site.siteCode;
+    let movedFilePath = existing.filePath;
+    const versionRelocations: Array<{ id: string; nextPath: string; oldPath: string }> = [];
+    const oldPathsToRemove: string[] = [];
+
+    if (payload.siteId && payload.siteId !== existing.siteId) {
+      if (!hasSitePermission(req.user!, payload.siteId, 'canEditDocuments')) {
+        res.status(403).json({ error: 'Permission denied for target site' });
+        return;
+      }
+      const targetSite = await prisma.site.findUnique({
+        where: { id: payload.siteId },
+        select: { id: true, siteCode: true },
+      });
+      if (!targetSite) {
+        res.status(404).json({ error: 'Target site not found' });
+        return;
+      }
+      targetSiteId = targetSite.id;
+      targetSiteCode = targetSite.siteCode;
+
+      // Relocate stored files to target site folder so site cleanup never orphans/removes moved docs
+      try {
+        const currentBuf = readStoredFile(existing.filePath);
+        const relocated = saveSiteFile(
+          targetSiteCode,
+          'documents',
+          normalizeUtf8FileName(existing.originalFileName),
+          currentBuf,
+        );
+        movedFilePath = relocated.relativePath;
+        if (existing.filePath !== movedFilePath) {
+          oldPathsToRemove.push(existing.filePath);
+        }
+      } catch {
+        // Keep existing relative path if file is missing on disk
+      }
+
+      for (const ver of existing.versions) {
+        if (ver.filePath === existing.filePath) {
+          versionRelocations.push({
+            id: ver.id,
+            nextPath: movedFilePath,
+            oldPath: ver.filePath,
+          });
+          continue;
+        }
+        try {
+          const vBuf = readStoredFile(ver.filePath);
+          const vRelocated = saveSiteFile(
+            targetSiteCode,
+            'documents',
+            normalizeUtf8FileName(ver.originalFileName),
+            vBuf,
+          );
+          versionRelocations.push({
+            id: ver.id,
+            nextPath: vRelocated.relativePath,
+            oldPath: ver.filePath,
+          });
+          if (ver.filePath !== vRelocated.relativePath) {
+            oldPathsToRemove.push(ver.filePath);
+          }
+        } catch {
+          // ignore missing historical file
+        }
+      }
+    }
+
+    await prisma.document.update({
+      where: { id: existing.id },
+      data: {
+        siteId: targetSiteId,
+        ...(targetSiteId !== existing.siteId ? { projectId: null } : {}),
+        ...(movedFilePath !== existing.filePath ? { filePath: movedFilePath } : {}),
+        ...(payload.category !== undefined ? { category: payload.category } : {}),
+        ...(payload.documentName !== undefined
+          ? { documentName: normalizeUtf8FileName(payload.documentName) }
+          : {}),
+        ...(payload.projectName !== undefined
+          ? { projectName: payload.projectName || null }
+          : {}),
+        ...(payload.description !== undefined
+          ? { description: payload.description || null }
+          : {}),
+        ...(payload.responsiblePerson !== undefined
+          ? { responsiblePerson: payload.responsiblePerson || null }
+          : {}),
+        ...(payload.remark !== undefined ? { remark: payload.remark || null } : {}),
+      },
+    });
+
+    for (const rel of versionRelocations) {
+      await prisma.documentVersion.update({
+        where: { id: rel.id },
+        data: { filePath: rel.nextPath },
+      });
+    }
+    for (const oldPath of oldPathsToRemove) {
+      deleteStoredFile(oldPath);
+    }
+
+    const updated = await prisma.document.findUniqueOrThrow({
+      where: { id: existing.id },
+      include: {
+        site: { select: { id: true, siteCode: true, siteName: true } },
+        uploadedBy: { select: { id: true, username: true, fullName: true } },
+        versions: {
+          orderBy: { versionNumber: 'desc' },
+          include: { uploadedBy: { select: { id: true, username: true, fullName: true } } },
+        },
+      },
+    });
+
+    await recordAuditLog({
+      req,
+      userId: req.user!.id,
+      username: req.user!.username,
+      action: 'UPDATE_DOCUMENT',
+      module: 'DOCUMENT',
+      siteId: updated.siteId,
+      siteCode: targetSiteCode,
+      details: {
+        documentId: updated.id,
+        documentName: updated.documentName,
+        category: updated.category,
+        movedFromSite: existing.siteId !== updated.siteId ? existing.site.siteCode : undefined,
+      },
+    });
+
+    res.json({
+      document: {
+        ...updated,
+        documentName: normalizeUtf8FileName(updated.documentName),
+        originalFileName: normalizeUtf8FileName(updated.originalFileName),
+        versions: updated.versions.map((v) => ({
+          ...v,
+          originalFileName: normalizeUtf8FileName(v.originalFileName),
+        })),
+      },
+    });
+  } catch (err) {
+    next(err);
+  }
+}
+
+router.put('/:id', handleUpdateDocument);
+router.patch('/:id', handleUpdateDocument);
 
 router.delete('/:id', async (req, res, next) => {
   try {

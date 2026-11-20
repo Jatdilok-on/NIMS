@@ -233,6 +233,7 @@ export interface DocumentItem {
   description?: string | null;
   currentVersion: string;
   versionNumber: number;
+  filePath?: string;
   originalFileName: string;
   mimeType: string;
   fileSize: number;

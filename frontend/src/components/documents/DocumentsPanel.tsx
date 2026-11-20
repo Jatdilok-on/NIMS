@@ -9,6 +9,7 @@ import {
   Folder,
   History,
   Loader2,
+  Pencil,
   Presentation,
   RefreshCw,
   Search,
@@ -552,6 +553,7 @@ export function DocumentsPanel({
   const [showUpload, setShowUpload] = useState(false);
   const [previewDoc, setPreviewDoc] = useState<DocumentItem | null>(null);
   const [previewVersion, setPreviewVersion] = useState<number | null>(null);
+  const [editingDoc, setEditingDoc] = useState<DocumentItem | null>(null);
   const [replaceDoc, setReplaceDoc] = useState<DocumentItem | null>(null);
   const [versionDoc, setVersionDoc] = useState<DocumentItem | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<DocumentItem | null>(null);
@@ -666,13 +668,23 @@ export function DocumentsPanel({
                 documents.map((doc) => (
                   <tr key={doc.id} className="hover:bg-slate-50/70 dark:hover:bg-slate-800/40">
                     <td className="px-4 py-3">
-                      <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setPreviewVersion(null);
+                          setPreviewDoc(doc);
+                        }}
+                        title="คลิกเพื่อเปิดดูไฟล์ (Preview)"
+                        className="flex items-center gap-2 text-left group cursor-pointer"
+                      >
                         <FileText className="h-4 w-4 text-blue-600 shrink-0" />
                         <div>
-                          <div className="font-semibold">{doc.documentName}</div>
+                          <div className="font-semibold text-slate-900 dark:text-white group-hover:text-blue-600 dark:group-hover:text-blue-400 group-hover:underline">
+                            {doc.documentName}
+                          </div>
                           <div className="text-xs text-slate-500">{doc.originalFileName}</div>
                         </div>
-                      </div>
+                      </button>
                     </td>
                     {!fixedSiteId && (
                       <td className="px-4 py-3 text-xs font-semibold">{doc.site?.siteCode}</td>
@@ -710,13 +722,22 @@ export function DocumentsPanel({
                         <History className="h-4 w-4" />
                       </button>
                       {canEdit && (
-                        <button
-                          onClick={() => setReplaceDoc(doc)}
-                          title="Replace / New Version"
-                          className="p-1.5 rounded hover:bg-blue-50 text-blue-600 cursor-pointer"
-                        >
-                          <RefreshCw className="h-4 w-4" />
-                        </button>
+                        <>
+                          <button
+                            onClick={() => setEditingDoc(doc)}
+                            title="แก้ไขข้อมูล / ย้ายที่อยู่ไฟล์ (Site / Folder)"
+                            className="p-1.5 rounded hover:bg-amber-50 dark:hover:bg-amber-950/40 text-amber-600 dark:text-amber-400 cursor-pointer"
+                          >
+                            <Pencil className="h-4 w-4" />
+                          </button>
+                          <button
+                            onClick={() => setReplaceDoc(doc)}
+                            title="Replace / New Version"
+                            className="p-1.5 rounded hover:bg-blue-50 text-blue-600 cursor-pointer"
+                          >
+                            <RefreshCw className="h-4 w-4" />
+                          </button>
+                        </>
                       )}
                       {canDelete && (
                         <button
@@ -866,6 +887,20 @@ export function DocumentsPanel({
         </div>
       )}
 
+      {/* Edit Document Location / Metadata Modal */}
+      {editingDoc && (
+        <EditDocumentModal
+          doc={editingDoc}
+          sites={sites}
+          fixedSiteId={fixedSiteId}
+          onClose={() => setEditingDoc(null)}
+          onSaved={() => {
+            setEditingDoc(null);
+            loadDocuments();
+          }}
+        />
+      )}
+
       {/* Upload / Replace Modals */}
       {(showUpload || replaceDoc) && (
         <UploadDocumentModal
@@ -906,6 +941,214 @@ export function DocumentsPanel({
           onConfirm={confirmDelete}
         />
       )}
+    </div>
+  );
+}
+
+function EditDocumentModal({
+  doc,
+  sites,
+  fixedSiteId,
+  onClose,
+  onSaved,
+}: {
+  doc: DocumentItem;
+  sites: Site[];
+  fixedSiteId?: string;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [siteId, setSiteId] = useState(doc.siteId);
+  const [category, setCategory] = useState<DocumentCategory>(doc.category);
+  const [documentName, setDocumentName] = useState(doc.documentName);
+  const [projectName, setProjectName] = useState(doc.projectName || '');
+  const [responsiblePerson, setResponsiblePerson] = useState(doc.responsiblePerson || '');
+  const [description, setDescription] = useState(doc.description || '');
+  const [remark, setRemark] = useState(doc.remark || '');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!documentName.trim()) {
+      setError('กรุณาระบุชื่อเอกสาร');
+      return;
+    }
+    setSaving(true);
+    setError(null);
+    try {
+      await apiFetch(`/documents/${doc.id}`, {
+        method: 'PUT',
+        body: JSON.stringify({
+          siteId,
+          category,
+          documentName: documentName.trim(),
+          projectName: projectName.trim() || null,
+          responsiblePerson: responsiblePerson.trim() || null,
+          description: description.trim() || null,
+          remark: remark.trim() || null,
+        }),
+      });
+      onSaved();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Failed to update document');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
+      <div className="bg-white dark:bg-slate-900 rounded-2xl max-w-xl w-full max-h-[92vh] overflow-y-auto border border-slate-200 dark:border-slate-800 p-6 space-y-4">
+        <div className="flex items-center justify-between">
+          <div>
+            <h3 className="font-bold text-base">แก้ไขข้อมูล & ที่อยู่ไฟล์เอกสาร</h3>
+            <p className="text-xs text-slate-500">
+              ย้าย Site / Folder ที่เก็บ, เปลี่ยนชื่อเอกสาร หรืออัปเดตผู้รับผิดชอบ
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={saving}
+            className="cursor-pointer p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800"
+          >
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+
+        <div className="rounded-lg bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 px-3 py-2 text-xs space-y-0.5">
+          <div className="text-slate-500">ไฟล์ต้นฉบับ: <span className="font-semibold text-slate-700 dark:text-slate-200">{doc.originalFileName}</span></div>
+          {doc.filePath && (
+            <div className="text-slate-400 font-mono text-[11px] truncate" title={doc.filePath}>
+              Path: {doc.filePath}
+            </div>
+          )}
+        </div>
+
+        {error && (
+          <div className="rounded-lg border border-red-200 bg-red-50 dark:bg-red-950/40 dark:border-red-800 px-3 py-2 text-xs text-red-700 dark:text-red-300">
+            {error}
+          </div>
+        )}
+
+        <form onSubmit={handleSubmit} className="space-y-3 text-sm">
+          <div>
+            <label className="block text-xs font-semibold text-slate-500 mb-1">
+              ชื่อเอกสาร (Document Name) *
+            </label>
+            <input
+              required
+              value={documentName}
+              onChange={(e) => setDocumentName(e.target.value)}
+              className="w-full px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-transparent"
+            />
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            {!fixedSiteId && (
+              <div>
+                <label className="block text-xs font-semibold text-slate-500 mb-1">
+                  ที่อยู่ Site (ย้าย Site)
+                </label>
+                <select
+                  value={siteId}
+                  onChange={(e) => setSiteId(e.target.value)}
+                  className="w-full px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800"
+                >
+                  {sites.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.siteCode} — {s.siteName}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+
+            <div className={fixedSiteId ? 'sm:col-span-2' : ''}>
+              <label className="block text-xs font-semibold text-slate-500 mb-1">
+                โฟลเดอร์เก็บไฟล์ (Folder)
+              </label>
+              <select
+                value={category}
+                onChange={(e) => setCategory(e.target.value as DocumentCategory)}
+                className="w-full px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800"
+              >
+                {DOC_CATEGORIES.filter((c) => c.value).map((c) => (
+                  <option key={c.value} value={c.value}>
+                    {c.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-semibold text-slate-500 mb-1">
+                Project Name
+              </label>
+              <input
+                value={projectName}
+                onChange={(e) => setProjectName(e.target.value)}
+                placeholder="เช่น ASRS Phase 2"
+                className="w-full px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-transparent"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-slate-500 mb-1">
+                ผู้รับผิดชอบ (Responsible Person)
+              </label>
+              <input
+                value={responsiblePerson}
+                onChange={(e) => setResponsiblePerson(e.target.value)}
+                className="w-full px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-transparent"
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-slate-500 mb-1">
+              รายละเอียด (Description)
+            </label>
+            <textarea
+              rows={2}
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              className="w-full px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-transparent"
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-slate-500 mb-1">
+              หมายเหตุ (Remark)
+            </label>
+            <input
+              value={remark}
+              onChange={(e) => setRemark(e.target.value)}
+              className="w-full px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-transparent"
+            />
+          </div>
+
+          <div className="flex justify-end gap-2 pt-2">
+            <button
+              type="button"
+              onClick={onClose}
+              disabled={saving}
+              className="px-4 py-2 rounded-lg border border-slate-300 dark:border-slate-700 cursor-pointer"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={saving}
+              className="px-5 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-semibold cursor-pointer"
+            >
+              {saving ? 'Saving...' : 'Save Changes'}
+            </button>
+          </div>
+        </form>
+      </div>
     </div>
   );
 }

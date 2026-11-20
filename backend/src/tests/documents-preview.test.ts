@@ -1,7 +1,14 @@
 import ExcelJS from 'exceljs';
 import archiver from 'archiver';
-import { describe, expect, it } from 'vitest';
+import request from 'supertest';
+import jwt from 'jsonwebtoken';
+import { DocumentCategory, RoleCode } from '@prisma/client';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { createApp } from '../app';
+import { env } from '../config/env';
+import { hashToken } from '../lib/crypto';
 import { generateDocumentPreview } from '../lib/documentPreview';
+import { prisma } from '../lib/prisma';
 import { buildContentDispositionHeader, normalizeUtf8FileName } from '../lib/storage';
 
 async function buildSampleDocxBuffer(): Promise<Buffer> {
@@ -50,6 +57,10 @@ async function buildSampleDocxBuffer(): Promise<Buffer> {
 }
 
 describe('UTF-8 Filename Normalization & Office Document Preview', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
   it('decodes Multer latin1-garbled Thai filenames back to UTF-8 without altering valid Unicode', () => {
     const originalThai = 'MRK - Replace IP Address - เปลี่ยน IP AddressRev1.0.docx';
     const garbledFromMulter = Buffer.from(originalThai, 'utf8').toString('latin1');
@@ -118,5 +129,97 @@ describe('UTF-8 Filename Normalization & Office Document Preview', () => {
     if (xlsPreview.kind === 'unsupported') {
       expect(xlsPreview.reason).toBe('LEGACY_OFFICE');
     }
+  });
+
+  it('allows updating document location (siteId/category) and name via PUT /api/documents/:id with RBAC', async () => {
+    const app = createApp();
+    const rawJwt = jwt.sign(
+      { sub: 'u-doc-1', sid: 'sess-doc-1', role: RoleCode.SITE_ADMIN },
+      env.jwtSecret,
+      { expiresIn: '1h' },
+    );
+
+    vi.spyOn(prisma.session, 'findUnique').mockResolvedValue({
+      id: 'sess-doc-1',
+      userId: 'u-doc-1',
+      tokenHash: hashToken(rawJwt),
+      ipAddress: '127.0.0.1',
+      userAgent: 'vitest',
+      expiresAt: new Date(Date.now() + 3600_000),
+      revokedAt: null,
+      createdAt: new Date(),
+      user: {
+        id: 'u-doc-1',
+        username: 'siteadmin',
+        email: 'sa@nims.local',
+        fullName: 'Site Admin',
+        passwordHash: 'hash',
+        roleId: 'role-sa',
+        isActive: true,
+        mustChangePassword: false,
+        lastLoginAt: null,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        role: {
+          id: 'role-sa',
+          code: RoleCode.SITE_ADMIN,
+          name: 'Site Admin',
+          description: null,
+          isSystem: true,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        },
+        sitePermissions: [
+          { siteId: 'site-1', canEditDocuments: true, canViewDocuments: true },
+          { siteId: 'site-2', canEditDocuments: false, canViewDocuments: true },
+        ],
+      },
+    } as never);
+
+    vi.spyOn(prisma.document, 'findUnique').mockResolvedValue({
+      id: 'doc-1',
+      siteId: 'site-1',
+      documentName: 'Old Name',
+      documentType: 'XLSX',
+      category: DocumentCategory.NETWORK_DESIGN,
+      filePath: 'sites/AAI/documents/missing.xlsx',
+      originalFileName: 'test.xlsx',
+      site: { id: 'site-1', siteCode: 'AAI' },
+      versions: [],
+    } as never);
+
+    // Moving to unauthorized target site must be denied (403)
+    const deniedMove = await request(app)
+      .put('/api/documents/doc-1')
+      .set('Authorization', `Bearer ${rawJwt}`)
+      .send({ siteId: 'site-2' });
+    expect(deniedMove.status).toBe(403);
+
+    // Updating folder/category & document name within allowed site succeeds (200)
+    const updSpy = vi.spyOn(prisma.document, 'update').mockResolvedValue({ id: 'doc-1' } as never);
+    vi.spyOn(prisma.document, 'findUniqueOrThrow').mockResolvedValue({
+      id: 'doc-1',
+      siteId: 'site-1',
+      documentName: 'เปลี่ยนชื่อเอกสารแล้ว',
+      originalFileName: 'test.xlsx',
+      category: DocumentCategory.INSTALLATION_REPORT,
+      site: { id: 'site-1', siteCode: 'AAI', siteName: 'AAI Site' },
+      uploadedBy: { id: 'u-doc-1', username: 'siteadmin', fullName: 'Site Admin' },
+      versions: [],
+    } as never);
+    vi.spyOn(prisma.auditLog, 'create').mockResolvedValue({} as never);
+
+    const okRes = await request(app)
+      .put('/api/documents/doc-1')
+      .set('Authorization', `Bearer ${rawJwt}`)
+      .send({
+        documentName: 'เปลี่ยนชื่อเอกสารแล้ว',
+        category: DocumentCategory.INSTALLATION_REPORT,
+      });
+
+    expect(okRes.status).toBe(200);
+    expect(okRes.body.document.category).toBe(DocumentCategory.INSTALLATION_REPORT);
+    expect(okRes.body.document.documentName).toBe('เปลี่ยนชื่อเอกสารแล้ว');
+    expect(updSpy).toHaveBeenCalledTimes(1);
   });
 });
