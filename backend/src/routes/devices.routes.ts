@@ -10,7 +10,10 @@ import {
   updateDeviceWithDetails,
 } from '../lib/deviceService';
 import { recordAuditLog } from '../lib/audit';
-import { getLiveAgentSiteIds, isDeviceMonitoredByLiveAgent } from '../lib/agentService';
+import {
+  getLiveAgentSiteIds,
+  withAgentTelemetry,
+} from '../lib/agentService';
 
 const router = Router();
 router.use(authenticate);
@@ -28,6 +31,7 @@ const deviceInputSchema = z.object({
   vlan: z.string().max(40).optional().nullable(),
   location: z.string().max(200).optional().nullable(),
   status: z.nativeEnum(DeviceStatus).optional(),
+  monitorEnabled: z.boolean().optional(),
   responsiblePerson: z.string().max(160).optional().nullable(),
   remark: z.string().max(1000).optional().nullable(),
   switchDetail: z
@@ -142,7 +146,14 @@ router.get('/global-search', async (req, res, next) => {
         : Promise.resolve([]),
     ]);
 
-    res.json({ devices, subnets });
+    const uniqueSiteIds = Array.from(new Set(devices.map((d) => d.siteId)));
+    const liveSiteIds =
+      uniqueSiteIds.length > 0 ? await getLiveAgentSiteIds(uniqueSiteIds) : new Set<string>();
+
+    res.json({
+      devices: devices.map((d) => withAgentTelemetry(d, liveSiteIds)),
+      subnets,
+    });
   } catch (err) {
     next(err);
   }
@@ -205,7 +216,6 @@ router.get('/', async (req, res, next) => {
       where.siteId = { in: permittedSiteIds };
     }
     if (category) where.category = category;
-    if (status) where.status = status;
     if (model) where.model = { contains: model, mode: 'insensitive' };
     if (location) where.location = { contains: location, mode: 'insensitive' };
     if (vlan) where.vlan = { contains: vlan, mode: 'insensitive' };
@@ -232,8 +242,51 @@ router.get('/', async (req, res, next) => {
       serverDetail: true,
     } as const;
 
-    const total = await prisma.device.count({ where });
+    const orderBySpec: Prisma.DeviceOrderByWithRelationInput[] =
+      sortBy === 'itemNo'
+        ? [{ itemNo: sortOrder }, { createdAt: 'asc' }]
+        : [{ [sortBy]: sortOrder }, { itemNo: 'asc' }];
+
     let devices;
+    let total = 0;
+
+    if (status) {
+      // Status filter must reflect effective runtime status (non-agent -> UNKNOWN)
+      const allMatching = await prisma.device.findMany({
+        where,
+        include: deviceInclude,
+        orderBy: orderBySpec,
+      });
+      if (sortBy === 'itemNo') {
+        allMatching.sort((a, b) => {
+          const av = a.itemNo ?? Number.MAX_SAFE_INTEGER;
+          const bv = b.itemNo ?? Number.MAX_SAFE_INTEGER;
+          return sortOrder === 'asc' ? av - bv : bv - av;
+        });
+      }
+      const uniqueSiteIds = Array.from(new Set(allMatching.map((d) => d.siteId)));
+      const liveSiteIds =
+        uniqueSiteIds.length > 0 ? await getLiveAgentSiteIds(uniqueSiteIds) : new Set<string>();
+      const filtered = allMatching
+        .map((d) => withAgentTelemetry(d, liveSiteIds))
+        .filter((d) => d.status === status);
+      total = filtered.length;
+      const start = isAllPageSize ? 0 : (page - 1) * pageSize;
+      devices = isAllPageSize ? filtered : filtered.slice(start, start + pageSize);
+
+      res.json({
+        devices,
+        pagination: {
+          page: isAllPageSize ? 1 : page,
+          pageSize,
+          total,
+          totalPages: isAllPageSize ? 1 : Math.ceil(total / pageSize) || 1,
+        },
+      });
+      return;
+    }
+
+    total = await prisma.device.count({ where });
 
     if (sortBy === 'itemNo' && !isAllPageSize) {
       const skip = (page - 1) * pageSize;
@@ -295,10 +348,7 @@ router.get('/', async (req, res, next) => {
       devices = await prisma.device.findMany({
         where,
         include: deviceInclude,
-        orderBy:
-          sortBy === 'itemNo'
-            ? [{ itemNo: sortOrder }, { createdAt: 'asc' }]
-            : [{ [sortBy]: sortOrder }, { itemNo: 'asc' }],
+        orderBy: orderBySpec,
         skip: isAllPageSize ? 0 : (page - 1) * pageSize,
         take: pageSize,
       });
@@ -317,10 +367,7 @@ router.get('/', async (req, res, next) => {
       uniqueSiteIds.length > 0 ? await getLiveAgentSiteIds(uniqueSiteIds) : new Set<string>();
 
     res.json({
-      devices: devices.map((d) => ({
-        ...d,
-        agentLive: isDeviceMonitoredByLiveAgent(d, liveSiteIds),
-      })),
+      devices: devices.map((d) => withAgentTelemetry(d, liveSiteIds)),
       pagination: {
         page: isAllPageSize ? 1 : page,
         pageSize,
@@ -366,10 +413,7 @@ router.get('/:id', async (req, res, next) => {
 
     const liveSiteIds = await getLiveAgentSiteIds([device.siteId]);
     res.json({
-      device: {
-        ...device,
-        agentLive: isDeviceMonitoredByLiveAgent(device, liveSiteIds),
-      },
+      device: withAgentTelemetry(device, liveSiteIds),
     });
   } catch (err) {
     next(err);
@@ -397,7 +441,8 @@ router.post(
         details: { category: device.category, managementIp: device.managementIp },
       });
 
-      res.status(201).json({ device });
+      const liveSiteIds = await getLiveAgentSiteIds([device.siteId]);
+      res.status(201).json({ device: withAgentTelemetry(device, liveSiteIds) });
     } catch (err) {
       next(err);
     }
@@ -495,10 +540,7 @@ router.put('/:id', async (req, res, next) => {
 
     const liveSiteIds = await getLiveAgentSiteIds([device.siteId]);
     res.json({
-      device: {
-        ...device,
-        agentLive: isDeviceMonitoredByLiveAgent(device, liveSiteIds),
-      },
+      device: withAgentTelemetry(device, liveSiteIds),
     });
   } catch (err) {
     next(err);

@@ -16,6 +16,7 @@ export interface DevicePayload {
   vlan?: string | null;
   location?: string | null;
   status?: DeviceStatus;
+  monitorEnabled?: boolean;
   responsiblePerson?: string | null;
   remark?: string | null;
   switchDetail?: {
@@ -252,6 +253,14 @@ export async function createDeviceWithDetails(payload: DevicePayload) {
     where: { code: payload.category },
   });
 
+  const monitorEnabled = payload.monitorEnabled ?? true;
+  const effectiveCreateStatus =
+    payload.status === DeviceStatus.MAINTENANCE
+      ? DeviceStatus.MAINTENANCE
+      : !cleanIp || !monitorEnabled
+        ? DeviceStatus.UNKNOWN
+        : payload.status ?? DeviceStatus.UNKNOWN;
+
   const tx = prisma;
   const device = await tx.device.create({
       data: {
@@ -267,7 +276,8 @@ export async function createDeviceWithDetails(payload: DevicePayload) {
         managementIp: cleanIp,
         vlan: payload.vlan?.trim() || null,
         location: payload.location?.trim() || null,
-        status: payload.status ?? DeviceStatus.UNKNOWN,
+        status: effectiveCreateStatus,
+        monitorEnabled,
         responsiblePerson: payload.responsiblePerson?.trim() || null,
         remark: payload.remark?.trim() || null,
       },
@@ -410,6 +420,17 @@ export async function updateDeviceWithDetails(deviceId: string, payload: Partial
     }
   }
 
+  const nextMonitorEnabled =
+    payload.monitorEnabled !== undefined ? payload.monitorEnabled : existing.monitorEnabled;
+  const requestedStatus = payload.status !== undefined ? payload.status : existing.status;
+  const monitoringDisabledNow = !nextMonitorEnabled || !cleanIp;
+  const nextStatus =
+    requestedStatus === DeviceStatus.MAINTENANCE
+      ? DeviceStatus.MAINTENANCE
+      : monitoringDisabledNow
+        ? DeviceStatus.UNKNOWN
+        : payload.status;
+
   const tx = prisma;
   const updated = await tx.device.update({
       where: { id: deviceId },
@@ -427,7 +448,11 @@ export async function updateDeviceWithDetails(deviceId: string, payload: Partial
         managementIp: payload.managementIp !== undefined ? cleanIp : undefined,
         vlan: payload.vlan !== undefined ? payload.vlan?.trim() || null : undefined,
         location: payload.location !== undefined ? payload.location?.trim() || null : undefined,
-        status: payload.status !== undefined ? payload.status : undefined,
+        status: nextStatus,
+        monitorEnabled: payload.monitorEnabled !== undefined ? payload.monitorEnabled : undefined,
+        ...(monitoringDisabledNow
+          ? { lastPingAt: null, lastLatencyMs: null, consecutiveMisses: 0 }
+          : {}),
         responsiblePerson:
           payload.responsiblePerson !== undefined
             ? payload.responsiblePerson?.trim() || null
@@ -855,7 +880,7 @@ export async function syncDiagramNodesToInventory(
         typeof data.status === 'string' &&
         ['ONLINE', 'OFFLINE', 'MAINTENANCE', 'UNKNOWN'].includes(data.status)
           ? (data.status as DeviceStatus)
-          : DeviceStatus.ONLINE;
+          : DeviceStatus.UNKNOWN;
 
       targetDevice = await createDeviceWithDetails({
         siteId,

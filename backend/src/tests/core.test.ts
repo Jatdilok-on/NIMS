@@ -9,6 +9,8 @@ import {
   evaluateDevicePingOutcome,
   generateAgentTokenPair,
   isDeviceMonitoredByLiveAgent,
+  resolveEffectiveDeviceStatus,
+  withAgentTelemetry,
 } from '../lib/agentService';
 import {
   enumerateBlock24Hosts,
@@ -493,5 +495,70 @@ describe('Site Agent Ping Evaluation & Token Helpers', () => {
         liveSites,
       ),
     ).toBe(false);
+  });
+
+  it('resolves non-agent-pinged devices as UNKNOWN unless in MAINTENANCE', () => {
+    const liveSites = new Set(['site-amw']);
+    const pingedAt = new Date();
+
+    // Active agent + valid IP + monitorEnabled + recent ping -> ONLINE with latency
+    const liveDev = withAgentTelemetry(
+      {
+        siteId: 'site-amw',
+        status: DeviceStatus.ONLINE,
+        managementIp: '191.20.110.5',
+        monitorEnabled: true,
+        lastPingAt: pingedAt,
+        lastLatencyMs: 8,
+      },
+      liveSites,
+    );
+    expect(liveDev.status).toBe(DeviceStatus.ONLINE);
+    expect(liveDev.agentLive).toBe(true);
+    expect(liveDev.lastLatencyMs).toBe(8);
+
+    // Monitoring disabled -> UNKNOWN & latency cleared
+    const disabledDev = withAgentTelemetry(
+      {
+        siteId: 'site-amw',
+        status: DeviceStatus.ONLINE,
+        managementIp: '191.20.110.5',
+        monitorEnabled: false,
+        lastPingAt: pingedAt,
+        lastLatencyMs: 8,
+      },
+      liveSites,
+    );
+    expect(disabledDev.status).toBe(DeviceStatus.UNKNOWN);
+    expect(disabledDev.agentLive).toBe(false);
+    expect(disabledDev.lastLatencyMs).toBeNull();
+
+    // No valid IP, offline/no site agent, or never pinged -> UNKNOWN
+    expect(
+      resolveEffectiveDeviceStatus(
+        { siteId: 'site-amw', status: DeviceStatus.ONLINE, managementIp: null, monitorEnabled: true, lastPingAt: pingedAt },
+        liveSites,
+      ),
+    ).toBe(DeviceStatus.UNKNOWN);
+    expect(
+      resolveEffectiveDeviceStatus(
+        { siteId: 'site-no-agent', status: DeviceStatus.OFFLINE, managementIp: '10.0.0.1', monitorEnabled: true, lastPingAt: pingedAt },
+        liveSites,
+      ),
+    ).toBe(DeviceStatus.UNKNOWN);
+    expect(
+      resolveEffectiveDeviceStatus(
+        { siteId: 'site-amw', status: DeviceStatus.ONLINE, managementIp: '191.20.110.5', monitorEnabled: true, lastPingAt: null },
+        liveSites,
+      ),
+    ).toBe(DeviceStatus.UNKNOWN);
+
+    // MAINTENANCE is always preserved even without Agent Ping
+    expect(
+      resolveEffectiveDeviceStatus(
+        { siteId: 'site-no-agent', status: DeviceStatus.MAINTENANCE, managementIp: null, monitorEnabled: false, lastPingAt: null },
+        liveSites,
+      ),
+    ).toBe(DeviceStatus.MAINTENANCE);
   });
 });

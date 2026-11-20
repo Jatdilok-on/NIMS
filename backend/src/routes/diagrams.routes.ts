@@ -22,6 +22,11 @@ import {
 } from '../lib/visio';
 import { recordAuditLog } from '../lib/audit';
 import { syncDiagramNodesToInventory } from '../lib/deviceService';
+import {
+  getLiveAgentSiteIds,
+  isDeviceMonitoredByLiveAgent,
+  resolveEffectiveDeviceStatus,
+} from '../lib/agentService';
 
 const router = Router();
 router.use(authenticate);
@@ -92,24 +97,32 @@ async function enrichCanvasWithLiveInventory(canvasData: unknown, siteId?: strin
     .map((n) => n.data?.deviceId)
     .filter((id): id is string => typeof id === 'string' && id.length > 0);
 
-  if (deviceIds.length === 0) return canvasData;
-
-  const devices = await prisma.device.findMany({
-    where: { id: { in: deviceIds }, ...(siteId ? { siteId } : {}) },
-    select: {
-      id: true,
-      name: true,
-      model: true,
-      vendor: true,
-      managementIp: true,
-      macAddress: true,
-      serialNumber: true,
-      location: true,
-      vlan: true,
-      status: true,
-      category: true,
-    },
-  });
+  const devices =
+    deviceIds.length > 0
+      ? await prisma.device.findMany({
+          where: { id: { in: deviceIds }, ...(siteId ? { siteId } : {}) },
+          select: {
+            id: true,
+            siteId: true,
+            name: true,
+            model: true,
+            vendor: true,
+            managementIp: true,
+            macAddress: true,
+            serialNumber: true,
+            location: true,
+            vlan: true,
+            status: true,
+            monitorEnabled: true,
+            lastPingAt: true,
+            lastLatencyMs: true,
+            category: true,
+          },
+        })
+      : [];
+  const uniqueSiteIds = Array.from(new Set(devices.map((d) => d.siteId)));
+  const liveSiteIds =
+    uniqueSiteIds.length > 0 ? await getLiveAgentSiteIds(uniqueSiteIds) : new Set<string>();
   const devMap = new Map(devices.map((d) => [d.id, d]));
 
   return {
@@ -118,6 +131,8 @@ async function enrichCanvasWithLiveInventory(canvasData: unknown, siteId?: strin
       const devId = node.data?.deviceId;
       if (typeof devId === 'string' && devMap.has(devId)) {
         const d = devMap.get(devId)!;
+        const agentLive = isDeviceMonitoredByLiveAgent(d, liveSiteIds);
+        const effectiveStatus = resolveEffectiveDeviceStatus(d, liveSiteIds);
         return {
           ...node,
           data: {
@@ -130,8 +145,30 @@ async function enrichCanvasWithLiveInventory(canvasData: unknown, siteId?: strin
             serialNumber: d.serialNumber,
             location: d.location,
             vlan: d.vlan,
-            status: d.status,
+            status: effectiveStatus,
+            agentLive,
+            lastPingAt: d.lastPingAt,
+            lastLatencyMs:
+              agentLive && effectiveStatus === 'ONLINE' ? d.lastLatencyMs ?? null : null,
             category: d.category,
+          },
+        };
+      }
+      if (
+        node.data &&
+        node.data.deviceType !== 'note' &&
+        typeof node.data.deviceType === 'string' &&
+        !node.data.deviceType.startsWith('zone_') &&
+        !node.data.deviceType.startsWith('shape_') &&
+        node.data.status !== 'MAINTENANCE'
+      ) {
+        return {
+          ...node,
+          data: {
+            ...node.data,
+            status: 'UNKNOWN',
+            agentLive: false,
+            lastLatencyMs: null,
           },
         };
       }

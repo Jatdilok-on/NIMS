@@ -3,6 +3,7 @@ import { DeviceCategory, DeviceStatus, Prisma, RoleCode } from '@prisma/client';
 import { prisma } from '../lib/prisma';
 import { authenticate } from '../middleware/auth';
 import { getPermittedSiteIds } from '../middleware/rbac';
+import { getLiveAgentSiteIds, resolveEffectiveDeviceStatus } from '../lib/agentService';
 
 const router = Router();
 
@@ -53,7 +54,8 @@ router.get('/summary', async (req, res, next) => {
     const [
       sites,
       categoryGroups,
-      statusGroups,
+      deviceStatusRows,
+      liveSiteIds,
       recentCreatedDevices,
       totalDocuments,
       totalDiagrams,
@@ -74,11 +76,17 @@ router.get('/summary', async (req, res, next) => {
         where: deviceWhere,
         _count: { _all: true },
       }),
-      prisma.device.groupBy({
-        by: ['status'],
+      prisma.device.findMany({
         where: deviceWhere,
-        _count: { _all: true },
+        select: {
+          siteId: true,
+          status: true,
+          managementIp: true,
+          monitorEnabled: true,
+          lastPingAt: true,
+        },
       }),
+      getLiveAgentSiteIds(scopedSiteIds),
       prisma.device.findMany({
         where: { ...deviceWhere, createdAt: { gte: twelveMonthsStart } },
         select: { createdAt: true },
@@ -133,8 +141,9 @@ router.get('/summary', async (req, res, next) => {
       byCategory[grp.category] = grp._count._all;
       totalNetworkDevices += grp._count._all;
     }
-    for (const grp of statusGroups) {
-      byStatus[grp.status] = grp._count._all;
+    for (const dev of deviceStatusRows) {
+      const effectiveStatus = resolveEffectiveDeviceStatus(dev, liveSiteIds);
+      byStatus[effectiveStatus] = (byStatus[effectiveStatus] ?? 0) + 1;
     }
 
     const monthlyMap = new Map<string, number>();

@@ -19,7 +19,7 @@ import {
   releaseDeviceIpamAllocations,
   syncDeviceIpamAllocation,
 } from '../lib/deviceService';
-import { getLiveAgentSiteIds, isDeviceMonitoredByLiveAgent } from '../lib/agentService';
+import { getLiveAgentSiteIds, withAgentTelemetry } from '../lib/agentService';
 import { recordAuditLog } from '../lib/audit';
 
 const router = Router();
@@ -590,10 +590,7 @@ router.get('/subnets/:id/ips', async (req, res, next) => {
       macAddress: record.macAddress || record.device?.macAddress || null,
       description: record.description || null,
       device: record.device
-        ? {
-            ...record.device,
-            agentLive: isDeviceMonitoredByLiveAgent(record.device, liveSiteIds),
-          }
+        ? withAgentTelemetry(record.device, liveSiteIds)
         : null,
     });
 

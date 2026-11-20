@@ -694,6 +694,11 @@ export function InventoryPanel({
                         canEdit={canEdit}
                         onChange={(nextStatus) => handleQuickStatusChange(dev, nextStatus)}
                       />
+                      {dev.monitorEnabled === false && (
+                        <div className="text-[10px] font-medium text-slate-400 mt-1">
+                          Agent Ping: OFF
+                        </div>
+                      )}
                       {dev.lastPingAt && (
                         <div className="text-[10px] font-mono text-slate-400 mt-1">
                           {dev.lastLatencyMs != null
@@ -1079,7 +1084,10 @@ function DeviceFormModal({
   const [managementIp, setManagementIp] = useState(editing?.managementIp || '');
   const [vlan, setVlan] = useState(editing?.vlan || '');
   const [location, setLocation] = useState(editing?.location || '');
-  const [status, setStatus] = useState<DeviceStatus>(editing?.status || 'ONLINE');
+  const [status, setStatus] = useState<DeviceStatus>(editing?.status || 'UNKNOWN');
+  const [monitorEnabled, setMonitorEnabled] = useState<boolean>(
+    editing ? editing.monitorEnabled !== false : true,
+  );
   const [responsiblePerson, setResponsiblePerson] = useState(editing?.responsiblePerson || '');
   const [remark, setRemark] = useState(editing?.remark || '');
 
@@ -1132,6 +1140,7 @@ function DeviceFormModal({
         vlan: vlan || null,
         location: location || null,
         status,
+        monitorEnabled,
         responsiblePerson: responsiblePerson || null,
         remark: remark || null,
       };
@@ -1366,10 +1375,10 @@ function DeviceFormModal({
                 onChange={(e) => setStatus(e.target.value as DeviceStatus)}
                 className="w-full px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800"
               >
-                <option value="ONLINE">Online</option>
-                <option value="OFFLINE">Offline</option>
-                <option value="MAINTENANCE">Maintenance</option>
                 <option value="UNKNOWN">Unknown</option>
+                <option value="MAINTENANCE">Maintenance</option>
+                <option value="ONLINE">Online (Agent Ping)</option>
+                <option value="OFFLINE">Offline (Agent Ping)</option>
               </select>
             </div>
 
@@ -1380,6 +1389,25 @@ function DeviceFormModal({
                 onChange={(e) => setResponsiblePerson(e.target.value)}
                 className="w-full px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-transparent"
               />
+            </div>
+
+            <div className="sm:col-span-2">
+              <label className="flex items-start gap-2.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50/70 dark:bg-slate-800/40 px-3 py-2.5 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={monitorEnabled}
+                  onChange={(e) => setMonitorEnabled(e.target.checked)}
+                  className="mt-0.5 rounded border-slate-300"
+                />
+                <div className="text-xs leading-relaxed">
+                  <div className="font-semibold text-slate-800 dark:text-slate-100">
+                    เปิดใช้งาน Site Agent Ping อัตโนมัติ (Agent Monitoring)
+                  </div>
+                  <div className="text-slate-500 dark:text-slate-400">
+                    หากปิดไว้, ไม่มี Management IP, หรือ Site ยังไม่มี Agent ออนไลน์ ระบบจะแสดงสถานะเป็น <strong>UNKNOWN</strong> โดยอัตโนมัติ (ยกเว้น <code>MAINTENANCE</code>)
+                  </div>
+                </div>
+              </label>
             </div>
           </div>
 

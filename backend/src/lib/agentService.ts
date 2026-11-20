@@ -144,3 +144,46 @@ export function isDeviceMonitoredByLiveAgent(
     isAgentTargetIpValid(device.managementIp)
   );
 }
+
+/**
+ * Devices not actively monitored by a live Site Agent (or never pinged by one)
+ * report UNKNOWN status instead of stale ONLINE/OFFLINE, unless in MAINTENANCE.
+ */
+export function resolveEffectiveDeviceStatus(
+  device: {
+    siteId: string;
+    status: DeviceStatus;
+    managementIp?: string | null;
+    monitorEnabled?: boolean | null;
+    lastPingAt?: Date | string | null;
+  },
+  liveSiteIds: Set<string>,
+): DeviceStatus {
+  if (device.status === DeviceStatus.MAINTENANCE) {
+    return DeviceStatus.MAINTENANCE;
+  }
+  if (!isDeviceMonitoredByLiveAgent(device, liveSiteIds) || !device.lastPingAt) {
+    return DeviceStatus.UNKNOWN;
+  }
+  return device.status;
+}
+
+export function withAgentTelemetry<
+  T extends {
+    siteId: string;
+    status: DeviceStatus;
+    managementIp?: string | null;
+    monitorEnabled?: boolean | null;
+    lastPingAt?: Date | string | null;
+    lastLatencyMs?: number | null;
+  },
+>(device: T, liveSiteIds: Set<string>): T & { agentLive: boolean } {
+  const agentLive = isDeviceMonitoredByLiveAgent(device, liveSiteIds);
+  const status = resolveEffectiveDeviceStatus(device, liveSiteIds);
+  return {
+    ...device,
+    status,
+    agentLive,
+    lastLatencyMs: agentLive && status === DeviceStatus.ONLINE ? device.lastLatencyMs ?? null : null,
+  };
+}

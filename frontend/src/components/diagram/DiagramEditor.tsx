@@ -493,7 +493,7 @@ function InnerDiagramEditor({
         deviceType,
         inventoryCategory: isHardware ? mapIconTypeToCategory(deviceType) : undefined,
         syncToInventory: isHardware,
-        status: deviceType === 'note' ? undefined : 'ONLINE',
+        status: deviceType === 'note' ? undefined : 'UNKNOWN',
       },
     };
     const nextNodes = [...nodes, newNode];
@@ -772,7 +772,7 @@ function InnerDiagramEditor({
       const status =
         nd.status && ['ONLINE', 'OFFLINE', 'MAINTENANCE', 'UNKNOWN'].includes(nd.status)
           ? (nd.status as DeviceStatus)
-          : 'ONLINE';
+          : 'UNKNOWN';
 
       const res = await apiFetch<{ device: Device }>('/devices', {
         method: 'POST',
@@ -860,7 +860,7 @@ function InnerDiagramEditor({
           customIconUrl: reader.result,
           inventoryCategory: 'SWITCH',
           syncToInventory: false,
-          status: 'ONLINE',
+          status: 'UNKNOWN',
         },
       };
       const nextNodes = [...nodes, newNode];
@@ -1277,7 +1277,7 @@ function InnerDiagramEditor({
                   deviceType: 'custom_icon',
                   customIconUrl: reader.result,
                   syncToInventory: false,
-                  status: 'ONLINE',
+                  status: 'UNKNOWN',
                 },
               };
               const nextNodes = [

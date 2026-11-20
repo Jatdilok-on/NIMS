@@ -16,6 +16,7 @@ import {
 } from '../lib/excel';
 import { isValidIpv4, normalizeMacAddress } from '../lib/ipam';
 import { createDeviceWithDetails, DevicePayload } from '../lib/deviceService';
+import { getLiveAgentSiteIds, resolveEffectiveDeviceStatus } from '../lib/agentService';
 import { recordAuditLog } from '../lib/audit';
 
 const router = Router();
@@ -550,6 +551,10 @@ router.get('/export', async (req, res, next) => {
       return a.name.localeCompare(b.name);
     });
 
+    const uniqueSiteIds = Array.from(new Set(devices.map((d) => d.siteId)));
+    const liveSiteIds =
+      uniqueSiteIds.length > 0 ? await getLiveAgentSiteIds(uniqueSiteIds) : new Set<string>();
+
     const exportRows = devices.map((d) => ({
       itemNo: d.itemNo,
       siteCode: d.site.siteCode,
@@ -562,7 +567,7 @@ router.get('/export', async (req, res, next) => {
       managementIp: d.managementIp,
       vlan: d.vlan,
       location: d.location,
-      status: d.status,
+      status: resolveEffectiveDeviceStatus(d, liveSiteIds),
       responsiblePerson: d.responsiblePerson,
       remark: d.remark,
     }));

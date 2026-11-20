@@ -1,7 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import { NextFunction, Request, Response, Router } from 'express';
-import { Prisma, RoleCode } from '@prisma/client';
+import { DeviceStatus, Prisma, RoleCode } from '@prisma/client';
 import { z } from 'zod';
 import { prisma } from '../lib/prisma';
 import { authenticate } from '../middleware/auth';
@@ -738,10 +738,26 @@ router.patch('/devices/:deviceId/monitoring', async (req, res, next) => {
       return;
     }
 
+    const disablingMonitor = parsed.data.monitorEnabled === false;
+    const nextStatusWhenDisabled =
+      device.status === DeviceStatus.MAINTENANCE
+        ? DeviceStatus.MAINTENANCE
+        : DeviceStatus.UNKNOWN;
+
     const updated = await prisma.device.update({
       where: { id: device.id },
-      data: { monitorEnabled: parsed.data.monitorEnabled },
-      select: { id: true, name: true, monitorEnabled: true },
+      data: {
+        monitorEnabled: parsed.data.monitorEnabled,
+        ...(disablingMonitor
+          ? {
+              status: nextStatusWhenDisabled,
+              lastPingAt: null,
+              lastLatencyMs: null,
+              consecutiveMisses: 0,
+            }
+          : {}),
+      },
+      select: { id: true, name: true, monitorEnabled: true, status: true },
     });
 
     await recordAuditLog({
