@@ -4,9 +4,12 @@ import React, { useCallback, useEffect, useState } from 'react';
 import {
   Download,
   Eye,
+  FileSpreadsheet,
   FileText,
   Folder,
   History,
+  Loader2,
+  Presentation,
   RefreshCw,
   Search,
   Trash2,
@@ -23,6 +26,500 @@ import {
   stripFileExtension,
 } from '@/components/common/FileDropzone';
 import { DocumentCategory, DocumentItem, Site } from '@/lib/types';
+
+interface SpreadsheetCellPreview {
+  text: string;
+  bold?: boolean;
+  align?: 'left' | 'center' | 'right';
+  bg?: string;
+}
+
+interface SpreadsheetSheetPreview {
+  name: string;
+  totalRows: number;
+  totalCols: number;
+  truncatedRows: boolean;
+  truncatedCols: boolean;
+  rows: SpreadsheetCellPreview[][];
+}
+
+interface WordRunPreview {
+  text: string;
+  bold?: boolean;
+  italic?: boolean;
+  underline?: boolean;
+  strike?: boolean;
+  color?: string;
+  href?: string;
+  imageDataUrl?: string;
+}
+
+type WordBlockPreview =
+  | {
+      type: 'heading';
+      level: 1 | 2 | 3 | 4;
+      align?: 'left' | 'center' | 'right';
+      runs: WordRunPreview[];
+    }
+  | {
+      type: 'paragraph';
+      isList?: boolean;
+      listLevel?: number;
+      align?: 'left' | 'center' | 'right';
+      runs: WordRunPreview[];
+    }
+  | {
+      type: 'table';
+      rows: Array<{
+        isHeader?: boolean;
+        cells: Array<{
+          colSpan?: number;
+          bg?: string;
+          blocks: Array<{
+            align?: 'left' | 'center' | 'right';
+            runs: WordRunPreview[];
+          }>;
+        }>;
+      }>;
+    };
+
+type StructuredPreviewPayload =
+  | { kind: 'spreadsheet'; fileName: string; sheets: SpreadsheetSheetPreview[] }
+  | { kind: 'word'; fileName: string; blocks: WordBlockPreview[]; truncated: boolean }
+  | { kind: 'slides'; fileName: string; slides: Array<{ slideNumber: number; lines: string[] }> }
+  | { kind: 'unsupported'; fileName: string; reason: 'LEGACY_OFFICE' | 'UNSUPPORTED'; message: string };
+
+function getDocExt(fileName: string): string {
+  const idx = fileName.lastIndexOf('.');
+  return idx >= 0 ? fileName.slice(idx).toLowerCase() : '';
+}
+
+function isStructuredOfficePreview(doc: DocumentItem, fileNameOverride?: string): boolean {
+  const ext = getDocExt(fileNameOverride || doc.originalFileName);
+  return ['.docx', '.xlsx', '.csv', '.pptx', '.doc', '.xls', '.ppt'].includes(ext);
+}
+
+function inferPreviewMimeType(fileName: string, fallback: string): string {
+  const ext = getDocExt(fileName);
+  switch (ext) {
+    case '.pdf':
+      return 'application/pdf';
+    case '.png':
+      return 'image/png';
+    case '.jpg':
+    case '.jpeg':
+      return 'image/jpeg';
+    case '.gif':
+      return 'image/gif';
+    case '.webp':
+      return 'image/webp';
+    case '.svg':
+      return 'image/svg+xml';
+    case '.txt':
+    case '.cfg':
+    case '.conf':
+    case '.xml':
+    case '.drawio':
+      return 'text/plain; charset=utf-8';
+    case '.json':
+      return 'application/json; charset=utf-8';
+    default:
+      return fallback;
+  }
+}
+
+function toExcelColumnLetter(zeroIndex: number): string {
+  let n = zeroIndex + 1;
+  let col = '';
+  while (n > 0) {
+    const rem = (n - 1) % 26;
+    col = String.fromCharCode(65 + rem) + col;
+    n = Math.floor((n - 1) / 26);
+  }
+  return col;
+}
+
+function alignClass(align?: 'left' | 'center' | 'right'): string {
+  if (align === 'center') return 'text-center';
+  if (align === 'right') return 'text-right';
+  return 'text-left';
+}
+
+function renderWordRuns(runs: WordRunPreview[]) {
+  if (runs.length === 0) {
+    return <span>{'\u00A0'}</span>;
+  }
+  return runs.map((run, idx) => {
+    if (run.imageDataUrl) {
+      return (
+        <img
+          key={idx}
+          src={run.imageDataUrl}
+          alt="Embedded document image"
+          className="inline-block max-w-full h-auto my-2 rounded border border-slate-200 dark:border-slate-700"
+        />
+      );
+    }
+    const cls = [
+      run.bold ? 'font-bold' : '',
+      run.italic ? 'italic' : '',
+      run.underline ? 'underline' : '',
+      run.strike ? 'line-through' : '',
+    ]
+      .filter(Boolean)
+      .join(' ');
+    const style = run.color ? { color: run.color } : undefined;
+    if (run.href) {
+      return (
+        <a
+          key={idx}
+          href={run.href}
+          target="_blank"
+          rel="noopener noreferrer"
+          className={`text-blue-600 dark:text-blue-400 underline ${cls}`}
+          style={style}
+        >
+          {run.text}
+        </a>
+      );
+    }
+    return (
+      <span key={idx} className={`whitespace-pre-wrap ${cls}`} style={style}>
+        {run.text}
+      </span>
+    );
+  });
+}
+
+function OfficePreviewPane({
+  doc,
+  versionNumber,
+}: {
+  doc: DocumentItem;
+  versionNumber: number | null;
+}) {
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [payload, setPayload] = useState<StructuredPreviewPayload | null>(null);
+  const [activeSheetIdx, setActiveSheetIdx] = useState(0);
+  const [sheetSearch, setSheetSearch] = useState('');
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setError(null);
+    setPayload(null);
+    setActiveSheetIdx(0);
+    setSheetSearch('');
+
+    const qs = versionNumber !== null ? `?version=${versionNumber}` : '';
+    apiFetch<{ preview: StructuredPreviewPayload }>(`/documents/${doc.id}/preview${qs}`)
+      .then((res) => {
+        if (!cancelled) {
+          setPayload(res.preview);
+          setLoading(false);
+        }
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          setError(err instanceof ApiError ? err.message : 'Failed to load document preview');
+          setLoading(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [doc.id, versionNumber]);
+
+  const downloadHref = `/api/documents/${doc.id}/download${versionNumber !== null ? `?version=${versionNumber}` : ''}`;
+
+  if (loading) {
+    return (
+      <div className="flex flex-col items-center justify-center h-full gap-2 text-slate-500 text-xs">
+        <Loader2 className="h-6 w-6 animate-spin text-blue-600" />
+        <span>กำลังโหลดตัวอย่างเอกสาร...</span>
+      </div>
+    );
+  }
+
+  if (error || !payload) {
+    return (
+      <div className="flex flex-col items-center justify-center h-full gap-3 p-6 text-center">
+        <p className="text-sm text-red-600 dark:text-red-400">{error || 'Unable to preview document'}</p>
+        <a
+          href={downloadHref}
+          className="inline-block px-4 py-2 rounded-lg bg-blue-600 text-white text-xs font-semibold"
+        >
+          Download {doc.originalFileName}
+        </a>
+      </div>
+    );
+  }
+
+  if (payload.kind === 'unsupported') {
+    return (
+      <div className="flex flex-col items-center justify-center h-full gap-3 p-6 text-center max-w-md mx-auto">
+        <FileText className="h-10 w-10 text-slate-400" />
+        <p className="text-sm font-medium text-slate-700 dark:text-slate-200">{payload.message}</p>
+        {payload.reason === 'LEGACY_OFFICE' && (
+          <p className="text-xs text-slate-500">
+            แนะนำให้บันทึกไฟล์เป็น <code>.docx</code> หรือ <code>.xlsx</code> แล้วอัปโหลดใหม่เพื่อให้เปิดดูบนหน้าเว็บได้ทันที
+          </p>
+        )}
+        <a
+          href={downloadHref}
+          className="inline-block px-4 py-2 rounded-lg bg-blue-600 text-white text-xs font-semibold"
+        >
+          Download {payload.fileName}
+        </a>
+      </div>
+    );
+  }
+
+  if (payload.kind === 'spreadsheet') {
+    const sheets = payload.sheets;
+    const sheet = sheets[activeSheetIdx] || sheets[0];
+    if (!sheet) {
+      return (
+        <div className="flex items-center justify-center h-full text-sm text-slate-500">
+          ไฟล์ Excel นี้ไม่มีข้อมูลชีต
+        </div>
+      );
+    }
+
+    const q = sheetSearch.trim().toLowerCase();
+    const indexedRows = sheet.rows
+      .map((cells, idx) => ({ rowNumber: idx + 1, cells }))
+      .filter(({ cells }) => !q || cells.some((c) => c.text.toLowerCase().includes(q)));
+
+    const maxCols = Math.max(1, ...sheet.rows.map((r) => r.length));
+
+    return (
+      <div className="flex flex-col h-full w-full bg-white dark:bg-slate-900">
+        {/* Toolbar: Sheet Tabs + Search */}
+        <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-2.5 border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/80">
+          <div className="flex flex-wrap items-center gap-1.5">
+            <FileSpreadsheet className="h-4 w-4 text-emerald-600 shrink-0 mr-1" />
+            {sheets.map((s, idx) => (
+              <button
+                key={`${s.name}-${idx}`}
+                type="button"
+                onClick={() => setActiveSheetIdx(idx)}
+                className={`px-3 py-1 rounded-lg text-xs font-semibold transition cursor-pointer ${
+                  idx === activeSheetIdx
+                    ? 'bg-emerald-600 text-white shadow-sm'
+                    : 'bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700'
+                }`}
+              >
+                {s.name}
+              </button>
+            ))}
+          </div>
+
+          <div className="flex items-center gap-2">
+            <div className="relative">
+              <Search className="h-3.5 w-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
+              <input
+                value={sheetSearch}
+                onChange={(e) => setSheetSearch(e.target.value)}
+                placeholder="ค้นหาในชีต..."
+                className="pl-8 pr-3 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950 text-xs w-44 sm:w-56"
+              />
+            </div>
+            <span className="text-[11px] text-slate-500 whitespace-nowrap">
+              {indexedRows.length} / {sheet.totalRows} rows
+            </span>
+          </div>
+        </div>
+
+        {(sheet.truncatedRows || sheet.truncatedCols) && (
+          <div className="px-4 py-1.5 bg-amber-50 dark:bg-amber-950/40 border-b border-amber-200 dark:border-amber-900 text-[11px] text-amber-800 dark:text-amber-200">
+            แสดงตัวอย่างสูงสุด {sheet.rows.length} แถว / {maxCols} คอลัมน์ (จากทั้งหมด {sheet.totalRows} แถว) — กด Download เพื่อดูข้อมูลครบทั้งหมด
+          </div>
+        )}
+
+        <div className="flex-1 overflow-auto">
+          <table className="w-full border-collapse text-xs font-sans">
+            <thead className="sticky top-0 z-10 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">
+              <tr>
+                <th className="w-11 px-2 py-1.5 border border-slate-200 dark:border-slate-700 text-center font-mono text-[10px]">
+                  #
+                </th>
+                {Array.from({ length: maxCols }).map((_, cIdx) => (
+                  <th
+                    key={cIdx}
+                    className="px-2.5 py-1.5 border border-slate-200 dark:border-slate-700 text-center font-mono text-[11px] font-semibold min-w-[90px]"
+                  >
+                    {toExcelColumnLetter(cIdx)}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {indexedRows.length === 0 ? (
+                <tr>
+                  <td
+                    colSpan={maxCols + 1}
+                    className="px-4 py-8 text-center text-slate-400"
+                  >
+                    ไม่พบข้อมูลในชีตนี้
+                  </td>
+                </tr>
+              ) : (
+                indexedRows.map(({ rowNumber, cells }) => (
+                  <tr
+                    key={rowNumber}
+                    className="hover:bg-blue-50/40 dark:hover:bg-blue-950/20"
+                  >
+                    <td className="px-2 py-1.5 border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/60 text-center font-mono text-[10px] text-slate-500">
+                      {rowNumber}
+                    </td>
+                    {Array.from({ length: maxCols }).map((_, cIdx) => {
+                      const cell = cells[cIdx];
+                      return (
+                        <td
+                          key={cIdx}
+                          className={`px-2.5 py-1.5 border border-slate-200 dark:border-slate-800 whitespace-pre-wrap break-words text-slate-800 dark:text-slate-100 ${
+                            cell?.bold ? 'font-bold' : ''
+                          } ${alignClass(cell?.align)}`}
+                          style={cell?.bg ? { backgroundColor: cell.bg, color: '#0f172a' } : undefined}
+                        >
+                          {cell?.text || ''}
+                        </td>
+                      );
+                    })}
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    );
+  }
+
+  if (payload.kind === 'slides') {
+    return (
+      <div className="w-full h-full overflow-y-auto p-4 sm:p-6 space-y-4">
+        {payload.slides.map((s) => (
+          <div
+            key={s.slideNumber}
+            className="max-w-3xl mx-auto rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-5 shadow-sm space-y-2"
+          >
+            <div className="inline-flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide text-amber-600 dark:text-amber-400">
+              <Presentation className="h-3.5 w-3.5" />
+              Slide {s.slideNumber}
+            </div>
+            {s.lines.length === 0 ? (
+              <p className="text-xs text-slate-400 italic">(No text content)</p>
+            ) : (
+              <ul className="space-y-1 text-sm text-slate-800 dark:text-slate-100">
+                {s.lines.map((line, i) => (
+                  <li key={i} className={i === 0 ? 'font-bold text-base' : ''}>
+                    {line}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  // Word (.docx)
+  return (
+    <div className="w-full h-full overflow-y-auto p-4 sm:p-6">
+      <div className="max-w-3xl mx-auto rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-sm p-6 sm:p-10 space-y-3 text-sm text-slate-800 dark:text-slate-100 leading-relaxed">
+        {payload.truncated && (
+          <div className="rounded-lg bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900 px-3 py-2 text-xs text-amber-800 dark:text-amber-200">
+            เอกสารมีความยาวมาก ระบบแสดงตัวอย่างบางส่วน — กด Download เพื่อเปิดอ่านฉบับเต็ม
+          </div>
+        )}
+        {payload.blocks.length === 0 ? (
+          <div className="text-center text-slate-400 py-8">ไม่พบเนื้อหาข้อความในไฟล์ Word นี้</div>
+        ) : (
+          payload.blocks.map((block, bIdx) => {
+            if (block.type === 'heading') {
+              const sizeCls =
+                block.level === 1
+                  ? 'text-xl font-bold text-slate-900 dark:text-white pt-2'
+                  : block.level === 2
+                    ? 'text-lg font-bold text-slate-900 dark:text-white pt-1.5'
+                    : block.level === 3
+                      ? 'text-base font-bold text-slate-800 dark:text-slate-100 pt-1'
+                      : 'text-sm font-bold text-slate-800 dark:text-slate-100';
+              return (
+                <div key={bIdx} className={`${sizeCls} ${alignClass(block.align)}`}>
+                  {renderWordRuns(block.runs)}
+                </div>
+              );
+            }
+
+            if (block.type === 'table') {
+              return (
+                <div key={bIdx} className="overflow-x-auto my-3">
+                  <table className="w-full border-collapse text-xs">
+                    <tbody>
+                      {block.rows.map((row, rIdx) => (
+                        <tr
+                          key={rIdx}
+                          className={
+                            row.isHeader
+                              ? 'bg-slate-100 dark:bg-slate-800 font-semibold'
+                              : ''
+                          }
+                        >
+                          {row.cells.map((cell, cIdx) => (
+                            <td
+                              key={cIdx}
+                              colSpan={cell.colSpan}
+                              className="border border-slate-300 dark:border-slate-700 px-2.5 py-1.5 align-top"
+                              style={
+                                cell.bg ? { backgroundColor: cell.bg, color: '#0f172a' } : undefined
+                              }
+                            >
+                              {cell.blocks.map((cb, cbIdx) => (
+                                <div key={cbIdx} className={alignClass(cb.align)}>
+                                  {renderWordRuns(cb.runs)}
+                                </div>
+                              ))}
+                            </td>
+                          ))}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              );
+            }
+
+            if (block.isList) {
+              const indentPx = (block.listLevel || 0) * 18;
+              return (
+                <div
+                  key={bIdx}
+                  className={`flex items-start gap-2 ${alignClass(block.align)}`}
+                  style={{ paddingLeft: `${indentPx + 8}px` }}
+                >
+                  <span className="text-slate-400 select-none mt-0.5">•</span>
+                  <div className="flex-1 min-w-0">{renderWordRuns(block.runs)}</div>
+                </div>
+              );
+            }
+
+            return (
+              <p key={bIdx} className={alignClass(block.align)}>
+                {renderWordRuns(block.runs)}
+              </p>
+            );
+          })
+        )}
+      </div>
+    </div>
+  );
+}
 
 const DOC_CATEGORIES: Array<{ value: '' | DocumentCategory; label: string }> = [
   { value: '', label: 'All Folders' },
@@ -54,6 +551,7 @@ export function DocumentsPanel({
   const [search, setSearch] = useState('');
   const [showUpload, setShowUpload] = useState(false);
   const [previewDoc, setPreviewDoc] = useState<DocumentItem | null>(null);
+  const [previewVersion, setPreviewVersion] = useState<number | null>(null);
   const [replaceDoc, setReplaceDoc] = useState<DocumentItem | null>(null);
   const [versionDoc, setVersionDoc] = useState<DocumentItem | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<DocumentItem | null>(null);
@@ -188,7 +686,10 @@ export function DocumentsPanel({
                     </td>
                     <td className="px-4 py-3 text-right whitespace-nowrap">
                       <button
-                        onClick={() => setPreviewDoc(doc)}
+                        onClick={() => {
+                          setPreviewVersion(null);
+                          setPreviewDoc(doc);
+                        }}
                         title="Preview"
                         className="p-1.5 rounded hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
                       >
@@ -238,22 +739,33 @@ export function DocumentsPanel({
       {/* Preview Modal */}
       {previewDoc && (
         <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4">
-          <div className="bg-white dark:bg-slate-900 rounded-2xl w-full max-w-4xl h-[85vh] flex flex-col overflow-hidden border border-slate-200 dark:border-slate-800">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl w-full max-w-5xl h-[88vh] flex flex-col overflow-hidden border border-slate-200 dark:border-slate-800">
             <div className="px-5 py-3 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
               <div>
                 <div className="font-bold text-sm">{previewDoc.documentName}</div>
                 <div className="text-xs text-slate-500">
-                  {previewDoc.originalFileName} • v{previewDoc.currentVersion}
+                  {previewDoc.originalFileName} • v
+                  {previewVersion !== null
+                    ? `${previewVersion}.0`
+                    : previewDoc.currentVersion}
                 </div>
               </div>
               <div className="flex items-center gap-2">
                 <a
-                  href={`/api/documents/${previewDoc.id}/download`}
+                  href={`/api/documents/${previewDoc.id}/download${
+                    previewVersion !== null ? `?version=${previewVersion}` : ''
+                  }`}
                   className="px-3 py-1 rounded bg-blue-600 text-white text-xs font-semibold"
                 >
                   {t('docs.download')}
                 </a>
-                <button onClick={() => setPreviewDoc(null)}>
+                <button
+                  onClick={() => {
+                    setPreviewDoc(null);
+                    setPreviewVersion(null);
+                  }}
+                  className="cursor-pointer"
+                >
                   <X className="h-5 w-5" />
                 </button>
               </div>
@@ -261,14 +773,21 @@ export function DocumentsPanel({
             <div className="flex-1 bg-slate-100 dark:bg-slate-950 overflow-auto flex items-center justify-center">
               {previewDoc.mimeType.startsWith('image/') ? (
                 <img
-                  src={`/api/documents/${previewDoc.id}/download?inline=1`}
+                  src={`/api/documents/${previewDoc.id}/download?inline=1${
+                    previewVersion !== null ? `&version=${previewVersion}` : ''
+                  }`}
                   alt={previewDoc.documentName}
                   className="max-w-full max-h-full object-contain"
                 />
+              ) : isStructuredOfficePreview(previewDoc) ? (
+                <OfficePreviewPane doc={previewDoc} versionNumber={previewVersion} />
               ) : previewDoc.mimeType === 'application/pdf' ||
-                previewDoc.mimeType.startsWith('text/') ? (
+                previewDoc.mimeType.startsWith('text/') ||
+                previewDoc.mimeType.startsWith('application/json') ? (
                 <iframe
-                  src={`/api/documents/${previewDoc.id}/download?inline=1`}
+                  src={`/api/documents/${previewDoc.id}/download?inline=1${
+                    previewVersion !== null ? `&version=${previewVersion}` : ''
+                  }`}
                   className="w-full h-full border-0"
                   title={previewDoc.documentName}
                 />
@@ -278,7 +797,9 @@ export function DocumentsPanel({
                     Direct browser preview is not available for {previewDoc.documentType} files.
                   </p>
                   <a
-                    href={`/api/documents/${previewDoc.id}/download`}
+                    href={`/api/documents/${previewDoc.id}/download${
+                      previewVersion !== null ? `?version=${previewVersion}` : ''
+                    }`}
                     className="inline-block px-4 py-2 rounded-lg bg-blue-600 text-white text-xs font-semibold"
                   >
                     Download {previewDoc.originalFileName}
@@ -312,12 +833,32 @@ export function DocumentsPanel({
                       {new Date(v.createdAt).toLocaleString()}
                     </div>
                   </div>
-                  <a
-                    href={`/api/documents/${versionDoc.id}/download?version=${v.versionNumber}`}
-                    className="px-2.5 py-1 rounded border border-slate-300 text-xs"
-                  >
-                    Download
-                  </a>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setPreviewVersion(v.versionNumber);
+                        setPreviewDoc({
+                          ...versionDoc,
+                          originalFileName: v.originalFileName,
+                          mimeType: inferPreviewMimeType(v.originalFileName, versionDoc.mimeType),
+                          documentType:
+                            getDocExt(v.originalFileName).replace('.', '').toUpperCase() ||
+                            versionDoc.documentType,
+                        });
+                        setVersionDoc(null);
+                      }}
+                      className="px-2.5 py-1 rounded border border-slate-300 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 text-xs cursor-pointer"
+                    >
+                      Preview
+                    </button>
+                    <a
+                      href={`/api/documents/${versionDoc.id}/download?version=${v.versionNumber}`}
+                      className="px-2.5 py-1 rounded border border-slate-300 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 text-xs"
+                    >
+                      Download
+                    </a>
+                  </div>
                 </div>
               ))}
             </div>

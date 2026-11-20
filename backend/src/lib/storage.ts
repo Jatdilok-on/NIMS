@@ -35,6 +35,38 @@ export const ALLOWED_DOCUMENT_EXTENSIONS = new Set([
   '.conf',
 ]);
 
+export function normalizeUtf8FileName(name: string): string {
+  if (!name) return name;
+  // Detect Latin-1 mojibake produced by multer/busboy on UTF-8 filenames while leaving real Unicode intact
+  let hasHighByte = false;
+  for (let i = 0; i < name.length; i++) {
+    const code = name.charCodeAt(i);
+    if (code > 0xff) {
+      return name;
+    }
+    if (code >= 0x80) {
+      hasHighByte = true;
+    }
+  }
+  if (!hasHighByte) return name;
+  const decoded = Buffer.from(name, 'latin1').toString('utf8');
+  return decoded.includes('\uFFFD') ? name : decoded;
+}
+
+export function buildContentDispositionHeader(
+  disposition: 'inline' | 'attachment',
+  filename: string,
+): string {
+  const normalized = path.basename(normalizeUtf8FileName(filename)) || 'download';
+  const asciiFallback =
+    normalized.replace(/[^\x20-\x7E]/g, '_').replace(/["\\]/g, '_') || 'download';
+  const encodedUtf8 = encodeURIComponent(normalized).replace(
+    /['()*!]/g,
+    (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`,
+  );
+  return `${disposition}; filename="${asciiFallback}"; filename*=UTF-8''${encodedUtf8}`;
+}
+
 export function sanitizeFileName(name: string): string {
   const base = path.basename(name).replace(/[^a-zA-Z0-9._-]/g, '_');
   return base.slice(0, 120) || 'file';

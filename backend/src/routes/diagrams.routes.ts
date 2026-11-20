@@ -10,6 +10,7 @@ import {
   ALLOWED_DIAGRAM_EXTENSIONS,
   deleteStoredFile,
   isAllowedExtension,
+  normalizeUtf8FileName,
   readStoredFile,
   saveSiteFile,
 } from '../lib/storage';
@@ -393,7 +394,8 @@ router.post('/upload', upload.single('file'), async (req, res, next) => {
       res.status(403).json({ error: 'Permission denied' });
       return;
     }
-    if (!isAllowedExtension(req.file.originalname, ALLOWED_DIAGRAM_EXTENSIONS)) {
+    const originalName = normalizeUtf8FileName(req.file.originalname);
+    if (!isAllowedExtension(originalName, ALLOWED_DIAGRAM_EXTENSIONS)) {
       res.status(400).json({ error: 'Unsupported diagram file format' });
       return;
     }
@@ -407,15 +409,15 @@ router.post('/upload', upload.single('file'), async (req, res, next) => {
     }
 
     const site = await prisma.site.findUniqueOrThrow({ where: { id: siteId } });
-    const format = detectDiagramFormat(req.file.originalname);
-    const title = rawTitle || existing?.title || req.file.originalname;
+    const format = detectDiagramFormat(originalName);
+    const title = rawTitle || existing?.title || originalName;
     const description = hasDescriptionField
       ? descriptionInput
       : (existing?.description ?? null);
     const saved = saveSiteFile(
       site.siteCode,
       'diagrams',
-      req.file.originalname,
+      originalName,
       req.file.buffer,
     );
 
@@ -427,7 +429,7 @@ router.post('/upload', upload.single('file'), async (req, res, next) => {
       const svgSaved = saveSiteFile(
         site.siteCode,
         'diagrams',
-        `${path.basename(req.file.originalname, '.vsdx')}-preview.svg`,
+        `${path.basename(originalName, '.vsdx')}-preview.svg`,
         Buffer.from(svgStr, 'utf8'),
       );
       previewSvgPath = svgSaved.relativePath;

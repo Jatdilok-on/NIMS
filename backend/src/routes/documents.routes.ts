@@ -7,12 +7,15 @@ import { authenticate } from '../middleware/auth';
 import { getPermittedSiteIds, hasSitePermission } from '../middleware/rbac';
 import {
   ALLOWED_DOCUMENT_EXTENSIONS,
+  buildContentDispositionHeader,
   deleteStoredFile,
   isAllowedExtension,
+  normalizeUtf8FileName,
   readStoredFile,
   resolveSafeMimeType,
   saveSiteFile,
 } from '../lib/storage';
+import { generateDocumentPreview } from '../lib/documentPreview';
 import { recordAuditLog } from '../lib/audit';
 
 const router = Router();
@@ -64,7 +67,38 @@ router.get('/', async (req, res, next) => {
       orderBy: { updatedAt: 'desc' },
     });
 
-    res.json({ documents });
+    const normalizedDocs = documents.map((d) => {
+      const fixedDocName = normalizeUtf8FileName(d.documentName);
+      const fixedOrigName = normalizeUtf8FileName(d.originalFileName);
+      if (fixedDocName !== d.documentName || fixedOrigName !== d.originalFileName) {
+        // Silently repair legacy mojibake rows once in background
+        prisma.document
+          .update({
+            where: { id: d.id },
+            data: { documentName: fixedDocName, originalFileName: fixedOrigName },
+          })
+          .catch(() => {});
+      }
+      return {
+        ...d,
+        documentName: fixedDocName,
+        originalFileName: fixedOrigName,
+        versions: d.versions.map((v) => {
+          const fixedVerName = normalizeUtf8FileName(v.originalFileName);
+          if (fixedVerName !== v.originalFileName) {
+            prisma.documentVersion
+              .update({
+                where: { id: v.id },
+                data: { originalFileName: fixedVerName },
+              })
+              .catch(() => {});
+          }
+          return { ...v, originalFileName: fixedVerName };
+        }),
+      };
+    });
+
+    res.json({ documents: normalizedDocs });
   } catch (err) {
     next(err);
   }
@@ -86,7 +120,8 @@ router.post('/upload', upload.single('file'), async (req, res, next) => {
       res.status(403).json({ error: 'Permission denied to upload documents to this site' });
       return;
     }
-    if (!isAllowedExtension(req.file.originalname, ALLOWED_DOCUMENT_EXTENSIONS)) {
+    const originalName = normalizeUtf8FileName(req.file.originalname);
+    if (!isAllowedExtension(originalName, ALLOWED_DOCUMENT_EXTENSIONS)) {
       res.status(400).json({ error: 'File type is not permitted' });
       return;
     }
@@ -112,15 +147,17 @@ router.post('/upload', upload.single('file'), async (req, res, next) => {
         ? (categoryRaw as DocumentCategory)
         : DocumentCategory.OTHER;
 
-    const documentName = String(req.body.documentName || req.file.originalname).trim();
+    const documentName = normalizeUtf8FileName(
+      String(req.body.documentName || originalName).trim(),
+    );
     const versionLabel = String(req.body.version || '1.0').trim();
-    const ext = path.extname(req.file.originalname).replace('.', '').toUpperCase() || 'FILE';
-    const safeMime = resolveSafeMimeType(req.file.originalname);
+    const ext = path.extname(originalName).replace('.', '').toUpperCase() || 'FILE';
+    const safeMime = resolveSafeMimeType(originalName);
 
     const saved = saveSiteFile(
       site.siteCode,
       'documents',
-      req.file.originalname,
+      originalName,
       req.file.buffer,
     );
 
@@ -136,7 +173,7 @@ router.post('/upload', upload.single('file'), async (req, res, next) => {
         currentVersion: versionLabel,
         versionNumber: 1,
         filePath: saved.relativePath,
-        originalFileName: req.file!.originalname,
+        originalFileName: originalName,
         mimeType: safeMime,
         fileSize: saved.fileSize,
         uploadedById: req.user!.id,
@@ -153,7 +190,7 @@ router.post('/upload', upload.single('file'), async (req, res, next) => {
         versionNumber: 1,
         versionLabel,
         filePath: saved.relativePath,
-        originalFileName: req.file!.originalname,
+        originalFileName: originalName,
         mimeType: safeMime,
         fileSize: saved.fileSize,
         changeNote: req.body.changeNote ? String(req.body.changeNote) : 'Initial upload',
@@ -206,7 +243,8 @@ router.post('/:id/replace', upload.single('file'), async (req, res, next) => {
       res.status(403).json({ error: 'Permission denied' });
       return;
     }
-    if (!isAllowedExtension(req.file.originalname, ALLOWED_DOCUMENT_EXTENSIONS)) {
+    const originalName = normalizeUtf8FileName(req.file.originalname);
+    if (!isAllowedExtension(originalName, ALLOWED_DOCUMENT_EXTENSIONS)) {
       res.status(400).json({ error: 'File type is not permitted' });
       return;
     }
@@ -215,13 +253,13 @@ router.post('/:id/replace', upload.single('file'), async (req, res, next) => {
     const nextVerLabel = req.body.version
       ? String(req.body.version).trim()
       : `${nextVerNum}.0`;
-    const ext = path.extname(req.file.originalname).replace('.', '').toUpperCase() || 'FILE';
-    const safeMime = resolveSafeMimeType(req.file.originalname);
+    const ext = path.extname(originalName).replace('.', '').toUpperCase() || 'FILE';
+    const safeMime = resolveSafeMimeType(originalName);
 
     const saved = saveSiteFile(
       existing.site.siteCode,
       'documents',
-      req.file.originalname,
+      originalName,
       req.file.buffer,
     );
 
@@ -232,7 +270,7 @@ router.post('/:id/replace', upload.single('file'), async (req, res, next) => {
         currentVersion: nextVerLabel,
         versionNumber: nextVerNum,
         filePath: saved.relativePath,
-        originalFileName: req.file!.originalname,
+        originalFileName: originalName,
         mimeType: safeMime,
         fileSize: saved.fileSize,
         uploadedById: req.user!.id,
@@ -245,7 +283,7 @@ router.post('/:id/replace', upload.single('file'), async (req, res, next) => {
         versionNumber: nextVerNum,
         versionLabel: nextVerLabel,
         filePath: saved.relativePath,
-        originalFileName: req.file!.originalname,
+        originalFileName: originalName,
         mimeType: safeMime,
         fileSize: saved.fileSize,
         changeNote: req.body.changeNote
@@ -356,9 +394,68 @@ router.get('/:id/download', async (req, res, next) => {
     }
     res.setHeader(
       'Content-Disposition',
-      `${allowInline ? 'inline' : 'attachment'}; filename="${encodeURIComponent(targetName)}"`,
+      buildContentDispositionHeader(allowInline ? 'inline' : 'attachment', targetName),
     );
     res.send(buf);
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.get('/:id/preview', async (req, res, next) => {
+  try {
+    const doc = await prisma.document.findUnique({
+      where: { id: req.params.id },
+      include: { site: { select: { siteCode: true } } },
+    });
+    if (!doc) {
+      res.status(404).json({ error: 'Document not found' });
+      return;
+    }
+    if (!hasSitePermission(req.user!, doc.siteId, 'canViewDocuments')) {
+      res.status(403).json({ error: 'Access denied' });
+      return;
+    }
+
+    let versionParam: number | null = null;
+    if (req.query.version !== undefined) {
+      const parsedVer = parseInt(String(req.query.version), 10);
+      if (Number.isNaN(parsedVer) || parsedVer < 1) {
+        res.status(400).json({ error: 'Invalid document version parameter' });
+        return;
+      }
+      versionParam = parsedVer;
+    }
+
+    let targetPath = doc.filePath;
+    let targetName = normalizeUtf8FileName(doc.originalFileName);
+    if (versionParam !== null) {
+      const ver = await prisma.documentVersion.findUnique({
+        where: { documentId_versionNumber: { documentId: doc.id, versionNumber: versionParam } },
+      });
+      if (!ver) {
+        res.status(404).json({ error: 'Document version not found' });
+        return;
+      }
+      targetPath = ver.filePath;
+      targetName = normalizeUtf8FileName(ver.originalFileName);
+    }
+
+    const buf = readStoredFile(targetPath);
+    const preview = await generateDocumentPreview(buf, targetName);
+
+    await recordAuditLog({
+      req,
+      userId: req.user!.id,
+      username: req.user!.username,
+      action: 'PREVIEW_DOCUMENT',
+      module: 'DOCUMENT',
+      siteId: doc.siteId,
+      siteCode: doc.site.siteCode,
+      details: { documentId: doc.id, documentName: normalizeUtf8FileName(doc.documentName) },
+    });
+
+    res.json({ preview });
   } catch (err) {
     next(err);
   }
