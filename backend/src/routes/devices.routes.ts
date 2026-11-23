@@ -92,22 +92,30 @@ router.get('/global-search', async (req, res, next) => {
   try {
     const q = typeof req.query.q === 'string' ? req.query.q.trim() : '';
     if (!q || q.length < 2) {
-      res.json({ devices: [], subnets: [], documents: [] });
+      res.json({ devices: [], subnets: [], documents: [], diagrams: [] });
       return;
     }
 
     const permittedInventorySiteIds = getPermittedSiteIds(req.user!, 'canViewInventory');
     const permittedIpamSiteIds = getPermittedSiteIds(req.user!, 'canViewIpam');
+    const permittedDocSiteIds = getPermittedSiteIds(req.user!, 'canViewDocuments');
+    const permittedDiagramSiteIds = getPermittedSiteIds(req.user!, 'canViewDiagram');
 
     const canQueryDevices = permittedInventorySiteIds === null || permittedInventorySiteIds.length > 0;
     const canQuerySubnets = permittedIpamSiteIds === null || permittedIpamSiteIds.length > 0;
+    const canQueryDocs = permittedDocSiteIds === null || permittedDocSiteIds.length > 0;
+    const canQueryDiagrams = permittedDiagramSiteIds === null || permittedDiagramSiteIds.length > 0;
 
     const deviceSiteScope =
       permittedInventorySiteIds !== null ? { siteId: { in: permittedInventorySiteIds } } : {};
     const subnetSiteScope =
       permittedIpamSiteIds !== null ? { siteId: { in: permittedIpamSiteIds } } : {};
+    const docSiteScope =
+      permittedDocSiteIds !== null ? { siteId: { in: permittedDocSiteIds } } : {};
+    const diagramSiteScope =
+      permittedDiagramSiteIds !== null ? { siteId: { in: permittedDiagramSiteIds } } : {};
 
-    const [devices, subnets] = await Promise.all([
+    const [devices, subnets, documents, diagrams] = await Promise.all([
       canQueryDevices
         ? prisma.device.findMany({
             where: {
@@ -144,6 +152,48 @@ router.get('/global-search', async (req, res, next) => {
             take: 15,
           })
         : Promise.resolve([]),
+      canQueryDocs
+        ? prisma.document.findMany({
+            where: {
+              ...docSiteScope,
+              OR: [
+                { documentName: { contains: q, mode: 'insensitive' } },
+                { originalFileName: { contains: q, mode: 'insensitive' } },
+                { projectName: { contains: q, mode: 'insensitive' } },
+              ],
+            },
+            select: {
+              id: true,
+              siteId: true,
+              documentName: true,
+              originalFileName: true,
+              documentType: true,
+              site: { select: { id: true, siteCode: true } },
+            },
+            take: 10,
+            orderBy: { updatedAt: 'desc' },
+          })
+        : Promise.resolve([]),
+      canQueryDiagrams
+        ? prisma.diagram.findMany({
+            where: {
+              ...diagramSiteScope,
+              OR: [
+                { title: { contains: q, mode: 'insensitive' } },
+                { description: { contains: q, mode: 'insensitive' } },
+              ],
+            },
+            select: {
+              id: true,
+              siteId: true,
+              title: true,
+              kind: true,
+              site: { select: { id: true, siteCode: true } },
+            },
+            take: 10,
+            orderBy: { updatedAt: 'desc' },
+          })
+        : Promise.resolve([]),
     ]);
 
     const uniqueSiteIds = Array.from(new Set(devices.map((d) => d.siteId)));
@@ -153,6 +203,8 @@ router.get('/global-search', async (req, res, next) => {
     res.json({
       devices: devices.map((d) => withAgentTelemetry(d, liveSiteIds)),
       subnets,
+      documents,
+      diagrams,
     });
   } catch (err) {
     next(err);

@@ -137,7 +137,11 @@ router.get('/', async (req, res, next) => {
                 { deviceName: { contains: search, mode: 'insensitive' } },
                 { deviceModel: { contains: search, mode: 'insensitive' } },
                 { managementIp: { contains: search, mode: 'insensitive' } },
+                { accessMethod: { contains: search, mode: 'insensitive' } },
+                { url: { contains: search, mode: 'insensitive' } },
                 { remark: { contains: search, mode: 'insensitive' } },
+                { site: { siteCode: { contains: search, mode: 'insensitive' } } },
+                { site: { siteName: { contains: search, mode: 'insensitive' } } },
               ],
             }
           : {}),

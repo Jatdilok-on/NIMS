@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Download,
   Eye,
@@ -20,6 +20,11 @@ import {
 import { apiFetch, apiUploadWithProgress, ApiError, formatBytes } from '@/lib/api';
 import { useI18n } from '@/lib/i18n';
 import { ConfirmActionModal } from '@/components/common/ConfirmActionModal';
+import {
+  SearchInputWithClear,
+  SiteQuickPills,
+  SiteSelectControl,
+} from '@/components/common/SiteFilterBar';
 import {
   FileDropzone,
   MultiFileQueue,
@@ -549,6 +554,7 @@ export function DocumentsPanel({
   const [sites, setSites] = useState<Site[]>([]);
   const [documents, setDocuments] = useState<DocumentItem[]>([]);
   const [category, setCategory] = useState<'' | DocumentCategory>('');
+  const [siteFilter, setSiteFilter] = useState('');
   const [search, setSearch] = useState('');
   const [showUpload, setShowUpload] = useState(false);
   const [previewDoc, setPreviewDoc] = useState<DocumentItem | null>(null);
@@ -599,17 +605,39 @@ export function DocumentsPanel({
     }
   };
 
+  const docCountsBySite = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const d of documents) {
+      map.set(d.siteId, (map.get(d.siteId) || 0) + 1);
+    }
+    return map;
+  }, [documents]);
+
+  const filteredDocuments = useMemo(() => {
+    if (fixedSiteId || !siteFilter) return documents;
+    return documents.filter((d) => d.siteId === siteFilter);
+  }, [documents, fixedSiteId, siteFilter]);
+
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="relative flex-1 max-w-md">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
-          <input
+        <div className="flex flex-wrap items-center gap-2.5 flex-1 min-w-[260px]">
+          <SearchInputWithClear
             value={search}
-            onChange={(e) => setSearch(e.target.value)}
+            onChange={setSearch}
             placeholder={t('docs.searchPlaceholder')}
-            className="w-full pl-9 pr-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm"
+            className="flex-1 min-w-[220px] max-w-md"
           />
+          {!fixedSiteId && (
+            <SiteSelectControl
+              sites={sites}
+              value={siteFilter}
+              onChange={setSiteFilter}
+              countsBySite={docCountsBySite}
+              totalCount={documents.length}
+              className="min-w-[200px]"
+            />
+          )}
         </div>
 
         {canEdit && (
@@ -622,6 +650,16 @@ export function DocumentsPanel({
           </button>
         )}
       </div>
+
+      {!fixedSiteId && (
+        <SiteQuickPills
+          sites={sites}
+          value={siteFilter}
+          onChange={setSiteFilter}
+          countsBySite={docCountsBySite}
+          totalCount={documents.length}
+        />
+      )}
 
       {/* Folder Pills */}
       <div className="flex flex-wrap gap-1.5">
@@ -658,14 +696,14 @@ export function DocumentsPanel({
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-              {documents.length === 0 ? (
+              {filteredDocuments.length === 0 ? (
                 <tr>
                   <td colSpan={8} className="px-4 py-8 text-center text-slate-500">
                     {t('docs.empty')}
                   </td>
                 </tr>
               ) : (
-                documents.map((doc) => (
+                filteredDocuments.map((doc) => (
                   <tr key={doc.id} className="hover:bg-slate-50/70 dark:hover:bg-slate-800/40">
                     <td className="px-4 py-3">
                       <button
@@ -906,6 +944,7 @@ export function DocumentsPanel({
         <UploadDocumentModal
           sites={sites}
           fixedSiteId={fixedSiteId}
+          defaultSiteId={siteFilter || undefined}
           replacing={replaceDoc}
           onClose={() => {
             setShowUpload(false);
@@ -1156,22 +1195,26 @@ function EditDocumentModal({
 function UploadDocumentModal({
   sites,
   fixedSiteId,
+  defaultSiteId,
   replacing,
   onClose,
   onSuccess,
 }: {
   sites: Site[];
   fixedSiteId?: string;
+  defaultSiteId?: string;
   replacing: DocumentItem | null;
   onClose: () => void;
   onSuccess: () => void;
 }) {
-  const [siteId, setSiteId] = useState(replacing?.siteId || fixedSiteId || sites[0]?.id || '');
+  const [siteId, setSiteId] = useState(
+    replacing?.siteId || fixedSiteId || defaultSiteId || sites[0]?.id || '',
+  );
   useEffect(() => {
     if (!siteId && !replacing && sites.length > 0) {
-      setSiteId(fixedSiteId || sites[0].id);
+      setSiteId(fixedSiteId || defaultSiteId || sites[0].id);
     }
-  }, [siteId, replacing, fixedSiteId, sites]);
+  }, [siteId, replacing, fixedSiteId, defaultSiteId, sites]);
   const [category, setCategory] = useState<DocumentCategory>(
     replacing?.category || 'NETWORK_DESIGN',
   );

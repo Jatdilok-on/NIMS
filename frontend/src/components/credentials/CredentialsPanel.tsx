@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   BookOpen,
   ClipboardCopy,
@@ -14,13 +14,17 @@ import {
   KeyRound,
   Pencil,
   Plus,
-  Search,
   ShieldAlert,
   Trash2,
   Upload,
   X,
 } from 'lucide-react';
 import { ConfirmActionModal } from '@/components/common/ConfirmActionModal';
+import {
+  SearchInputWithClear,
+  SiteQuickPills,
+  SiteSelectControl,
+} from '@/components/common/SiteFilterBar';
 import { apiFetch, ApiError, copyTextSafe, getSafeExternalUrl } from '@/lib/api';
 import { useAuth } from '@/lib/auth-context';
 import { useI18n } from '@/lib/i18n';
@@ -38,6 +42,8 @@ export function CredentialsPanel({
   const { t } = useI18n();
   const [sites, setSites] = useState<Site[]>([]);
   const [credentials, setCredentials] = useState<CredentialItem[]>([]);
+  const [siteFilter, setSiteFilter] = useState('');
+  const [loginTypeFilter, setLoginTypeFilter] = useState<'' | LoginType>('');
   const [search, setSearch] = useState('');
   const [revealed, setRevealed] = useState<Record<string, { username: string; password: string }>>({});
   const [toast, setToast] = useState('');
@@ -217,6 +223,24 @@ export function CredentialsPanel({
     }
   };
 
+  const credCountsBySite = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const c of credentials) {
+      map.set(c.siteId, (map.get(c.siteId) || 0) + 1);
+    }
+    return map;
+  }, [credentials]);
+
+  const filteredCredentials = useMemo(() => {
+    return credentials.filter((c) => {
+      if (!fixedSiteId && siteFilter && c.siteId !== siteFilter) return false;
+      if (loginTypeFilter && c.loginType !== loginTypeFilter) return false;
+      return true;
+    });
+  }, [credentials, fixedSiteId, siteFilter, loginTypeFilter]);
+
+  const activeExportSiteId = fixedSiteId || siteFilter;
+
   return (
     <div className="space-y-4">
       {toast && (
@@ -226,26 +250,50 @@ export function CredentialsPanel({
       )}
 
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="relative flex-1 max-w-md">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
-          <input
+        <div className="flex flex-wrap items-center gap-2.5 flex-1 min-w-[260px]">
+          <SearchInputWithClear
             value={search}
-            onChange={(e) => setSearch(e.target.value)}
+            onChange={setSearch}
             placeholder={t('vault.searchPlaceholder')}
-            className="w-full pl-9 pr-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm"
+            className="flex-1 min-w-[220px] max-w-md"
           />
+          {!fixedSiteId && (
+            <SiteSelectControl
+              sites={sites}
+              value={siteFilter}
+              onChange={setSiteFilter}
+              countsBySite={credCountsBySite}
+              totalCount={credentials.length}
+              className="min-w-[200px]"
+            />
+          )}
+          <select
+            value={loginTypeFilter}
+            onChange={(e) => setLoginTypeFilter(e.target.value as '' | LoginType)}
+            aria-label="Filter by Login Type"
+            className="px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-semibold cursor-pointer"
+          >
+            <option value="">ทุกประเภท Login ({credentials.length})</option>
+            <option value="SSH">SSH</option>
+            <option value="WEB_GUI">Web GUI</option>
+            <option value="WINBOX">Winbox</option>
+            <option value="RDP">RDP</option>
+            <option value="VPN">VPN</option>
+            <option value="API">API</option>
+            <option value="OTHER">Other</option>
+          </select>
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
           <a
-            href={`/api/credentials/export?format=xlsx${fixedSiteId ? `&siteId=${encodeURIComponent(fixedSiteId)}` : ''}`}
+            href={`/api/credentials/export?format=xlsx${activeExportSiteId ? `&siteId=${encodeURIComponent(activeExportSiteId)}` : ''}`}
             className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-medium hover:bg-slate-50 dark:hover:bg-slate-800"
           >
             <FileSpreadsheet className="h-3.5 w-3.5 text-emerald-600" />
             {t('common.exportExcel')}
           </a>
           <a
-            href={`/api/credentials/export?format=csv${fixedSiteId ? `&siteId=${encodeURIComponent(fixedSiteId)}` : ''}`}
+            href={`/api/credentials/export?format=csv${activeExportSiteId ? `&siteId=${encodeURIComponent(activeExportSiteId)}` : ''}`}
             className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-medium hover:bg-slate-50 dark:hover:bg-slate-800"
           >
             <Download className="h-3.5 w-3.5 text-slate-600 dark:text-slate-300" />
@@ -272,6 +320,16 @@ export function CredentialsPanel({
         </div>
       </div>
 
+      {!fixedSiteId && (
+        <SiteQuickPills
+          sites={sites}
+          value={siteFilter}
+          onChange={setSiteFilter}
+          countsBySite={credCountsBySite}
+          totalCount={credentials.length}
+        />
+      )}
+
       {error && (
         <div className="rounded-lg bg-red-50 dark:bg-red-950/50 border border-red-200 dark:border-red-900 px-4 py-3 text-sm text-red-700 dark:text-red-300">
           {error}
@@ -279,12 +337,25 @@ export function CredentialsPanel({
       )}
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        {credentials.length === 0 ? (
-          <div className="col-span-full rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-8 text-center text-sm text-slate-500">
-            {t('vault.empty')}
+        {filteredCredentials.length === 0 ? (
+          <div className="col-span-full rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-8 text-center text-sm text-slate-500 space-y-2">
+            <div>{t('vault.empty')}</div>
+            {(search || siteFilter || loginTypeFilter) && (
+              <button
+                type="button"
+                onClick={() => {
+                  setSearch('');
+                  setSiteFilter('');
+                  setLoginTypeFilter('');
+                }}
+                className="px-3 py-1.5 rounded-lg bg-blue-600 text-white text-xs font-semibold cursor-pointer"
+              >
+                แสดงทั้งหมด
+              </button>
+            )}
           </div>
         ) : (
-          credentials.map((cred) => {
+          filteredCredentials.map((cred) => {
             const rev = revealed[cred.id];
             const firstInst = cred.instructions?.[0];
             const stepsList = Array.isArray(firstInst?.steps) ? firstInst.steps : [];

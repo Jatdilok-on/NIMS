@@ -1,8 +1,13 @@
 'use client';
 
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Eye, FileText, Network, Pencil, PenTool, Plus, Trash2, Upload, X } from 'lucide-react';
 import { apiFetch, apiUploadWithProgress, ApiError, formatBytes } from '@/lib/api';
+import {
+  SearchInputWithClear,
+  SiteQuickPills,
+  SiteSelectControl,
+} from '@/components/common/SiteFilterBar';
 import {
   FileDropzone,
   MultiFileQueue,
@@ -30,6 +35,9 @@ export function DiagramsPanel({
   const { t } = useI18n();
   const [sites, setSites] = useState<Site[]>([]);
   const [diagrams, setDiagrams] = useState<DiagramItem[]>([]);
+  const [search, setSearch] = useState('');
+  const [siteFilter, setSiteFilter] = useState('');
+  const [kindFilter, setKindFilter] = useState<'ALL' | 'EDITOR' | 'UPLOADED'>('ALL');
   const [activeDiagram, setActiveDiagram] = useState<DiagramItem | null>(null);
   const [mode, setMode] = useState<'LIST' | 'VIEW' | 'EDIT'>('LIST');
   const [siteDevices, setSiteDevices] = useState<Device[]>([]);
@@ -135,6 +143,35 @@ export function DiagramsPanel({
     );
   }
 
+  const diagramCountsBySite = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const d of diagrams) {
+      map.set(d.siteId, (map.get(d.siteId) || 0) + 1);
+    }
+    return map;
+  }, [diagrams]);
+
+  const filteredDiagrams = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return diagrams.filter((d) => {
+      if (!fixedSiteId && siteFilter && d.siteId !== siteFilter) return false;
+      if (kindFilter !== 'ALL' && d.kind !== kindFilter) return false;
+      if (!q) return true;
+      const hay = [
+        d.title,
+        d.description || '',
+        d.filePath || '',
+        d.fileFormat,
+        d.kind,
+        d.site?.siteCode || '',
+        d.site?.siteName || '',
+      ]
+        .join(' ')
+        .toLowerCase();
+      return hay.includes(q);
+    });
+  }, [diagrams, fixedSiteId, siteFilter, kindFilter, search]);
+
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -165,13 +202,68 @@ export function DiagramsPanel({
         )}
       </div>
 
+      {/* Search & Site / Kind Filters */}
+      <div className="flex flex-wrap items-center gap-2.5 bg-white dark:bg-slate-900 p-3 rounded-xl border border-slate-200 dark:border-slate-800">
+        <SearchInputWithClear
+          value={search}
+          onChange={setSearch}
+          placeholder="ค้นหาชื่อผังเครือข่าย, ชื่อไฟล์, Site หรือคำอธิบาย..."
+          className="flex-1 min-w-[220px]"
+        />
+        {!fixedSiteId && (
+          <SiteSelectControl
+            sites={sites}
+            value={siteFilter}
+            onChange={setSiteFilter}
+            countsBySite={diagramCountsBySite}
+            totalCount={diagrams.length}
+            className="min-w-[200px]"
+          />
+        )}
+        <select
+          value={kindFilter}
+          onChange={(e) => setKindFilter(e.target.value as 'ALL' | 'EDITOR' | 'UPLOADED')}
+          aria-label="Filter diagram type"
+          className="px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-semibold cursor-pointer"
+        >
+          <option value="ALL">ทุกประเภท ({diagrams.length})</option>
+          <option value="EDITOR">{t('diagrams.webEditor')}</option>
+          <option value="UPLOADED">{t('diagrams.uploaded')}</option>
+        </select>
+      </div>
+
+      {!fixedSiteId && (
+        <SiteQuickPills
+          sites={sites}
+          value={siteFilter}
+          onChange={setSiteFilter}
+          countsBySite={diagramCountsBySite}
+          totalCount={diagrams.length}
+        />
+      )}
+
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
         {diagrams.length === 0 ? (
           <div className="col-span-full rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-8 text-center text-sm text-slate-500">
             {t('diagrams.empty')}
           </div>
+        ) : filteredDiagrams.length === 0 ? (
+          <div className="col-span-full rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-8 text-center text-sm text-slate-500 space-y-2">
+            <div>ไม่พบผังเครือข่ายที่ตรงกับคำค้นหา</div>
+            <button
+              type="button"
+              onClick={() => {
+                setSearch('');
+                setSiteFilter('');
+                setKindFilter('ALL');
+              }}
+              className="px-3 py-1.5 rounded-lg bg-blue-600 text-white text-xs font-semibold cursor-pointer"
+            >
+              แสดงทั้งหมด ({diagrams.length})
+            </button>
+          </div>
         ) : (
-          diagrams.map((d) => {
+          filteredDiagrams.map((d) => {
             const thumbSrc = getDiagramThumbnailSrc(d);
             const nodeCount = Array.isArray(d.canvasData?.nodes) ? d.canvasData.nodes.length : 0;
             const edgeCount = Array.isArray(d.canvasData?.edges) ? d.canvasData.edges.length : 0;

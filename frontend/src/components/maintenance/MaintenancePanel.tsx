@@ -1,8 +1,9 @@
 'use client';
 
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Plus, Trash2, Wrench, X } from 'lucide-react';
 import { ConfirmActionModal } from '@/components/common/ConfirmActionModal';
+import { SearchInputWithClear } from '@/components/common/SiteFilterBar';
 import { apiFetch, ApiError } from '@/lib/api';
 import { useI18n } from '@/lib/i18n';
 
@@ -29,6 +30,8 @@ export function MaintenancePanel({
 }) {
   const { t } = useI18n();
   const [records, setRecords] = useState<MaintenanceItem[]>([]);
+  const [search, setSearch] = useState('');
+  const [typeFilter, setTypeFilter] = useState('');
   const [showModal, setShowModal] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<MaintenanceItem | null>(null);
   const [deletingRecord, setDeletingRecord] = useState(false);
@@ -63,9 +66,34 @@ export function MaintenancePanel({
     }
   };
 
+  const typeOptions = useMemo(
+    () => Array.from(new Set(records.map((r) => r.maintenanceType).filter(Boolean))),
+    [records],
+  );
+
+  const filteredRecords = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return records.filter((r) => {
+      if (typeFilter && r.maintenanceType !== typeFilter) return false;
+      if (!q) return true;
+      const hay = [
+        r.title,
+        r.maintenanceType,
+        r.summary,
+        r.findings || '',
+        r.actionsTaken || '',
+        r.engineerName || '',
+        r.device?.name || '',
+      ]
+        .join(' ')
+        .toLowerCase();
+      return hay.includes(q);
+    });
+  }, [records, search, typeFilter]);
+
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h3 className="font-bold text-base">{t('maint.title')}</h3>
           <p className="text-xs text-slate-500">
@@ -83,13 +111,43 @@ export function MaintenancePanel({
         )}
       </div>
 
+      {records.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2.5 bg-white dark:bg-slate-900 p-3 rounded-xl border border-slate-200 dark:border-slate-800">
+          <SearchInputWithClear
+            value={search}
+            onChange={setSearch}
+            placeholder="ค้นหาหัวข้องานซ่อมบำรุง, อุปกรณ์, อาการ หรือชื่อช่าง..."
+            className="flex-1 min-w-[220px]"
+          />
+          {typeOptions.length > 1 && (
+            <select
+              value={typeFilter}
+              onChange={(e) => setTypeFilter(e.target.value)}
+              aria-label="Filter maintenance type"
+              className="px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-semibold cursor-pointer"
+            >
+              <option value="">ทุกประเภท ({records.length})</option>
+              {typeOptions.map((tp) => (
+                <option key={tp} value={tp}>
+                  {tp}
+                </option>
+              ))}
+            </select>
+          )}
+        </div>
+      )}
+
       <div className="space-y-3">
         {records.length === 0 ? (
           <div className="rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-8 text-center text-sm text-slate-500">
             {t('maint.empty')}
           </div>
+        ) : filteredRecords.length === 0 ? (
+          <div className="rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-8 text-center text-sm text-slate-500">
+            ไม่พบประวัติการบำรุงรักษาที่ตรงกับคำค้นหา
+          </div>
         ) : (
-          records.map((r) => (
+          filteredRecords.map((r) => (
             <div
               key={r.id}
               className="rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-4 flex items-start justify-between gap-4"

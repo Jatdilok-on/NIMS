@@ -41,6 +41,21 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const [searchResults, setSearchResults] = useState<{
     devices: Device[];
     subnets: Array<{ id: string; cidr: string; vlanNumber?: number | null; site?: { id: string; siteCode: string } }>;
+    documents?: Array<{
+      id: string;
+      siteId: string;
+      documentName: string;
+      originalFileName: string;
+      documentType: string;
+      site?: { id: string; siteCode: string };
+    }>;
+    diagrams?: Array<{
+      id: string;
+      siteId: string;
+      title: string;
+      kind: string;
+      site?: { id: string; siteCode: string };
+    }>;
   } | null>(null);
   const [searching, setSearching] = useState(false);
 
@@ -60,6 +75,21 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         const res = await apiFetch<{
           devices: Device[];
           subnets: Array<{ id: string; cidr: string; vlanNumber?: number | null; site?: { id: string; siteCode: string } }>;
+          documents?: Array<{
+            id: string;
+            siteId: string;
+            documentName: string;
+            originalFileName: string;
+            documentType: string;
+            site?: { id: string; siteCode: string };
+          }>;
+          diagrams?: Array<{
+            id: string;
+            siteId: string;
+            title: string;
+            kind: string;
+            site?: { id: string; siteCode: string };
+          }>;
         }>(`/devices/global-search?q=${encodeURIComponent(q)}`);
         setSearchResults(res);
       } catch {
@@ -317,7 +347,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                     <span>{t('header.searchResults')}</span>
                     {searching && <span>{t('header.searching')}</span>}
                   </div>
-                  {searchResults.devices.length === 0 && searchResults.subnets.length === 0 ? (
+                  {searchResults.devices.length === 0 &&
+                  searchResults.subnets.length === 0 &&
+                  (searchResults.documents?.length ?? 0) === 0 &&
+                  (searchResults.diagrams?.length ?? 0) === 0 ? (
                     <div className="p-4 text-sm text-[var(--nims-muted)] text-center">
                       {t('header.noSearchResults')}
                     </div>
@@ -377,6 +410,58 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                           </div>
                           <span className="px-2 py-0.5 rounded-md bg-emerald-500/12 text-emerald-500 text-xs font-semibold">
                             {sub.site?.siteCode}
+                          </span>
+                        </button>
+                      ))}
+                      {(searchResults.diagrams ?? []).map((diag) => (
+                        <button
+                          key={diag.id}
+                          onClick={() => {
+                            setSearchResults(null);
+                            setSearchQuery('');
+                            router.push(`/sites/${diag.siteId}?tab=diagrams`);
+                          }}
+                          className="w-full text-left px-4 py-2.5 hover:bg-slate-500/8 flex items-center justify-between gap-3 cursor-pointer transition"
+                        >
+                          <div className="flex items-center gap-3 min-w-0">
+                            <span className="h-8 w-8 rounded-lg bg-violet-500/10 text-violet-500 flex items-center justify-center shrink-0">
+                              <TechTopologyIcon className="h-4 w-4" />
+                            </span>
+                            <div className="min-w-0">
+                              <div className="text-sm font-semibold truncate">{diag.title}</div>
+                              <div className="text-xs text-[var(--nims-muted)]">
+                                Diagram ({diag.kind})
+                              </div>
+                            </div>
+                          </div>
+                          <span className="px-2 py-0.5 rounded-md bg-violet-500/12 text-violet-500 text-xs font-semibold shrink-0">
+                            {diag.site?.siteCode}
+                          </span>
+                        </button>
+                      ))}
+                      {(searchResults.documents ?? []).map((doc) => (
+                        <button
+                          key={doc.id}
+                          onClick={() => {
+                            setSearchResults(null);
+                            setSearchQuery('');
+                            router.push(`/sites/${doc.siteId}?tab=documents`);
+                          }}
+                          className="w-full text-left px-4 py-2.5 hover:bg-slate-500/8 flex items-center justify-between gap-3 cursor-pointer transition"
+                        >
+                          <div className="flex items-center gap-3 min-w-0">
+                            <span className="h-8 w-8 rounded-lg bg-teal-500/10 text-teal-600 dark:text-teal-400 flex items-center justify-center shrink-0">
+                              <TechDocumentIcon className="h-4 w-4" />
+                            </span>
+                            <div className="min-w-0">
+                              <div className="text-sm font-semibold truncate">{doc.documentName}</div>
+                              <div className="text-xs text-[var(--nims-muted)] truncate">
+                                {doc.documentType} • {doc.originalFileName}
+                              </div>
+                            </div>
+                          </div>
+                          <span className="px-2 py-0.5 rounded-md bg-teal-500/12 text-teal-600 dark:text-teal-400 text-xs font-semibold shrink-0">
+                            {doc.site?.siteCode}
                           </span>
                         </button>
                       ))}
