@@ -54,32 +54,46 @@ function getCellValue(shape: Record<string, unknown>, cellName: string, fallback
 const MAX_VSDX_PAGE_BYTES = 10 * 1024 * 1024;
 const MAX_DRAWIO_INFLATE_BYTES = 10 * 1024 * 1024;
 
+interface BoundedZipEntry {
+  path: string;
+  vars?: { uncompressedSize?: number };
+  buffer: () => Promise<Buffer>;
+  stream?: () => NodeJS.ReadableStream;
+}
+
 async function readZipEntryBounded(
-  entry: unzipper.File,
+  entry: BoundedZipEntry,
   maxBytes: number,
 ): Promise<Buffer> {
   const declaredSize = Number(entry.vars?.uncompressedSize || 0);
   if (declaredSize > maxBytes) {
     throw new Error(`Archive entry "${entry.path}" exceeds maximum allowed size`);
   }
+  if (typeof entry.stream !== 'function') {
+    const buf = await entry.buffer();
+    if (buf.length > maxBytes) {
+      throw new Error(`Archive entry "${entry.path}" exceeded ${maxBytes} bytes`);
+    }
+    return buf;
+  }
   return new Promise<Buffer>((resolve, reject) => {
     const chunks: Buffer[] = [];
     let total = 0;
     let settled = false;
-    const stream = entry.stream();
+    const stream = entry.stream!() as NodeJS.ReadableStream & { destroy?: () => void };
     stream.on('data', (chunk: Buffer) => {
       total += chunk.length;
       if (total > maxBytes) {
         if (!settled) {
           settled = true;
-          stream.destroy();
+          stream.destroy?.();
           reject(new Error(`Archive entry "${entry.path}" exceeded ${maxBytes} bytes`));
         }
         return;
       }
       chunks.push(chunk);
     });
-    stream.on('error', (err) => {
+    stream.on('error', (err: unknown) => {
       if (!settled) {
         settled = true;
         reject(err);

@@ -515,32 +515,43 @@ function parseTableBlock(
   };
 }
 
+interface BoundedZipEntry {
+  path: string;
+  vars?: { uncompressedSize?: number };
+  buffer: () => Promise<Buffer>;
+  stream?: () => NodeJS.ReadableStream;
+}
+
 async function readZipEntryBounded(
-  entry: unzipper.File,
+  entry: BoundedZipEntry,
   maxBytes: number,
 ): Promise<Buffer | null> {
   const declaredSize = Number(entry.vars?.uncompressedSize || 0);
   if (declaredSize > maxBytes) {
     return null;
   }
+  if (typeof entry.stream !== 'function') {
+    const buf = await entry.buffer();
+    return buf.length > maxBytes ? null : buf;
+  }
   return new Promise<Buffer | null>((resolve, reject) => {
     const chunks: Buffer[] = [];
     let total = 0;
     let settled = false;
-    const stream = entry.stream();
+    const stream = entry.stream!() as NodeJS.ReadableStream & { destroy?: () => void };
     stream.on('data', (chunk: Buffer) => {
       total += chunk.length;
       if (total > maxBytes) {
         if (!settled) {
           settled = true;
-          stream.destroy();
+          stream.destroy?.();
           resolve(null);
         }
         return;
       }
       chunks.push(chunk);
     });
-    stream.on('error', (err) => {
+    stream.on('error', (err: unknown) => {
       if (!settled) {
         settled = true;
         reject(err);
