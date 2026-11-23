@@ -610,7 +610,19 @@ const CATEGORY_SYNONYMS: Array<{ patterns: string[]; category: DeviceCategory }>
     category: DeviceCategory.PRINTER,
   },
   {
-    patterns: ['handheld', 'handheld terminal', 'pda', 'rf scanner', 'rf gun', 'mobile computer', 'แฮนด์เฮลด์'],
+    patterns: [
+      'handheld',
+      'hardheld',
+      'hand held',
+      'hand-held',
+      'handheld terminal',
+      'hht',
+      'pda',
+      'rf scanner',
+      'rf gun',
+      'mobile computer',
+      'แฮนด์เฮลด์',
+    ],
     category: DeviceCategory.HANDHELD,
   },
   {

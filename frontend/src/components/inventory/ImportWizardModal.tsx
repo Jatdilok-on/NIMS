@@ -74,6 +74,10 @@ function inferCategoryClient(rawVal: string | undefined, fallback: DeviceCategor
   if (s.includes('printer') || s === 'prt' || s.includes('เครื่องพิมพ์')) return 'PRINTER';
   if (
     s.includes('handheld') ||
+    s.includes('hardheld') ||
+    s.includes('hand held') ||
+    s.includes('hand-held') ||
+    s === 'hht' ||
     s === 'pda' ||
     s.includes('rf scanner') ||
     s.includes('rf gun') ||

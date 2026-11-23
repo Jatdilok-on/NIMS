@@ -247,6 +247,7 @@ describe('Security Hardening & API Regression Tests', () => {
     expect(normalizeDeviceCategory('PLC Controller')).toBe(DeviceCategory.PLC);
     expect(normalizeDeviceCategory('Storage Server')).toBe(DeviceCategory.SERVER);
     expect(normalizeDeviceCategory('Handheld Terminal')).toBe(DeviceCategory.HANDHELD);
+    expect(normalizeDeviceCategory('Hardheld')).toBe(DeviceCategory.HANDHELD);
     expect(normalizeDeviceCategory('PDA')).toBe(DeviceCategory.HANDHELD);
   });
 
