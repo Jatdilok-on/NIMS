@@ -391,4 +391,81 @@ describe('Security Hardening & API Regression Tests', () => {
     siteSpy.mockRestore();
     sessionSpy.mockRestore();
   });
+
+  it('allows SUPER_ADMIN to delete/prune backups, blocks deleting RUNNING backups, and enforces DB/files selection', async () => {
+    const app = createApp();
+
+    // Non-SUPER_ADMIN denied
+    const siteAdminSess = mockSessionLookup({
+      userId: 'sa-1',
+      roleCode: RoleCode.SITE_ADMIN,
+    });
+    const deniedRes = await request(app)
+      .delete('/api/backups/bk-1')
+      .set('Authorization', `Bearer ${siteAdminSess.rawJwt}`);
+    expect(deniedRes.status).toBe(403);
+    siteAdminSess.sessionSpy.mockRestore();
+
+    const superSess = mockSessionLookup({
+      userId: 'super-bk',
+      roleCode: RoleCode.SUPER_ADMIN,
+    });
+
+    // Reject empty backup scope
+    const emptyScopeRes = await request(app)
+      .post('/api/backups/run')
+      .set('Authorization', `Bearer ${superSess.rawJwt}`)
+      .send({ includesDb: false, includesFiles: false });
+    expect(emptyScopeRes.status).toBe(400);
+
+    // Block deleting RUNNING backup
+    const findBackupSpy = vi.spyOn(prisma.backupJob, 'findUnique').mockResolvedValue({
+      id: 'bk-running',
+      status: 'RUNNING',
+      fileName: 'running.zip',
+      filePath: '',
+      fileSize: 0,
+    } as never);
+    const runningDelRes = await request(app)
+      .delete('/api/backups/bk-running')
+      .set('Authorization', `Bearer ${superSess.rawJwt}`);
+    expect(runningDelRes.status).toBe(409);
+
+    // Allow deleting completed backup record
+    const settingSpy = vi
+      .spyOn(prisma.systemSetting, 'findUnique')
+      .mockResolvedValue({ backupLocation: './backups', backupRetentionCount: 5, auditRetentionDays: 365 } as never);
+    findBackupSpy.mockResolvedValue({
+      id: 'bk-done',
+      status: 'COMPLETED',
+      fileName: 'nims-backup-old.zip',
+      filePath: '',
+      fileSize: 2048,
+    } as never);
+    const deleteBackupSpy = vi.spyOn(prisma.backupJob, 'delete').mockResolvedValue({} as never);
+    const delOkRes = await request(app)
+      .delete('/api/backups/bk-done')
+      .set('Authorization', `Bearer ${superSess.rawJwt}`);
+    expect(delOkRes.status).toBe(200);
+    expect(delOkRes.body.deletedId).toBe('bk-done');
+
+    // Prune endpoint succeeds cleanly
+    const findManyBackupSpy = vi.spyOn(prisma.backupJob, 'findMany').mockResolvedValue([] as never);
+    const delManyAuditSpy = vi
+      .spyOn(prisma.auditLog, 'deleteMany')
+      .mockResolvedValue({ count: 7 } as never);
+    const pruneRes = await request(app)
+      .post('/api/backups/prune')
+      .set('Authorization', `Bearer ${superSess.rawJwt}`)
+      .send({ includeAuditLogs: true });
+    expect(pruneRes.status).toBe(200);
+    expect(pruneRes.body.deletedAuditLogs).toBe(7);
+
+    delManyAuditSpy.mockRestore();
+    findManyBackupSpy.mockRestore();
+    deleteBackupSpy.mockRestore();
+    settingSpy.mockRestore();
+    findBackupSpy.mockRestore();
+    superSess.sessionSpy.mockRestore();
+  });
 });

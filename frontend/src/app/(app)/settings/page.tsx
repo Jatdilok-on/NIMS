@@ -9,6 +9,9 @@ import {
   RotateCcw,
   Save,
   Settings as SettingsIcon,
+  ShieldAlert,
+  Sparkles,
+  Trash2,
   Upload,
 } from 'lucide-react';
 import { ConfirmActionModal } from '@/components/common/ConfirmActionModal';
@@ -34,6 +37,10 @@ interface BackupJob {
   fileName: string;
   fileSize: number;
   checksum?: string | null;
+  includesDb?: boolean;
+  includesFiles?: boolean;
+  notes?: string | null;
+  initiatedBy?: { username: string; fullName: string } | null;
   startedAt: string;
   completedAt?: string | null;
 }
@@ -48,9 +55,16 @@ interface SystemInfo {
   freeMemoryMb: number;
   databaseStatus: string;
   storageExists: boolean;
+  activeStorageRoot?: string;
+  activeBackupDir?: string;
+  storageUsageBytes?: number;
+  backupUsageBytes?: number;
+  backupDiskFreeBytes?: number | null;
   counts: {
     siteCount: number;
     deviceCount: number;
+    documentCount?: number;
+    diagramCount?: number;
     userCount: number;
     auditCount: number;
   };
@@ -66,6 +80,8 @@ export default function SettingsAndBackupPage() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [runningBackup, setRunningBackup] = useState(false);
+  const [backupScope, setBackupScope] = useState<'FULL' | 'DB_ONLY'>('FULL');
+  const [backupNotes, setBackupNotes] = useState('');
   const [msg, setMsg] = useState('');
   const [restoreConfirm, setRestoreConfirm] = useState<
     | { kind: 'job'; job: BackupJob }
@@ -74,6 +90,12 @@ export default function SettingsAndBackupPage() {
   >(null);
   const [restoring, setRestoring] = useState(false);
   const [restoreError, setRestoreError] = useState<string | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<BackupJob | null>(null);
+  const [deletingBackup, setDeletingBackup] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [pruneConfirmOpen, setPruneConfirmOpen] = useState(false);
+  const [pruning, setPruning] = useState(false);
+  const [pruneError, setPruneError] = useState<string | null>(null);
 
   const loadAll = useCallback(async () => {
     setLoadError(null);
@@ -125,13 +147,76 @@ export default function SettingsAndBackupPage() {
 
   const handleRunBackup = async () => {
     setRunningBackup(true);
+    setMsg('');
     try {
-      await apiFetch('/backups/run', { method: 'POST', body: JSON.stringify({}) });
+      const includesFiles = backupScope === 'FULL';
+      await apiFetch('/backups/run', {
+        method: 'POST',
+        body: JSON.stringify({
+          includesDb: true,
+          includesFiles,
+          notes: backupNotes.trim() || undefined,
+        }),
+      });
+      setBackupNotes('');
+      setMsg(
+        includesFiles
+          ? 'Full backup (Database + Storage files) completed.'
+          : 'Database-only backup completed.',
+      );
       loadAll();
     } catch (err) {
       alert(err instanceof ApiError ? err.message : 'Backup failed');
     } finally {
       setRunningBackup(false);
+    }
+  };
+
+  const handleDeleteBackup = (job: BackupJob) => {
+    setDeleteError(null);
+    setDeleteTarget(job);
+  };
+
+  const confirmDeleteBackup = async () => {
+    if (!deleteTarget) return;
+    setDeletingBackup(true);
+    setDeleteError(null);
+    try {
+      const res = await apiFetch<{ fileName: string; freedBytes: number }>(
+        `/backups/${deleteTarget.id}`,
+        { method: 'DELETE' },
+      );
+      setDeleteTarget(null);
+      setMsg(`Deleted backup "${res.fileName}" (${formatBytes(res.freedBytes)} freed).`);
+      loadAll();
+    } catch (err) {
+      setDeleteError(err instanceof ApiError ? err.message : 'Failed to delete backup');
+    } finally {
+      setDeletingBackup(false);
+    }
+  };
+
+  const confirmPruneBackups = async () => {
+    setPruning(true);
+    setPruneError(null);
+    try {
+      const res = await apiFetch<{
+        deletedBackups: number;
+        freedBytes: number;
+        deletedAuditLogs: number;
+      }>('/backups/prune', {
+        method: 'POST',
+        body: JSON.stringify({ includeAuditLogs: true }),
+      });
+      setPruneConfirmOpen(false);
+      setMsg(
+        `Cleanup complete: removed ${res.deletedBackups} old backup(s) (${formatBytes(res.freedBytes)} freed) and ${res.deletedAuditLogs} expired audit log(s).`,
+      );
+      loadAll();
+    } catch (err) {
+      setPruneError(err instanceof ApiError ? err.message : 'Retention cleanup failed');
+    } finally {
+      setPruning(false);
     }
   };
 
@@ -248,12 +333,12 @@ export default function SettingsAndBackupPage() {
 
             <div>
               <label className="block text-xs font-semibold text-slate-500 mb-1">
-                File Storage Path (Local / NAS)
+                Active Storage Path (.env STORAGE_ROOT)
               </label>
               <input
-                value={settings.storageLocation}
-                onChange={(e) => setSettings({ ...settings, storageLocation: e.target.value })}
-                className="w-full px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-transparent font-mono text-xs"
+                readOnly
+                value={sysInfo?.activeStorageRoot || settings.storageLocation}
+                className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/60 font-mono text-xs text-slate-500"
               />
             </div>
 
@@ -347,24 +432,38 @@ export default function SettingsAndBackupPage() {
             </div>
             <div className="space-y-2 text-xs">
               <div className="flex justify-between py-1 border-b border-slate-100 dark:border-slate-800">
-                <span className="text-slate-500">PostgreSQL</span>
+                <span className="text-slate-500">Database (MongoDB)</span>
                 <span className="font-semibold text-emerald-600">{sysInfo.databaseStatus}</span>
               </div>
               <div className="flex justify-between py-1 border-b border-slate-100 dark:border-slate-800">
-                <span className="text-slate-500">Node.js</span>
-                <span className="font-mono">{sysInfo.nodeVersion}</span>
-              </div>
-              <div className="flex justify-between py-1 border-b border-slate-100 dark:border-slate-800">
-                <span className="text-slate-500">Platform</span>
-                <span>{sysInfo.platform} ({sysInfo.arch})</span>
+                <span className="text-slate-500">Node.js / Platform</span>
+                <span className="font-mono">
+                  {sysInfo.nodeVersion} • {sysInfo.platform} ({sysInfo.arch})
+                </span>
               </div>
               <div className="flex justify-between py-1 border-b border-slate-100 dark:border-slate-800">
                 <span className="text-slate-500">Memory Free / Total</span>
                 <span>{sysInfo.freeMemoryMb} / {sysInfo.totalMemoryMb} MB</span>
               </div>
               <div className="flex justify-between py-1 border-b border-slate-100 dark:border-slate-800">
+                <span className="text-slate-500">Storage / Backup Used</span>
+                <span className="font-mono">
+                  {formatBytes(sysInfo.storageUsageBytes ?? 0)} / {formatBytes(sysInfo.backupUsageBytes ?? 0)}
+                </span>
+              </div>
+              {typeof sysInfo.backupDiskFreeBytes === 'number' && (
+                <div className="flex justify-between py-1 border-b border-slate-100 dark:border-slate-800">
+                  <span className="text-slate-500">Backup Drive Free Space</span>
+                  <span className="font-mono font-semibold">{formatBytes(sysInfo.backupDiskFreeBytes)}</span>
+                </div>
+              )}
+              <div className="flex justify-between py-1 border-b border-slate-100 dark:border-slate-800">
                 <span className="text-slate-500">Sites / Devices</span>
                 <span>{sysInfo.counts.siteCount} / {sysInfo.counts.deviceCount}</span>
+              </div>
+              <div className="flex justify-between py-1 border-b border-slate-100 dark:border-slate-800">
+                <span className="text-slate-500">Documents / Diagrams</span>
+                <span>{sysInfo.counts.documentCount ?? 0} / {sysInfo.counts.diagramCount ?? 0}</span>
               </div>
               <div className="flex justify-between py-1">
                 <span className="text-slate-500">Users / Audit Logs</span>
@@ -378,26 +477,72 @@ export default function SettingsAndBackupPage() {
       {/* Backup & Restore Section */}
       <div className="rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-6 space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex items-center gap-2 font-bold text-base">
-            <Database className="h-5 w-5 text-blue-600" />
-            <span>Database & Storage Backups</span>
+          <div>
+            <div className="flex items-center gap-2 font-bold text-base">
+              <Database className="h-5 w-5 text-blue-600" />
+              <span>Database & Storage Backups</span>
+            </div>
+            <p className="text-xs text-slate-500 mt-0.5">
+              Retention policy keeps the newest {settings.backupRetentionCount} completed/restored archive(s). Always store copies & <code className="font-mono">.env</code> off-site.
+            </p>
           </div>
 
           <div className="flex flex-wrap gap-2">
-            <label className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg border border-slate-300 dark:border-slate-700 text-xs font-semibold cursor-pointer hover:bg-slate-50">
+            <button
+              type="button"
+              onClick={() => {
+                setPruneError(null);
+                setPruneConfirmOpen(true);
+              }}
+              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-700 text-xs font-semibold cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800"
+              title="Clean backups beyond retention count and expired audit logs"
+            >
+              <Sparkles className="h-3.5 w-3.5 text-amber-600" />
+              Clean Old Backups
+            </button>
+            <label className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg border border-slate-300 dark:border-slate-700 text-xs font-semibold cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800">
               <Upload className="h-3.5 w-3.5" />
               Upload & Restore (.zip)
               <input type="file" accept=".zip" onChange={handleUploadRestore} className="hidden" />
             </label>
-            <button
-              onClick={handleRunBackup}
-              disabled={runningBackup}
-              className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-[#0f2942] text-white text-xs font-semibold cursor-pointer"
-            >
-              <Play className="h-3.5 w-3.5" />
-              {runningBackup ? 'Creating Backup...' : 'Run Manual Backup Now'}
-            </button>
           </div>
+        </div>
+
+        <div className="rounded-lg bg-amber-50/70 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900 px-3.5 py-2 text-xs text-amber-900 dark:text-amber-200 flex items-center gap-2">
+          <ShieldAlert className="h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
+          <span>
+            Backup <code className="font-mono">.zip</code> archives contain full database snapshots and encrypted Access Vault secrets — restrict access to <code className="font-mono">{sysInfo?.activeBackupDir || settings.backupLocation}</code> and back up <code className="font-mono">.env</code> separately.
+          </span>
+        </div>
+
+        {/* Manual Backup Controls */}
+        <div className="flex flex-wrap items-center gap-2.5 bg-slate-50 dark:bg-slate-950/50 border border-slate-200 dark:border-slate-800 rounded-xl p-3 text-xs">
+          <select
+            value={backupScope}
+            onChange={(e) => setBackupScope(e.target.value as 'FULL' | 'DB_ONLY')}
+            aria-label="Backup scope"
+            className="px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 font-semibold cursor-pointer"
+          >
+            <option value="FULL">Full Backup (Database + Storage Files)</option>
+            <option value="DB_ONLY">Database Only (Fast Snapshot)</option>
+          </select>
+          <input
+            type="text"
+            value={backupNotes}
+            onChange={(e) => setBackupNotes(e.target.value)}
+            maxLength={200}
+            placeholder="Optional note (e.g. Before server patch)..."
+            className="flex-1 min-w-[200px] px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900"
+          />
+          <button
+            type="button"
+            onClick={handleRunBackup}
+            disabled={runningBackup}
+            className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-[#0f2942] hover:bg-[#143758] text-white font-semibold cursor-pointer disabled:opacity-60"
+          >
+            <Play className="h-3.5 w-3.5" />
+            {runningBackup ? 'Creating Backup...' : 'Run Backup Now'}
+          </button>
         </div>
 
         <div className="overflow-x-auto">
@@ -405,6 +550,7 @@ export default function SettingsAndBackupPage() {
             <thead>
               <tr className="text-left text-xs uppercase text-slate-500 border-b border-slate-200 dark:border-slate-800">
                 <th className="py-2 pr-4">Backup File</th>
+                <th className="py-2 pr-4">Scope</th>
                 <th className="py-2 pr-4">Type</th>
                 <th className="py-2 pr-4">Status</th>
                 <th className="py-2 pr-4">Size</th>
@@ -415,42 +561,94 @@ export default function SettingsAndBackupPage() {
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
               {backups.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="py-6 text-center text-slate-500 text-xs">
+                  <td colSpan={7} className="py-6 text-center text-slate-500 text-xs">
                     No backup archives created yet.
                   </td>
                 </tr>
               ) : (
-                backups.map((b) => (
-                  <tr key={b.id}>
-                    <td className="py-2.5 pr-4 font-mono text-xs">{b.fileName}</td>
-                    <td className="py-2.5 pr-4 text-xs">{b.type}</td>
-                    <td className="py-2.5 pr-4">
-                      <span className="px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 text-xs font-semibold">
-                        {b.status}
-                      </span>
-                    </td>
-                    <td className="py-2.5 pr-4 text-xs">{formatBytes(b.fileSize)}</td>
-                    <td className="py-2.5 pr-4 text-xs text-slate-500">
-                      {new Date(b.startedAt).toLocaleString()}
-                    </td>
-                    <td className="py-2.5 text-right whitespace-nowrap">
-                      <a
-                        href={`/api/backups/${b.id}/download`}
-                        className="inline-flex items-center gap-1 px-2.5 py-1 rounded border border-slate-200 dark:border-slate-700 text-xs mr-1.5"
-                      >
-                        <Download className="h-3 w-3" />
-                        Download
-                      </a>
-                      <button
-                        onClick={() => handleRestore(b)}
-                        className="inline-flex items-center gap-1 px-2.5 py-1 rounded bg-amber-50 text-amber-800 border border-amber-200 text-xs font-medium cursor-pointer"
-                      >
-                        <RotateCcw className="h-3 w-3" />
-                        Restore
-                      </button>
-                    </td>
-                  </tr>
-                ))
+                backups.map((b) => {
+                  const statusClass =
+                    b.status === 'COMPLETED'
+                      ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300'
+                      : b.status === 'RESTORED'
+                        ? 'bg-blue-50 text-blue-700 dark:bg-blue-950/60 dark:text-blue-300'
+                        : b.status === 'FAILED'
+                          ? 'bg-red-50 text-red-700 dark:bg-red-950/60 dark:text-red-300'
+                          : 'bg-amber-50 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300';
+                  const scopeLabel =
+                    b.includesDb !== false && b.includesFiles !== false
+                      ? 'DB + Files'
+                      : b.includesDb !== false
+                        ? 'DB Only'
+                        : 'Files Only';
+                  const canDownloadOrRestore =
+                    b.status === 'COMPLETED' || b.status === 'RESTORED';
+
+                  return (
+                    <tr key={b.id}>
+                      <td className="py-2.5 pr-4">
+                        <div className="font-mono text-xs">{b.fileName}</div>
+                        {(b.notes || b.checksum) && (
+                          <div className="text-[11px] text-slate-500 mt-0.5">
+                            {b.notes ? <span>{b.notes}</span> : null}
+                            {b.notes && b.checksum ? ' • ' : ''}
+                            {b.checksum ? (
+                              <span className="font-mono">SHA256:{b.checksum.slice(0, 10)}</span>
+                            ) : null}
+                          </div>
+                        )}
+                      </td>
+                      <td className="py-2.5 pr-4 text-xs text-slate-600 dark:text-slate-300">
+                        {scopeLabel}
+                      </td>
+                      <td className="py-2.5 pr-4 text-xs">{b.type}</td>
+                      <td className="py-2.5 pr-4">
+                        <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${statusClass}`}>
+                          {b.status}
+                        </span>
+                      </td>
+                      <td className="py-2.5 pr-4 text-xs">{formatBytes(b.fileSize)}</td>
+                      <td className="py-2.5 pr-4 text-xs text-slate-500">
+                        <div>{new Date(b.startedAt).toLocaleString()}</div>
+                        {b.initiatedBy?.username && (
+                          <div className="text-[11px] text-slate-400">by {b.initiatedBy.username}</div>
+                        )}
+                      </td>
+                      <td className="py-2.5 text-right whitespace-nowrap">
+                        {canDownloadOrRestore && (
+                          <>
+                            <a
+                              href={`/api/backups/${b.id}/download`}
+                              className="inline-flex items-center gap-1 px-2.5 py-1 rounded border border-slate-200 dark:border-slate-700 text-xs mr-1.5 hover:bg-slate-50 dark:hover:bg-slate-800"
+                            >
+                              <Download className="h-3 w-3" />
+                              Download
+                            </a>
+                            <button
+                              type="button"
+                              onClick={() => handleRestore(b)}
+                              className="inline-flex items-center gap-1 px-2.5 py-1 rounded bg-amber-50 text-amber-800 border border-amber-200 text-xs font-medium cursor-pointer mr-1.5 hover:bg-amber-100"
+                            >
+                              <RotateCcw className="h-3 w-3" />
+                              Restore
+                            </button>
+                          </>
+                        )}
+                        {b.status !== 'RUNNING' && (
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteBackup(b)}
+                            title="Delete backup archive"
+                            className="inline-flex items-center gap-1 px-2 py-1 rounded border border-red-200 dark:border-red-900 text-red-600 hover:bg-red-50 dark:hover:bg-red-950/50 text-xs cursor-pointer"
+                          >
+                            <Trash2 className="h-3 w-3" />
+                            Delete
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })
               )}
             </tbody>
           </table>
@@ -486,6 +684,48 @@ export default function SettingsAndBackupPage() {
             if (!restoring) setRestoreConfirm(null);
           }}
           onConfirm={confirmRestore}
+        />
+      )}
+
+      {deleteTarget && (
+        <ConfirmActionModal
+          title="Delete Backup Archive"
+          subtitle="Permanent backup & disk file removal"
+          itemName={deleteTarget.fileName}
+          badgeText={deleteTarget.status}
+          details={[
+            { label: 'Type', value: deleteTarget.type },
+            { label: 'Size', value: formatBytes(deleteTarget.fileSize) },
+          ]}
+          message="This will permanently delete both the backup record and its .zip archive from disk."
+          variant="danger"
+          confirmLabel="Delete"
+          loadingLabel="Deleting..."
+          loading={deletingBackup}
+          error={deleteError}
+          onCancel={() => {
+            if (!deletingBackup) setDeleteTarget(null);
+          }}
+          onConfirm={confirmDeleteBackup}
+        />
+      )}
+
+      {pruneConfirmOpen && (
+        <ConfirmActionModal
+          title="Clean Old Backups & Expired Audit Logs"
+          subtitle="Apply configured retention policy immediately"
+          itemName={`Keep latest ${settings.backupRetentionCount} backups • ${settings.auditRetentionDays} days audit history`}
+          badgeText="RETENTION"
+          message="Older backup archives exceeding Retention Count and audit logs older than Audit Log Retention Days will be permanently deleted."
+          variant="warning"
+          confirmLabel="Run Cleanup"
+          loadingLabel="Cleaning..."
+          loading={pruning}
+          error={pruneError}
+          onCancel={() => {
+            if (!pruning) setPruneConfirmOpen(false);
+          }}
+          onConfirm={confirmPruneBackups}
         />
       )}
     </div>

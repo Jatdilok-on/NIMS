@@ -1,5 +1,6 @@
 import os from 'os';
 import fs from 'fs';
+import path from 'path';
 import { Router } from 'express';
 import multer from 'multer';
 import { z } from 'zod';
@@ -15,8 +16,39 @@ import {
   resolveSafeMimeType,
   saveSiteFile,
 } from '../lib/storage';
-import { refreshBackupScheduler } from '../lib/backup';
+import { getStorageAndBackupDirs, refreshBackupScheduler } from '../lib/backup';
 import { recordAuditLog } from '../lib/audit';
+import { env } from '../config/env';
+
+function getDirectorySizeSafe(dirPath: string, depth = 0): number {
+  if (depth > 8 || !fs.existsSync(dirPath)) return 0;
+  let total = 0;
+  try {
+    const entries = fs.readdirSync(dirPath, { withFileTypes: true });
+    for (const entry of entries) {
+      const full = path.join(dirPath, entry.name);
+      if (entry.isDirectory()) {
+        total += getDirectorySizeSafe(full, depth + 1);
+      } else if (entry.isFile()) {
+        total += fs.statSync(full).size;
+      }
+    }
+  } catch {
+    // ignore unreadable subpaths
+  }
+  return total;
+}
+
+function getDiskFreeBytesSafe(dirPath: string): number | null {
+  try {
+    const probe = fs.existsSync(dirPath) ? dirPath : path.dirname(dirPath);
+    if (!fs.existsSync(probe)) return null;
+    const stats = fs.statfsSync(probe);
+    return Number(stats.bavail) * Number(stats.bsize);
+  } catch {
+    return null;
+  }
+}
 
 const router = Router();
 
@@ -149,14 +181,21 @@ router.post('/logo', upload.single('file'), async (req, res, next) => {
 
 router.get('/system-info', async (_req, res, next) => {
   try {
-    const [dbCheck, siteCount, deviceCount, userCount, auditCount] = await Promise.all([
-      prisma.$runCommandRaw({ ping: 1 }),
-      prisma.site.count(),
-      prisma.device.count(),
-      prisma.user.count(),
-      prisma.auditLog.count(),
-    ]);
-    const settings = await prisma.systemSetting.findUnique({ where: { key: 'default' } });
+    const [dbCheck, siteCount, deviceCount, documentCount, diagramCount, userCount, auditCount, dirs] =
+      await Promise.all([
+        prisma.$runCommandRaw({ ping: 1 }),
+        prisma.site.count(),
+        prisma.device.count(),
+        prisma.document.count(),
+        prisma.diagram.count(),
+        prisma.user.count(),
+        prisma.auditLog.count(),
+        getStorageAndBackupDirs(),
+      ]);
+
+    const storageUsageBytes = getDirectorySizeSafe(env.storageRoot);
+    const backupUsageBytes = getDirectorySizeSafe(dirs.backupDir);
+    const backupDiskFreeBytes = getDiskFreeBytesSafe(dirs.backupDir);
 
     res.json({
       systemInfo: {
@@ -168,8 +207,13 @@ router.get('/system-info', async (_req, res, next) => {
         totalMemoryMb: Math.round(os.totalmem() / 1024 / 1024),
         freeMemoryMb: Math.round(os.freemem() / 1024 / 1024),
         databaseStatus: dbCheck ? 'Connected (MongoDB)' : 'Unknown',
-        storageExists: settings ? fs.existsSync(settings.storageLocation) : false,
-        counts: { siteCount, deviceCount, userCount, auditCount },
+        storageExists: fs.existsSync(env.storageRoot),
+        activeStorageRoot: env.storageRoot,
+        activeBackupDir: dirs.backupDir,
+        storageUsageBytes,
+        backupUsageBytes,
+        backupDiskFreeBytes,
+        counts: { siteCount, deviceCount, documentCount, diagramCount, userCount, auditCount },
       },
     });
   } catch (err) {

@@ -11,7 +11,7 @@ import { ensureDir } from './storage';
 
 let activeCronTask: ScheduledTask | null = null;
 
-async function getStorageAndBackupDirs(): Promise<{ storageDir: string; backupDir: string }> {
+export async function getStorageAndBackupDirs(): Promise<{ storageDir: string; backupDir: string }> {
   const settings = await prisma.systemSetting.findUnique({ where: { key: 'default' } });
   return {
     storageDir: env.storageRoot,
@@ -149,27 +149,116 @@ export async function createSystemBackup(options: {
   }
 }
 
-export async function pruneOldBackups(): Promise<void> {
+export async function deleteBackupJobAndFile(jobId: string): Promise<{
+  deletedId: string;
+  fileName: string;
+  freedBytes: number;
+}> {
+  const job = await prisma.backupJob.findUnique({ where: { id: jobId } });
+  if (!job) {
+    throw new Error('Backup job not found');
+  }
+  if (job.status === BackupStatus.RUNNING) {
+    throw new Error('Cannot delete a backup that is currently running');
+  }
+
+  const { backupDir } = await getStorageAndBackupDirs();
+  const allowedRoots = [path.resolve(backupDir), path.resolve(env.backupRoot)];
+  let freedBytes = 0;
+
+  if (job.filePath) {
+    const resolvedFile = path.resolve(job.filePath);
+    const isInsideAllowedRoot = allowedRoots.some(
+      (root) => resolvedFile.startsWith(root + path.sep),
+    );
+    if (isInsideAllowedRoot && fs.existsSync(resolvedFile)) {
+      try {
+        freedBytes = fs.statSync(resolvedFile).size;
+        fs.unlinkSync(resolvedFile);
+      } catch {
+        // ignore disk unlink issue and still remove job metadata if file is gone
+      }
+    }
+  }
+
+  await prisma.backupJob.delete({ where: { id: job.id } });
+  return {
+    deletedId: job.id,
+    fileName: job.fileName,
+    freedBytes: freedBytes || job.fileSize || 0,
+  };
+}
+
+export async function pruneOldBackups(): Promise<{
+  deletedCount: number;
+  freedBytes: number;
+  keptCount: number;
+}> {
   const settings = await prisma.systemSetting.findUnique({ where: { key: 'default' } });
   const keepCount = settings?.backupRetentionCount ?? 14;
-  if (keepCount <= 0) return;
+  if (keepCount <= 0) {
+    return { deletedCount: 0, freedBytes: 0, keptCount: 0 };
+  }
 
-  const jobs = await prisma.backupJob.findMany({
-    where: { status: BackupStatus.COMPLETED },
+  const validJobs = await prisma.backupJob.findMany({
+    where: { status: { in: [BackupStatus.COMPLETED, BackupStatus.RESTORED] } },
     orderBy: { startedAt: 'desc' },
   });
 
-  const toDelete = jobs.slice(keepCount);
+  const failedJobs = await prisma.backupJob.findMany({
+    where: { status: BackupStatus.FAILED },
+    orderBy: { startedAt: 'desc' },
+  });
+
+  const toDelete = [...validJobs.slice(keepCount), ...failedJobs.slice(Math.min(keepCount, 5))];
+  let deletedCount = 0;
+  let freedBytes = 0;
+
+  const { backupDir } = await getStorageAndBackupDirs();
+  const allowedRoots = [path.resolve(backupDir), path.resolve(env.backupRoot)];
+
   for (const job of toDelete) {
     try {
-      if (fs.existsSync(job.filePath)) {
-        fs.unlinkSync(job.filePath);
+      if (job.filePath) {
+        const resolvedFile = path.resolve(job.filePath);
+        const isInsideAllowedRoot = allowedRoots.some(
+          (root) => resolvedFile.startsWith(root + path.sep),
+        );
+        if (isInsideAllowedRoot && fs.existsSync(resolvedFile)) {
+          freedBytes += fs.statSync(resolvedFile).size;
+          fs.unlinkSync(resolvedFile);
+        }
       }
       await prisma.backupJob.delete({ where: { id: job.id } });
+      deletedCount++;
     } catch {
-      // ignore cleanup failure
+      // ignore individual cleanup failure
     }
   }
+
+  return {
+    deletedCount,
+    freedBytes,
+    keptCount: Math.min(validJobs.length, keepCount),
+  };
+}
+
+export async function pruneOldAuditLogs(): Promise<{
+  deletedCount: number;
+  retentionDays: number;
+}> {
+  const settings = await prisma.systemSetting.findUnique({ where: { key: 'default' } });
+  const retentionDays = settings?.auditRetentionDays ?? 365;
+  if (retentionDays <= 0) {
+    return { deletedCount: 0, retentionDays };
+  }
+
+  const cutoff = new Date(Date.now() - retentionDays * 24 * 60 * 60 * 1000);
+  const res = await prisma.auditLog.deleteMany({
+    where: { createdAt: { lt: cutoff } },
+  });
+
+  return { deletedCount: res.count, retentionDays };
 }
 
 export async function restoreFromBackupArchive(backupFilePath: string): Promise<{
@@ -391,6 +480,9 @@ export async function refreshBackupScheduler(): Promise<void> {
         await createSystemBackup({
           type: BackupType.SCHEDULED,
           notes: `Scheduled ${schedule.toLowerCase()} backup`,
+        });
+        await pruneOldAuditLogs().catch((err) => {
+          console.error('Scheduled audit log retention cleanup failed:', (err as Error).message);
         });
       } catch (err) {
         console.error('Scheduled backup failed:', (err as Error).message);
