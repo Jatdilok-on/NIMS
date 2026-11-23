@@ -193,7 +193,7 @@ router.get('/summary', async (req, res, next) => {
         type: CHART_LABEL_OVERRIDES[dt.code] || dt.name,
         category: dt.code,
         iconKey: dt.iconKey || dt.code,
-        isSystem: dt.isSystem,
+        isSystem: Boolean(dt.isSystem),
         count: byCategory[dt.code] ?? 0,
       });
     }
