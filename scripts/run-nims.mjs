@@ -56,12 +56,17 @@ function loadRootEnv() {
 }
 
 function runSync(cmd, args, cwd, extraEnv = {}) {
+  const isWinShellScript = process.platform === 'win32' && /\.(cmd|bat)$/i.test(cmd);
   const result = spawnSync(cmd, args, {
     cwd,
     stdio: 'inherit',
-    shell: process.platform === 'win32',
+    shell: isWinShellScript,
     env: { ...process.env, ...extraEnv },
   });
+  if (result.error) {
+    console.error(`[NIMS] Failed to execute "${cmd}":`, result.error.message);
+    process.exit(1);
+  }
   if (result.status !== 0) {
     process.exit(result.status ?? 1);
   }
@@ -163,10 +168,17 @@ function startConcurrent(envVars, mode) {
 function runPrisma(args, envVars = {}) {
   const localPrismaCli = path.join(BACKEND_DIR, 'node_modules', 'prisma', 'build', 'index.js');
   if (fs.existsSync(localPrismaCli)) {
-    runSync('node', [localPrismaCli, ...args], BACKEND_DIR, envVars);
+    runSync(process.execPath, [localPrismaCli, ...args], BACKEND_DIR, envVars);
     return;
   }
   runSync(npxCmd, ['prisma', ...args], BACKEND_DIR, envVars);
+}
+
+function normalizeSchemaForCompare(content) {
+  return content
+    .replace(/\r\n/g, '\n')
+    .replace(/[ \t]+/g, ' ')
+    .trim();
 }
 
 function ensurePrismaClientGenerated(envVars) {
@@ -177,8 +189,8 @@ function ensurePrismaClientGenerated(envVars) {
   let needsGenerate = !fs.existsSync(generatedEntry);
   if (!needsGenerate && fs.existsSync(sourceSchemaPath) && fs.existsSync(generatedSchemaPath)) {
     try {
-      const srcSchema = fs.readFileSync(sourceSchemaPath, 'utf8').replace(/\r\n/g, '\n');
-      const genSchema = fs.readFileSync(generatedSchemaPath, 'utf8').replace(/\r\n/g, '\n');
+      const srcSchema = normalizeSchemaForCompare(fs.readFileSync(sourceSchemaPath, 'utf8'));
+      const genSchema = normalizeSchemaForCompare(fs.readFileSync(generatedSchemaPath, 'utf8'));
       if (srcSchema !== genSchema) {
         needsGenerate = true;
       }
@@ -209,7 +221,7 @@ switch (command) {
     ensureEnvFile();
     const envVars = loadRootEnv();
     ensurePrismaClientGenerated(envVars);
-    runSync('node', ['scripts/init-mongo-rs.mjs'], BACKEND_DIR, envVars);
+    runSync(process.execPath, ['scripts/init-mongo-rs.mjs'], BACKEND_DIR, envVars);
     break;
   }
   case 'setup-db': {
@@ -221,7 +233,7 @@ switch (command) {
     if (!offlineSkipGen) {
       runPrisma(['generate'], envVars);
     }
-    runSync('node', ['scripts/init-mongo-rs.mjs'], BACKEND_DIR, envVars);
+    runSync(process.execPath, ['scripts/init-mongo-rs.mjs'], BACKEND_DIR, envVars);
     console.log('[NIMS] Pushing MongoDB schema/indexes...');
     runPrisma(offlineSkipGen ? ['db', 'push', '--skip-generate'] : ['db', 'push'], envVars);
     console.log('[NIMS] Seeding reference roles, permissions, and device types...');
