@@ -95,6 +95,35 @@ export function DiagramsPanel({
     }
   };
 
+  const diagramCountsBySite = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const d of diagrams) {
+      map.set(d.siteId, (map.get(d.siteId) || 0) + 1);
+    }
+    return map;
+  }, [diagrams]);
+
+  const filteredDiagrams = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return diagrams.filter((d) => {
+      if (!fixedSiteId && siteFilter && d.siteId !== siteFilter) return false;
+      if (kindFilter !== 'ALL' && d.kind !== kindFilter) return false;
+      if (!q) return true;
+      const hay = [
+        d.title,
+        d.description || '',
+        d.filePath || '',
+        d.fileFormat,
+        d.kind,
+        d.site?.siteCode || '',
+        d.site?.siteName || '',
+      ]
+        .join(' ')
+        .toLowerCase();
+      return hay.includes(q);
+    });
+  }, [diagrams, fixedSiteId, siteFilter, kindFilter, search]);
+
   if (mode === 'VIEW' && activeDiagram) {
     return (
       <div className="space-y-3">
@@ -142,35 +171,6 @@ export function DiagramsPanel({
       />
     );
   }
-
-  const diagramCountsBySite = useMemo(() => {
-    const map = new Map<string, number>();
-    for (const d of diagrams) {
-      map.set(d.siteId, (map.get(d.siteId) || 0) + 1);
-    }
-    return map;
-  }, [diagrams]);
-
-  const filteredDiagrams = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    return diagrams.filter((d) => {
-      if (!fixedSiteId && siteFilter && d.siteId !== siteFilter) return false;
-      if (kindFilter !== 'ALL' && d.kind !== kindFilter) return false;
-      if (!q) return true;
-      const hay = [
-        d.title,
-        d.description || '',
-        d.filePath || '',
-        d.fileFormat,
-        d.kind,
-        d.site?.siteCode || '',
-        d.site?.siteName || '',
-      ]
-        .join(' ')
-        .toLowerCase();
-      return hay.includes(q);
-    });
-  }, [diagrams, fixedSiteId, siteFilter, kindFilter, search]);
 
   return (
     <div className="space-y-4">

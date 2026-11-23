@@ -96,6 +96,22 @@ export function CredentialsPanel({
     };
   }, []);
 
+  const credCountsBySite = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const c of credentials) {
+      map.set(c.siteId, (map.get(c.siteId) || 0) + 1);
+    }
+    return map;
+  }, [credentials]);
+
+  const filteredCredentials = useMemo(() => {
+    return credentials.filter((c) => {
+      if (!fixedSiteId && siteFilter && c.siteId !== siteFilter) return false;
+      if (loginTypeFilter && c.loginType !== loginTypeFilter) return false;
+      return true;
+    });
+  }, [credentials, fixedSiteId, siteFilter, loginTypeFilter]);
+
   if (isIpViewer) {
     return (
       <div className="rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 p-8 text-center space-y-2">
@@ -222,22 +238,6 @@ export function CredentialsPanel({
       setDeletingCred(false);
     }
   };
-
-  const credCountsBySite = useMemo(() => {
-    const map = new Map<string, number>();
-    for (const c of credentials) {
-      map.set(c.siteId, (map.get(c.siteId) || 0) + 1);
-    }
-    return map;
-  }, [credentials]);
-
-  const filteredCredentials = useMemo(() => {
-    return credentials.filter((c) => {
-      if (!fixedSiteId && siteFilter && c.siteId !== siteFilter) return false;
-      if (loginTypeFilter && c.loginType !== loginTypeFilter) return false;
-      return true;
-    });
-  }, [credentials, fixedSiteId, siteFilter, loginTypeFilter]);
 
   const activeExportSiteId = fixedSiteId || siteFilter;
 
