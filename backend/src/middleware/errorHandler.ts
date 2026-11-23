@@ -2,6 +2,7 @@ import { Request, Response, NextFunction } from 'express';
 import { ZodError } from 'zod';
 import { Prisma } from '@prisma/client';
 import multer from 'multer';
+import { env } from '../config/env';
 
 export class HttpError extends Error {
   status: number;
@@ -41,7 +42,11 @@ export function errorHandler(
 
   if (err instanceof Prisma.PrismaClientKnownRequestError) {
     if (err.code === 'P2002') {
-      res.status(409).json({ error: 'Duplicate record conflict', meta: err.meta });
+      res.status(409).json(
+        env.nodeEnv === 'production'
+          ? { error: 'Duplicate record conflict' }
+          : { error: 'Duplicate record conflict', meta: err.meta },
+      );
       return;
     }
     if (err.code === 'P2025') {
@@ -56,5 +61,7 @@ export function errorHandler(
 
   const message = err instanceof Error ? err.message : 'Internal server error';
   console.error('Unhandled API Error:', message);
-  res.status(500).json({ error: message });
+  res.status(500).json({
+    error: env.nodeEnv === 'production' ? 'Internal server error' : message,
+  });
 }

@@ -185,7 +185,7 @@ export default function SiteDetailPage() {
       <div className="flex overflow-x-auto gap-1.5 pb-1 border-b border-slate-200 dark:border-slate-800">
         {tabs.map((t) => {
           const Icon = t.icon;
-          const active = tab === t.id;
+          const active = effectiveTab === t.id;
           return (
             <button
               key={t.id}
@@ -204,7 +204,7 @@ export default function SiteDetailPage() {
       </div>
 
       {/* Active Tab Body */}
-      {tab === 'overview' && (
+      {effectiveTab === 'overview' && (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           <div className="lg:col-span-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-5 space-y-4">
             <h2 className="font-bold text-base">Site Profile</h2>

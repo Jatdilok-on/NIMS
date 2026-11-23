@@ -68,9 +68,9 @@ export function removeSessionPresence(userId: string, sessionId: string): void {
   if (rec.sessions.size === 0) {
     return;
   }
-  let maxSeen = rec.lastSeenAt;
-  let latestIp = rec.ip;
-  let latestPath = rec.lastPath;
+  let maxSeen = -1;
+  let latestIp: string | undefined;
+  let latestPath: string | undefined;
   for (const s of rec.sessions.values()) {
     if (s.lastSeenAt >= maxSeen) {
       maxSeen = s.lastSeenAt;
@@ -78,7 +78,7 @@ export function removeSessionPresence(userId: string, sessionId: string): void {
       latestPath = s.lastPath;
     }
   }
-  rec.lastSeenAt = maxSeen;
+  rec.lastSeenAt = maxSeen >= 0 ? maxSeen : rec.lastSeenAt;
   rec.ip = latestIp;
   rec.lastPath = latestPath;
 }
@@ -90,6 +90,12 @@ export function removeOtherSessionsPresence(userId: string, keepSessionId: strin
     if (sid !== keepSessionId) {
       rec.sessions.delete(sid);
     }
+  }
+  const kept = rec.sessions.get(keepSessionId);
+  if (kept) {
+    rec.lastSeenAt = kept.lastSeenAt;
+    rec.ip = kept.ip;
+    rec.lastPath = kept.lastPath;
   }
 }
 

@@ -316,12 +316,16 @@ router.post('/import/preview', upload.single('file'), async (req, res, next) => 
       const password = mapVal(raw, 'password');
       const ip = mapVal(raw, 'managementIp');
       const portStr = mapVal(raw, 'port');
+      const rawUrl = mapVal(raw, 'url');
       const loginType = normalizeLoginType(mapVal(raw, 'loginType'));
 
       if (!deviceName) issues.push('Missing Device Name');
       if (!username) issues.push('Missing Username');
       if (!password) issues.push('Missing Password');
       if (ip && !isValidIpv4(ip)) issues.push(`Invalid IP: ${ip}`);
+      if (rawUrl && (!/^https?:\/\//i.test(rawUrl) || rawUrl.length > 500)) {
+        issues.push(`Invalid URL (must start with http:// or https://): ${rawUrl}`);
+      }
       if (portStr) {
         const p = Number(portStr);
         if (!Number.isInteger(p) || p < 1 || p > 65535) issues.push(`Invalid Port: ${portStr}`);
@@ -432,6 +436,18 @@ router.post('/import/confirm', async (req, res, next) => {
       const portNum = mapped.port ? parseInt(mapped.port, 10) : null;
       const validPort = portNum && !Number.isNaN(portNum) && portNum >= 1 && portNum <= 65535 ? portNum : null;
       const mgmtIp = mapped.managementIp || null;
+      const safeUrl =
+        mapped.url && /^https?:\/\//i.test(mapped.url) && mapped.url.length <= 500
+          ? mapped.url
+          : null;
+      if (mapped.url && !safeUrl) {
+        errors.push({
+          rowIndex: i + 1,
+          name: deviceName,
+          error: 'Management URL must start with http:// or https:// and be <= 500 characters',
+        });
+        continue;
+      }
       const matchedDeviceId =
         devByName.get(deviceName.toLowerCase()) ||
         (mgmtIp ? devByIp.get(mgmtIp) : undefined) ||
@@ -450,7 +466,7 @@ router.post('/import/confirm', async (req, res, next) => {
             passwordEncrypted: encryptSecret(password),
             accessMethod: mapped.accessMethod || null,
             port: validPort,
-            url: mapped.url || null,
+            url: safeUrl,
             remark: mapped.remark || null,
             createdById: req.user!.id,
           },

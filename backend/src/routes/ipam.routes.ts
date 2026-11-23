@@ -657,6 +657,7 @@ router.get('/subnets/:id/ips', async (req, res, next) => {
 router.post('/ips/allocate', async (req, res, next) => {
   try {
     const body = allocateIpSchema.parse(req.body);
+    const cleanIp = body.ipAddress.trim();
     const subnet = await prisma.subnet.findUnique({ where: { id: body.subnetId } });
     if (!subnet) {
       res.status(404).json({ error: 'Subnet not found' });
@@ -666,16 +667,16 @@ router.post('/ips/allocate', async (req, res, next) => {
       res.status(403).json({ error: 'Permission denied' });
       return;
     }
-    if (!isHostIpInCidr(body.ipAddress, subnet.cidr)) {
+    if (!isHostIpInCidr(cleanIp, subnet.cidr)) {
       res.status(400).json({
-        error: `IP ${body.ipAddress} must be a usable host address inside ${subnet.cidr}`,
+        error: `IP ${cleanIp} must be a usable host address inside ${subnet.cidr}`,
       });
       return;
     }
 
     if (body.status === IpAllocationStatus.AVAILABLE) {
       await prisma.ipAddress.deleteMany({
-        where: { subnetId: subnet.id, ipAddress: body.ipAddress },
+        where: { subnetId: subnet.id, ipAddress: cleanIp },
       });
       await recordAuditLog({
         req,
@@ -684,7 +685,7 @@ router.post('/ips/allocate', async (req, res, next) => {
         action: 'RELEASE_IP_ALLOCATION',
         module: 'IPAM',
         siteId: subnet.siteId,
-        details: { ipAddress: body.ipAddress },
+        details: { ipAddress: cleanIp },
       });
       res.json({ message: 'IP released to AVAILABLE' });
       return;
@@ -701,7 +702,7 @@ router.post('/ips/allocate', async (req, res, next) => {
     }
 
     const existingIp = await prisma.ipAddress.findUnique({
-      where: { subnetId_ipAddress: { subnetId: subnet.id, ipAddress: body.ipAddress } },
+      where: { subnetId_ipAddress: { subnetId: subnet.id, ipAddress: cleanIp } },
     });
 
     const ipRecord = existingIp
@@ -720,7 +721,7 @@ router.post('/ips/allocate', async (req, res, next) => {
           data: {
             siteId: subnet.siteId,
             subnetId: subnet.id,
-            ipAddress: body.ipAddress,
+            ipAddress: cleanIp,
             status: body.status,
             hostname: body.hostname ?? null,
             macAddress: body.macAddress ?? null,
@@ -737,7 +738,7 @@ router.post('/ips/allocate', async (req, res, next) => {
       action: 'UPDATE_IP_ALLOCATION',
       module: 'IPAM',
       siteId: subnet.siteId,
-      details: { ipAddress: body.ipAddress, status: body.status },
+      details: { ipAddress: cleanIp, status: body.status },
     });
 
     res.json({ ipRecord });
@@ -748,12 +749,9 @@ router.post('/ips/allocate', async (req, res, next) => {
 
 router.get('/lookup', async (req, res, next) => {
   try {
-    const rawQuery =
-      typeof req.query.q === 'string'
-        ? req.query.q.trim()
-        : typeof req.query.ip === 'string'
-          ? req.query.ip.trim()
-          : '';
+    const qVal = typeof req.query.q === 'string' ? req.query.q.trim() : '';
+    const ipVal = typeof req.query.ip === 'string' ? req.query.ip.trim() : '';
+    const rawQuery = qVal || ipVal;
     if (!rawQuery) {
       res.status(400).json({ error: 'Query parameter ip or q is required' });
       return;

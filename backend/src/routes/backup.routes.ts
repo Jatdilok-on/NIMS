@@ -39,7 +39,10 @@ router.post('/run', async (req, res, next) => {
     const job = await createSystemBackup({
       type: BackupType.MANUAL,
       initiatedById: req.user!.id,
-      notes: req.body?.notes || 'Manual backup',
+      notes:
+        typeof req.body?.notes === 'string' && req.body.notes.trim()
+          ? req.body.notes.trim().slice(0, 300)
+          : 'Manual backup',
       includesDb: req.body?.includesDb !== false,
       includesFiles: req.body?.includesFiles !== false,
     });
@@ -118,7 +121,7 @@ router.post('/:id/restore', async (req, res, next) => {
 
 router.post('/upload-restore', upload.single('file'), async (req, res, next) => {
   try {
-    if (!req.file || !req.file.originalname.endsWith('.zip')) {
+    if (!req.file || !req.file.originalname.toLowerCase().endsWith('.zip')) {
       res.status(400).json({ error: 'Valid .zip backup archive is required' });
       return;
     }

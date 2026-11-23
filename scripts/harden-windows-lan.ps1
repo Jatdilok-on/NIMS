@@ -80,19 +80,31 @@ if (-not (Test-Path $envPath)) {
   $envText = Get-Content $envPath -Raw
   $updated = $false
 
-  if ($envText -notmatch "(?m)^NODE_ENV=production\s*$") {
+  if ($envText -notmatch "(?m)^NODE_ENV=") {
+    $envText = $envText.TrimEnd() + "`nNODE_ENV=production`n"
+    $updated = $true
+  } elseif ($envText -notmatch "(?m)^NODE_ENV=production\s*$") {
     $envText = $envText -replace "(?m)^NODE_ENV=.*$", "NODE_ENV=production"
     $updated = $true
   }
 
   $desiredCookieSecure = if ($UseHttps) { "true" } else { "false" }
-  if ($envText -notmatch "(?m)^COOKIE_SECURE=$desiredCookieSecure\s*$") {
+  if ($envText -notmatch "(?m)^COOKIE_SECURE=") {
+    $envText = $envText.TrimEnd() + "`nCOOKIE_SECURE=$desiredCookieSecure`n"
+    $updated = $true
+  } elseif ($envText -notmatch "(?m)^COOKIE_SECURE=$desiredCookieSecure\s*$") {
     $envText = $envText -replace "(?m)^COOKIE_SECURE=.*$", "COOKIE_SECURE=$desiredCookieSecure"
     $updated = $true
   }
 
-  if ($envText -match "(?m)^CORS_ORIGIN=http://localhost:3000\s*$" -and $ServerHost -ne "localhost") {
-    $envText = $envText -replace "(?m)^CORS_ORIGIN=.*$", "CORS_ORIGIN=$corsOrigins"
+  if ($envText -match "(?m)^CORS_ORIGIN=(.*)$") {
+    $curCors = $Matches[1].Trim()
+    if (($curCors -eq "http://localhost:3000" -and $ServerHost -ne "localhost") -or ($UseHttps -and $curCors -notmatch "https://")) {
+      $envText = $envText -replace "(?m)^CORS_ORIGIN=.*$", "CORS_ORIGIN=$corsOrigins"
+      $updated = $true
+    }
+  } else {
+    $envText = $envText.TrimEnd() + "`nCORS_ORIGIN=$corsOrigins`n"
     $updated = $true
   }
 
@@ -106,6 +118,11 @@ if (-not (Test-Path $envPath)) {
     } else {
       Write-Host "[PASS] JWT_SECRET is already set with strong key." -ForegroundColor Green
     }
+  } else {
+    $newJwt = (node -e "console.log(require('crypto').randomBytes(32).toString('hex'))").Trim()
+    $envText = $envText.TrimEnd() + "`nJWT_SECRET=$newJwt`n"
+    $updated = $true
+    Write-Host "[FIXED] Added missing JWT_SECRET with a fresh 64-hex secret." -ForegroundColor Green
   }
 
   if ($envText -match "(?m)^CREDENTIALS_ENCRYPTION_KEY=(.*)$") {
@@ -118,6 +135,11 @@ if (-not (Test-Path $envPath)) {
     } else {
       Write-Host "[PASS] Existing CREDENTIALS_ENCRYPTION_KEY preserved (Access Vault records remain intact)." -ForegroundColor Green
     }
+  } else {
+    $newKey = (node -e "console.log(require('crypto').randomBytes(32).toString('hex'))").Trim()
+    $envText = $envText.TrimEnd() + "`nCREDENTIALS_ENCRYPTION_KEY=$newKey`n"
+    $updated = $true
+    Write-Host "[FIXED] Added missing CREDENTIALS_ENCRYPTION_KEY with a fresh 64-hex key." -ForegroundColor Green
   }
 
   if ($updated -and (-not $DryRun)) {

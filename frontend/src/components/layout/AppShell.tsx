@@ -419,7 +419,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                           onClick={() => {
                             setSearchResults(null);
                             setSearchQuery('');
-                            router.push(`/sites/${diag.siteId}?tab=diagrams`);
+                            router.push(`/sites/${diag.siteId}?tab=diagram`);
                           }}
                           className="w-full text-left px-4 py-2.5 hover:bg-slate-500/8 flex items-center justify-between gap-3 cursor-pointer transition"
                         >

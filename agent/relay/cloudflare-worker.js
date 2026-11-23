@@ -105,6 +105,15 @@ export default {
       }
 
       const tokenHash = await sha256Hex(token);
+      const knownTarget = await env.DB.prepare(
+        'SELECT 1 FROM relay_targets WHERE token_hash = ?',
+      )
+        .bind(tokenHash)
+        .first();
+      if (!knownTarget) {
+        return json({ error: 'Unknown or unprovisioned agent token' }, 403);
+      }
+
       const reportedAt = new Date().toISOString();
 
       await env.DB.prepare(

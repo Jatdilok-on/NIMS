@@ -322,4 +322,72 @@ describe('Security Hardening & API Regression Tests', () => {
     auditSpy.mockRestore();
     sessionSpy.mockRestore();
   });
+
+  it('rejects javascript: URLs during credential bulk import and neutralizes leading-space CSV formulas', async () => {
+    const csvWithSpaces = buildInventoryCsv([
+      {
+        itemNo: 1,
+        siteCode: 'BTV',
+        category: 'HANDHELD',
+        name: ' =HYPERLINK("http://evil")',
+        model: 'MC9300',
+        vendor: 'Zebra',
+        macAddress: null,
+        serialNumber: null,
+        managementIp: '10.0.0.5',
+        vlan: null,
+        location: null,
+        status: 'ONLINE',
+        responsiblePerson: null,
+        remark: null,
+      },
+    ]);
+    expect(csvWithSpaces).toContain("' =HYPERLINK");
+
+    const app = createApp();
+    const { rawJwt, sessionSpy } = mockSessionLookup({
+      userId: 'cred-admin',
+      roleCode: RoleCode.SUPER_ADMIN,
+    });
+    const siteSpy = vi.spyOn(prisma.site, 'findUnique').mockResolvedValue({
+      id: 'site-1',
+      siteCode: 'BTV',
+    } as never);
+    const credFindSpy = vi.spyOn(prisma.credential, 'findMany').mockResolvedValue([] as never);
+    const devFindSpy = vi.spyOn(prisma.device, 'findMany').mockResolvedValue([] as never);
+    const credCreateSpy = vi.spyOn(prisma.credential, 'create');
+
+    const res = await request(app)
+      .post('/api/credentials/import/confirm')
+      .set('Authorization', `Bearer ${rawJwt}`)
+      .send({
+        siteId: 'site-1',
+        columnMapping: {
+          Device: 'deviceName',
+          User: 'username',
+          Pass: 'password',
+          URL: 'url',
+        },
+        rows: [
+          {
+            Device: 'CORE-SW-01',
+            User: 'admin',
+            Pass: 'Secret123!',
+            URL: 'javascript:alert(1)',
+          },
+        ],
+      });
+
+    expect(res.status).toBe(200);
+    expect(res.body.importedCount).toBe(0);
+    expect(res.body.errorCount).toBe(1);
+    expect(res.body.errors[0].error).toMatch(/http:\/\/ or https:\/\//i);
+    expect(credCreateSpy).not.toHaveBeenCalled();
+
+    credCreateSpy.mockRestore();
+    devFindSpy.mockRestore();
+    credFindSpy.mockRestore();
+    siteSpy.mockRestore();
+    sessionSpy.mockRestore();
+  });
 });

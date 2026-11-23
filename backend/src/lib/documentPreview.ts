@@ -3,6 +3,7 @@ import { Readable } from 'stream';
 import ExcelJS from 'exceljs';
 import unzipper from 'unzipper';
 import { XMLParser } from 'fast-xml-parser';
+import { decodeCsvBufferToUtf8 } from './excel';
 
 export interface SpreadsheetCellPreview {
   text: string;
@@ -156,7 +157,8 @@ async function buildSpreadsheetPreview(
 ): Promise<DocumentPreviewPayload> {
   const wb = new ExcelJS.Workbook();
   if (ext === '.csv') {
-    await wb.csv.read(Readable.from([buffer]));
+    const utf8Csv = decodeCsvBufferToUtf8(buffer);
+    await wb.csv.read(Readable.from([utf8Csv]));
   } else {
     await wb.xlsx.load(buffer as unknown as ArrayBuffer);
   }
@@ -513,6 +515,46 @@ function parseTableBlock(
   };
 }
 
+async function readZipEntryBounded(
+  entry: unzipper.File,
+  maxBytes: number,
+): Promise<Buffer | null> {
+  const declaredSize = Number(entry.vars?.uncompressedSize || 0);
+  if (declaredSize > maxBytes) {
+    return null;
+  }
+  return new Promise<Buffer | null>((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    let total = 0;
+    let settled = false;
+    const stream = entry.stream();
+    stream.on('data', (chunk: Buffer) => {
+      total += chunk.length;
+      if (total > maxBytes) {
+        if (!settled) {
+          settled = true;
+          stream.destroy();
+          resolve(null);
+        }
+        return;
+      }
+      chunks.push(chunk);
+    });
+    stream.on('error', (err) => {
+      if (!settled) {
+        settled = true;
+        reject(err);
+      }
+    });
+    stream.on('end', () => {
+      if (!settled) {
+        settled = true;
+        resolve(Buffer.concat(chunks, total));
+      }
+    });
+  });
+}
+
 async function buildDocxPreview(
   buffer: Buffer,
   fileName: string,
@@ -533,8 +575,8 @@ async function buildDocxPreview(
     };
   }
 
-  const docXmlBuf = await docEntry.buffer();
-  if (docXmlBuf.length > MAX_XML_BYTES) {
+  const docXmlBuf = await readZipEntryBounded(docEntry, MAX_XML_BYTES);
+  if (!docXmlBuf) {
     return {
       kind: 'unsupported',
       fileName,
@@ -548,8 +590,8 @@ async function buildDocxPreview(
   const imageDataMap = new Map<string, string>();
   const relsEntry = filesByPath.get('word/_rels/document.xml.rels');
   if (relsEntry) {
-    const relsBuf = await relsEntry.buffer();
-    if (relsBuf.length <= MAX_XML_BYTES) {
+    const relsBuf = await readZipEntryBounded(relsEntry, MAX_XML_BYTES);
+    if (relsBuf) {
       const relNodes = orderedXmlParser.parse(relsBuf.toString('utf8')) as OrderedXmlNode[];
       const root = findChild(relNodes, 'Relationships');
       if (root) {
@@ -575,8 +617,8 @@ async function buildDocxPreview(
             const ext = path.extname(mediaPath).toLowerCase();
             const mime = SAFE_DOCX_IMAGE_MIME[ext];
             if (mediaEntry && mime) {
-              const imgBuf = await mediaEntry.buffer();
-              if (imgBuf.length <= MAX_SINGLE_IMAGE_BYTES) {
+              const imgBuf = await readZipEntryBounded(mediaEntry, MAX_SINGLE_IMAGE_BYTES);
+              if (imgBuf) {
                 imageDataMap.set(id, `data:${mime};base64,${imgBuf.toString('base64')}`);
                 loadedImages++;
               }
@@ -650,8 +692,8 @@ async function buildPptxPreview(
 
   const slides: Array<{ slideNumber: number; lines: string[] }> = [];
   for (const entry of slideEntries) {
-    const buf = await entry.buffer();
-    if (buf.length > MAX_XML_BYTES) continue;
+    const buf = await readZipEntryBounded(entry, MAX_XML_BYTES);
+    if (!buf) continue;
     const parsed = orderedXmlParser.parse(buf.toString('utf8')) as OrderedXmlNode[];
     const lines: string[] = [];
     const walkParagraphs = (nodes: OrderedXmlNode[]) => {

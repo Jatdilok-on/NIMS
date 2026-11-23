@@ -523,6 +523,9 @@ router.get('/export', async (req, res, next) => {
       typeof req.query.category === 'string' && req.query.category in DeviceCategory
         ? (req.query.category as DeviceCategory)
         : undefined;
+    const search = typeof req.query.search === 'string' ? req.query.search.trim() : '';
+    const vlan = typeof req.query.vlan === 'string' ? req.query.vlan.trim() : '';
+    const location = typeof req.query.location === 'string' ? req.query.location.trim() : '';
 
     const permittedSiteIds = getPermittedSiteIds(req.user!, 'canViewInventory');
     if (siteId && permittedSiteIds !== null && !permittedSiteIds.includes(siteId)) {
@@ -534,6 +537,21 @@ router.get('/export', async (req, res, next) => {
       where: {
         ...(siteId ? { siteId } : permittedSiteIds !== null ? { siteId: { in: permittedSiteIds } } : {}),
         ...(category ? { category } : {}),
+        ...(vlan ? { vlan: { contains: vlan, mode: 'insensitive' } } : {}),
+        ...(location ? { location: { contains: location, mode: 'insensitive' } } : {}),
+        ...(search
+          ? {
+              OR: [
+                { name: { contains: search, mode: 'insensitive' } },
+                { model: { contains: search, mode: 'insensitive' } },
+                { vendor: { contains: search, mode: 'insensitive' } },
+                { managementIp: { contains: search, mode: 'insensitive' } },
+                { macAddress: { contains: search, mode: 'insensitive' } },
+                { serialNumber: { contains: search, mode: 'insensitive' } },
+                { location: { contains: search, mode: 'insensitive' } },
+              ],
+            }
+          : {}),
       },
       include: {
         site: { select: { siteCode: true } },

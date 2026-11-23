@@ -404,56 +404,55 @@ function InnerDiagramEditor({
   }, [inventoryDevices, setNodes]);
 
   // Undo / Redo History
-  const [history, setHistory] = useState<Array<{ nodes: Node[]; edges: Edge[] }>>([
-    { nodes: initialNodes, edges: initialEdges },
-  ]);
-  const [historyIndex, setHistoryIndex] = useState(0);
+  const [historyState, setHistoryState] = useState<{
+    entries: Array<{ nodes: Node[]; edges: Edge[] }>;
+    index: number;
+  }>({ entries: [{ nodes: initialNodes, edges: initialEdges }], index: 0 });
+  const history = historyState.entries;
+  const historyIndex = historyState.index;
 
-  const pushHistory = useCallback(
-    (nextNodes: Node[], nextEdges: Edge[]) => {
-      setHistory((prev) => {
-        const sliced = prev.slice(0, historyIndex + 1);
-        const next = [...sliced, { nodes: nextNodes, edges: nextEdges }].slice(-30);
-        setHistoryIndex(next.length - 1);
-        return next;
-      });
-    },
-    [historyIndex],
-  );
+  const pushHistory = useCallback((nextNodes: Node[], nextEdges: Edge[]) => {
+    setHistoryState((prev) => {
+      const sliced = prev.entries.slice(0, prev.index + 1);
+      const entries = [...sliced, { nodes: nextNodes, edges: nextEdges }].slice(-30);
+      return { entries, index: entries.length - 1 };
+    });
+  }, []);
 
   const handleUndo = () => {
     if (historyIndex <= 0) return;
-    const prev = history[historyIndex - 1];
-    setNodes(prev.nodes);
-    setEdges(prev.edges);
-    setHistoryIndex(historyIndex - 1);
+    const prevSnapshot = history[historyIndex - 1];
+    setNodes(prevSnapshot.nodes);
+    setEdges(prevSnapshot.edges);
+    setHistoryState((prev) => ({ ...prev, index: Math.max(0, prev.index - 1) }));
   };
 
   const handleRedo = () => {
     if (historyIndex >= history.length - 1) return;
-    const next = history[historyIndex + 1];
-    setNodes(next.nodes);
-    setEdges(next.edges);
-    setHistoryIndex(historyIndex + 1);
+    const nextSnapshot = history[historyIndex + 1];
+    setNodes(nextSnapshot.nodes);
+    setEdges(nextSnapshot.edges);
+    setHistoryState((prev) => ({
+      ...prev,
+      index: Math.min(prev.entries.length - 1, prev.index + 1),
+    }));
   };
 
   const onConnect = useCallback(
     (connection: Connection) => {
       if (!canEdit) return;
-      setEdges((eds) => {
-        const next = addEdge(
-          {
-            ...connection,
-            type: 'networkLink',
-            data: { cableType: 'LAN', color: '#2563eb', speed: '1G' },
-          },
-          eds,
-        );
-        pushHistory(nodes, next);
-        return next;
-      });
+      const next = addEdge(
+        {
+          ...connection,
+          type: 'networkLink',
+          data: { cableType: 'LAN', color: '#2563eb', speed: '1G' },
+        },
+        edges,
+      );
+      setEdges(next);
+      pushHistory(nodes, next);
     },
-    [canEdit, setEdges, nodes, pushHistory],
+    [canEdit, edges, setEdges, nodes, pushHistory],
   );
 
   const addPaletteNode = (deviceType: string, label: string, pos?: { x: number; y: number }) => {

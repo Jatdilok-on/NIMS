@@ -13,8 +13,8 @@ export default function CredentialsPage() {
   }
   const canEdit =
     user?.roleCode === 'SUPER_ADMIN' ||
-    user?.roleCode === 'SITE_ADMIN' ||
-    user?.roleCode === 'NETWORK_ENGINEER';
+    ((user?.roleCode === 'SITE_ADMIN' || user?.roleCode === 'NETWORK_ENGINEER') &&
+      Boolean(user?.sitePermissions?.some((p) => p.canEditCredentials)));
 
   return (
     <div className="space-y-4">

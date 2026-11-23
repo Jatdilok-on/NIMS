@@ -305,6 +305,9 @@ export function InventoryPanel({
     const params = new URLSearchParams({ format });
     if (fixedSiteId || siteFilter) params.set('siteId', fixedSiteId || siteFilter);
     if (categoryFilter) params.set('category', categoryFilter);
+    if (search.trim()) params.set('search', search.trim());
+    if (vlanFilter.trim()) params.set('vlan', vlanFilter.trim());
+    if (locationFilter.trim()) params.set('location', locationFilter.trim());
     window.open(`/api/inventory/export?${params.toString()}`, '_blank');
   };
 
@@ -487,12 +490,12 @@ export function InventoryPanel({
               <option value="MAINTENANCE">Maintenance</option>
               <option value="UNKNOWN">Unknown</option>
             </select>
-            {(search || siteFilter || categoryFilter || statusFilter || vlanFilter || locationFilter) && (
+            {(search || (!fixedSiteId && siteFilter) || categoryFilter || statusFilter || vlanFilter || locationFilter) && (
               <button
                 type="button"
                 onClick={() => {
                   setSearch('');
-                  setSiteFilter('');
+                  if (!fixedSiteId) setSiteFilter('');
                   setCategoryFilter('');
                   setStatusFilter('');
                   setVlanFilter('');
@@ -648,7 +651,7 @@ export function InventoryPanel({
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
               {loading ? (
                 <tr>
-                  <td colSpan={11} className="px-4 py-8 text-center text-slate-500">
+                  <td colSpan={12} className="px-4 py-8 text-center text-slate-500">
                     {t('inventory.loading')}
                   </td>
                 </tr>

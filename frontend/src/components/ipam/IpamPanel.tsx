@@ -202,13 +202,15 @@ export function IpamPanel({
 
   const loadSubnets = useCallback(async () => {
     const q = fixedSiteId ? `?siteId=${fixedSiteId}` : '';
+    const activeSiteId = fixedSiteId || selectedSiteFilter;
+    const unmappedQuery = activeSiteId ? `?siteId=${activeSiteId}` : '';
     const [subnetsRes, unmappedRes] = await Promise.all([
       apiFetch<{ subnets: Subnet[] }>(`/ipam/subnets${q}`),
-      apiFetch<UnmappedSummary>(`/ipam/unmapped-devices${q}`).catch(() => null),
+      apiFetch<UnmappedSummary>(`/ipam/unmapped-devices${unmappedQuery}`).catch(() => null),
     ]);
     setSubnets(subnetsRes.subnets);
     setUnmappedSummary(unmappedRes);
-  }, [fixedSiteId]);
+  }, [fixedSiteId, selectedSiteFilter]);
 
   useEffect(() => {
     loadSubnets().catch(() => {});
@@ -518,6 +520,7 @@ export function IpamPanel({
               <select
                 value={selectedSiteFilter}
                 onChange={(e) => {
+                  gridRequestSeqRef.current += 1;
                   setSelectedSiteFilter(e.target.value);
                   setSelectedSubnet(null);
                   setLookupPanel(null);

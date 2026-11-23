@@ -230,14 +230,17 @@ function buildWindowsBridgeOneClickBat(
     '>> "%INSTALL_DIR%\\bridge-hidden.vbs" echo sh.Run "cmd /c " ^& Chr(34) ^& d ^& "\\bridge-run.cmd" ^& Chr(34), 0, False',
     '',
     '> "%INSTALL_DIR%\\view-bridge-log.bat" echo @echo off',
+    '>> "%INSTALL_DIR%\\view-bridge-log.bat" echo @echo off',
+    '>> "%INSTALL_DIR%\\view-bridge-log.bat" echo set "INSTALL_DIR=%INSTALL_DIR%"',
     '>> "%INSTALL_DIR%\\view-bridge-log.bat" echo title NIMS Relay Bridge Log',
-    '>> "%INSTALL_DIR%\\view-bridge-log.bat" echo powershell -NoProfile -Command "Get-Content -Path \'%INSTALL_DIR%\\bridge.log\' -Tail 30 -Wait"',
+    '>> "%INSTALL_DIR%\\view-bridge-log.bat" echo powershell -NoProfile -Command "Get-Content -LiteralPath (Join-Path $env:INSTALL_DIR \'bridge.log\') -Tail 30 -Wait"',
     '',
     '> "%INSTALL_DIR%\\uninstall-bridge.bat" echo @echo off',
+    '>> "%INSTALL_DIR%\\uninstall-bridge.bat" echo set "INSTALL_DIR=%INSTALL_DIR%"',
     '>> "%INSTALL_DIR%\\uninstall-bridge.bat" echo schtasks /delete /tn "%TASK_NAME%" /f ^>nul 2^>^&1',
     '>> "%INSTALL_DIR%\\uninstall-bridge.bat" echo powershell -NoProfile -ExecutionPolicy Bypass -Command "Get-CimInstance Win32_Process | Where-Object { ($_.Name -eq \'cmd.exe\' -and $_.CommandLine -like \'*bridge-run.cmd*\') -or ($_.Name -eq \'wscript.exe\' -and $_.CommandLine -like \'*bridge-hidden.vbs*\') -or ($_.Name -eq \'node.exe\' -and $_.CommandLine -like \'*nims-relay-bridge.mjs*\') } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }"',
     '>> "%INSTALL_DIR%\\uninstall-bridge.bat" echo cd /d "%%TEMP%%"',
-    '>> "%INSTALL_DIR%\\uninstall-bridge.bat" echo start "" /min powershell -NoProfile -WindowStyle Hidden -Command "Start-Sleep 2; Remove-Item -LiteralPath \'%INSTALL_DIR%\' -Recurse -Force -ErrorAction SilentlyContinue"',
+    '>> "%INSTALL_DIR%\\uninstall-bridge.bat" echo start "" /min powershell -NoProfile -WindowStyle Hidden -Command "Start-Sleep 2; Remove-Item -LiteralPath $env:INSTALL_DIR -Recurse -Force -ErrorAction SilentlyContinue"',
     '>> "%INSTALL_DIR%\\uninstall-bridge.bat" echo echo [OK] NIMS Relay Bridge stopped and removed.',
     '>> "%INSTALL_DIR%\\uninstall-bridge.bat" echo pause',
     '',
@@ -256,7 +259,7 @@ function buildWindowsBridgeOneClickBat(
     'echo   - Uninstall       : "%INSTALL_DIR%\\uninstall-bridge.bat"',
     'echo ============================================================',
     'echo.',
-    'if exist "%INSTALL_DIR%\\bridge.log" powershell -NoProfile -Command "Get-Content -Path \'%INSTALL_DIR%\\bridge.log\' -Tail 10"',
+    'if exist "%INSTALL_DIR%\\bridge.log" powershell -NoProfile -Command "Get-Content -LiteralPath (Join-Path $env:INSTALL_DIR \'bridge.log\') -Tail 10"',
     'pause',
     '',
   ];
@@ -315,8 +318,8 @@ function buildWindowsOneClickBat(
     'echo NIMS_URL=%NIMS_URL%> "%INSTALL_DIR%\\nims-agent.env"',
     'echo NIMS_AGENT_TOKEN=%AGENT_TOKEN%>> "%INSTALL_DIR%\\nims-agent.env"',
     'echo NIMS_PING_TIMEOUT_MS=2000>> "%INSTALL_DIR%\\nims-agent.env"',
-    'echo NIMS_CONCURRENCY=15 >> "%INSTALL_DIR%\\nims-agent.env"',
-    'echo NIMS_FALLBACK_TCP_PORTS=22,80,443,3389,502,9100 >> "%INSTALL_DIR%\\nims-agent.env"',
+    'echo NIMS_CONCURRENCY=15>> "%INSTALL_DIR%\\nims-agent.env"',
+    'echo NIMS_FALLBACK_TCP_PORTS=22,80,443,3389,502,9100>> "%INSTALL_DIR%\\nims-agent.env"',
     `echo NIMS_ALLOW_INSECURE_TLS=${allowInsecureTls ? 'true' : 'false'}>> "%INSTALL_DIR%\\nims-agent.env"`,
     '',
     ...scriptWriteLines,
@@ -347,15 +350,17 @@ function buildWindowsOneClickBat(
     'echo sh.Run "cmd /c " ^& Chr(34) ^& d ^& "\\node-run.cmd" ^& Chr(34), 0, False >> "%INSTALL_DIR%\\run-hidden.vbs"',
     '',
     'echo @echo off > "%INSTALL_DIR%\\view-log.bat"',
-    'echo powershell -NoProfile -Command "Get-Content -Path \'%INSTALL_DIR%\\agent.log\' -Tail 30" >> "%INSTALL_DIR%\\view-log.bat"',
+    'echo set "INSTALL_DIR=%INSTALL_DIR%" >> "%INSTALL_DIR%\\view-log.bat"',
+    'echo powershell -NoProfile -Command "Get-Content -LiteralPath (Join-Path $env:INSTALL_DIR \'agent.log\') -Tail 30" >> "%INSTALL_DIR%\\view-log.bat"',
     'echo pause >> "%INSTALL_DIR%\\view-log.bat"',
     '',
     'echo @echo off > "%INSTALL_DIR%\\uninstall-agent.bat"',
+    'echo set "INSTALL_DIR=%INSTALL_DIR%" >> "%INSTALL_DIR%\\uninstall-agent.bat"',
     'echo echo Stopping NIMS Agent and removing Auto-Start... >> "%INSTALL_DIR%\\uninstall-agent.bat"',
     'echo schtasks /delete /tn "%TASK_NAME%" /f ^>nul 2^>^&1 >> "%INSTALL_DIR%\\uninstall-agent.bat"',
-    'echo powershell -NoProfile -ExecutionPolicy Bypass -Command "Get-CimInstance Win32_Process | Where-Object { ($_.Name -eq \'cmd.exe\' -and $_.CommandLine -like \'*%INSTALL_DIR%*node-run.cmd*\') -or ($_.Name -eq \'wscript.exe\' -and $_.CommandLine -like \'*%INSTALL_DIR%*run-hidden.vbs*\') -or ($_.Name -eq \'node.exe\' -and $_.CommandLine -like \'*%INSTALL_DIR%*nims-agent.mjs*\') } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }" >> "%INSTALL_DIR%\\uninstall-agent.bat"',
+    'echo powershell -NoProfile -ExecutionPolicy Bypass -Command "Get-CimInstance Win32_Process | Where-Object { ($_.Name -eq \'cmd.exe\' -and $_.CommandLine -like (\'*\' + $env:INSTALL_DIR + \'*node-run.cmd*\')) -or ($_.Name -eq \'wscript.exe\' -and $_.CommandLine -like (\'*\' + $env:INSTALL_DIR + \'*run-hidden.vbs*\')) -or ($_.Name -eq \'node.exe\' -and $_.CommandLine -like (\'*\' + $env:INSTALL_DIR + \'*nims-agent.mjs*\')) } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }" >> "%INSTALL_DIR%\\uninstall-agent.bat"',
     'echo cd /d "%%TEMP%%" >> "%INSTALL_DIR%\\uninstall-agent.bat"',
-    'echo start "" /min powershell -NoProfile -WindowStyle Hidden -Command "Start-Sleep 2; Remove-Item -LiteralPath \'%INSTALL_DIR%\' -Recurse -Force -ErrorAction SilentlyContinue" >> "%INSTALL_DIR%\\uninstall-agent.bat"',
+    'echo start "" /min powershell -NoProfile -WindowStyle Hidden -Command "Start-Sleep 2; Remove-Item -LiteralPath $env:INSTALL_DIR -Recurse -Force -ErrorAction SilentlyContinue" >> "%INSTALL_DIR%\\uninstall-agent.bat"',
     'echo echo NIMS Site Agent stopped, auto-start removed, and folder scheduled for cleanup. >> "%INSTALL_DIR%\\uninstall-agent.bat"',
     'echo pause >> "%INSTALL_DIR%\\uninstall-agent.bat"',
     '',
@@ -438,16 +443,14 @@ export function SiteAgentsPanel({
   });
   const [savedBridgeSecret, setSavedBridgeSecret] = useState(() => {
     if (typeof window !== 'undefined') {
-      return window.localStorage.getItem('nims_bridge_secret') || '';
+      return window.sessionStorage.getItem('nims_bridge_secret') || '';
     }
     return '';
   });
   const [nimsServerUrl, setNimsServerUrl] = useState(() =>
     typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3000',
   );
-  const [allowInsecureTls, setAllowInsecureTls] = useState(() =>
-    typeof window !== 'undefined' ? window.location.protocol === 'https:' : false,
-  );
+  const [allowInsecureTls, setAllowInsecureTls] = useState(false);
   const isLocalhostUrl = /\/\/(localhost|127\.0\.0\.1)(:|\/|$)/i.test(nimsServerUrl);
 
   const updateRelayUrl = (nextUrl: string) => {
@@ -460,7 +463,7 @@ export function SiteAgentsPanel({
   const updateBridgeSecret = (nextSecret: string) => {
     setSavedBridgeSecret(nextSecret);
     if (typeof window !== 'undefined') {
-      window.localStorage.setItem('nims_bridge_secret', nextSecret);
+      window.sessionStorage.setItem('nims_bridge_secret', nextSecret);
     }
   };
 
@@ -856,9 +859,6 @@ export function SiteAgentsPanel({
                 onChange={(e) => {
                   const next = e.target.value;
                   setNimsServerUrl(next);
-                  if (next.trim().toLowerCase().startsWith('https://')) {
-                    setAllowInsecureTls(true);
-                  }
                 }}
                 placeholder="https://191.20.110.191:3000"
                 className="w-full px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-transparent font-mono text-xs"

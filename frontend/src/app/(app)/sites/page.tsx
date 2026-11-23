@@ -29,7 +29,7 @@ import {
 } from '@/components/icons/TechIcons';
 import { ConfirmActionModal } from '@/components/common/ConfirmActionModal';
 import { ImportSitesModal } from '@/components/sites/ImportSitesModal';
-import { apiFetch, ApiError, copyTextSafe, getSiteGoogleMapUrl } from '@/lib/api';
+import { apiFetch, ApiError, copyTextSafe, getSafeExternalUrl, getSiteGoogleMapUrl } from '@/lib/api';
 import { useAuth } from '@/lib/auth-context';
 import { useI18n } from '@/lib/i18n';
 import { CredentialItem, Device, Site } from '@/lib/types';
@@ -1130,17 +1130,23 @@ function SiteQuickViewModal({
 
                       {(cred.url || cred.remark) && (
                         <div className="flex flex-wrap gap-3 text-[11px] text-slate-600 dark:text-slate-300">
-                          {cred.url && (
-                            <a
-                              href={cred.url}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="text-blue-600 hover:underline inline-flex items-center gap-1"
-                            >
-                              {cred.url}
-                              <ExternalLink className="h-3 w-3" />
-                            </a>
-                          )}
+                          {cred.url &&
+                            (() => {
+                              const safeCredUrl = getSafeExternalUrl(cred.url);
+                              return safeCredUrl ? (
+                                <a
+                                  href={safeCredUrl}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="text-blue-600 hover:underline inline-flex items-center gap-1"
+                                >
+                                  {cred.url}
+                                  <ExternalLink className="h-3 w-3" />
+                                </a>
+                              ) : (
+                                <span className="text-slate-500 font-mono">{cred.url}</span>
+                              );
+                            })()}
                           {cred.remark && <span>Remark: {cred.remark}</span>}
                         </div>
                       )}

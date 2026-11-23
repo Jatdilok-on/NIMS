@@ -72,7 +72,16 @@ function inferCategoryClient(rawVal: string | undefined, fallback: DeviceCategor
   if (s === 'pc' || s.includes('workstation') || s.includes('desktop')) return 'PC';
   if (s === 'tv' || s.includes('smart tv') || s.includes('television') || s.includes('signage')) return 'TV';
   if (s.includes('printer') || s === 'prt' || s.includes('เครื่องพิมพ์')) return 'PRINTER';
-  if (s.includes('handheld') || s === 'pda' || s.includes('rf scanner') || s.includes('แฮนด์เฮลด์')) return 'HANDHELD';
+  if (
+    s.includes('handheld') ||
+    s === 'pda' ||
+    s.includes('rf scanner') ||
+    s.includes('rf gun') ||
+    s.includes('mobile computer') ||
+    s.includes('แฮนด์เฮลด์')
+  ) {
+    return 'HANDHELD';
+  }
   if (s.includes('barcode') || s.includes('scanner') || s.includes('บาร์โค้ด')) return 'BARCODE';
   if (s.includes('wlc') || s.includes('wireless controller')) return 'WLC';
   if (s.includes('esxi') || s.includes('vmware') || s.includes('hypervisor')) return 'ESXI';
@@ -259,10 +268,10 @@ export function ImportWizardModal({
               <div className="rounded-xl bg-blue-50/70 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 px-4 py-3 flex flex-wrap items-center justify-between gap-2 text-xs">
                 <div>
                   <div className="font-semibold text-blue-900 dark:text-blue-200">
-                    Sample Import File (All 16 Device Types)
+                    Sample Import File (All 17 Device Types)
                   </div>
                   <div className="text-[11px] text-blue-700/80 dark:text-blue-300/80">
-                    Includes Switch, AP, AP Client, WLC, Server, PLC, ESXi, VM, NAS, UPS, IP_CAM, PC, NVR, TV, PRINTER, and BARCODE
+                    Includes Switch, AP, AP Client, WLC, Server, PLC, ESXi, VM, NAS, UPS, IP_CAM, PC, NVR, TV, PRINTER, BARCODE, and HANDHELD
                   </div>
                 </div>
                 <div className="flex items-center gap-2">

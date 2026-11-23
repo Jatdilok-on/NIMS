@@ -183,7 +183,7 @@ export function normalizeUserRole(
   return null;
 }
 
-function decodeCsvBufferToUtf8(buffer: Buffer): string {
+export function decodeCsvBufferToUtf8(buffer: Buffer): string {
   if (buffer.length >= 3 && buffer[0] === 0xef && buffer[1] === 0xbb && buffer[2] === 0xbf) {
     return new TextDecoder('utf-8').decode(buffer.subarray(3));
   }
@@ -495,8 +495,8 @@ export async function buildInventoryExcelBuffer(rows: ExportDeviceRow[]): Promis
 
 function escapeCsvValue(val: string | number | null | undefined): string {
   const s = val === null || val === undefined ? '' : String(val);
-  // Neutralize spreadsheet formula injection while preserving plain display values
-  const safe = /^[=+\-@\t\r]/.test(s) ? `'${s}` : s;
+  // Neutralize spreadsheet formula injection (including leading spaces) while preserving plain display values
+  const safe = /^(?:[\t\r]|[ ]*[=+\-@])/.test(s) ? `'${s}` : s;
   if (safe.includes(',') || safe.includes('"') || safe.includes('\n') || safe.includes('\r')) {
     return `"${safe.replace(/"/g, '""')}"`;
   }
@@ -977,6 +977,7 @@ export async function buildSampleInventoryExcelBuffer(): Promise<Buffer> {
     { code: 'TV', label: 'TV / Display', aliases: 'TV, Smart TV, Television, TV Dashboard' },
     { code: 'PRINTER', label: 'Printer', aliases: 'PRINTER, Printer, Label Printer, Zebra' },
     { code: 'BARCODE', label: 'Barcode Scanner', aliases: 'BARCODE, Barcode Scanner, Barcode Reader, Scanner' },
+    { code: 'HANDHELD', label: 'Handheld Terminal / PDA', aliases: 'HANDHELD, Handheld, Handheld Terminal, PDA, RF Scanner' },
   ].forEach((row) => guide.addRow(row));
 
   const buf = await wb.xlsx.writeBuffer();

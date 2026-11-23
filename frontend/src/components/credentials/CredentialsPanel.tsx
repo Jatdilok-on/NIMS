@@ -89,6 +89,13 @@ export function CredentialsPanel({
     loadCredentials();
   }, [loadCredentials]);
 
+  const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    return () => {
+      if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    };
+  }, []);
+
   if (isIpViewer) {
     return (
       <div className="rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 p-8 text-center space-y-2">
@@ -100,13 +107,6 @@ export function CredentialsPanel({
       </div>
     );
   }
-
-  const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  useEffect(() => {
-    return () => {
-      if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
-    };
-  }, []);
 
   const notify = (msg: string) => {
     setToast(msg);
@@ -275,11 +275,13 @@ export function CredentialsPanel({
           >
             <option value="">ทุกประเภท Login ({credentials.length})</option>
             <option value="SSH">SSH</option>
-            <option value="WEB_GUI">Web GUI</option>
+            <option value="HTTPS">HTTPS</option>
+            <option value="HTTP">HTTP</option>
             <option value="WINBOX">Winbox</option>
             <option value="RDP">RDP</option>
             <option value="VPN">VPN</option>
-            <option value="API">API</option>
+            <option value="CONSOLE">Console</option>
+            <option value="WEB_GUI">Web GUI</option>
             <option value="OTHER">Other</option>
           </select>
         </div>

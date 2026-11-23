@@ -27,8 +27,6 @@ router.get('/status', async (_req, res, next) => {
     });
   } catch (err) {
     next(err);
-  } finally {
-    setupInitInProgress = false;
   }
 });
 
@@ -132,8 +130,6 @@ router.post('/init', async (req, res, next) => {
     });
   } catch (err) {
     next(err);
-  } finally {
-    setupInitInProgress = false;
   }
 });
 

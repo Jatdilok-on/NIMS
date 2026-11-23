@@ -51,6 +51,49 @@ function getCellValue(shape: Record<string, unknown>, cellName: string, fallback
   return fallback;
 }
 
+const MAX_VSDX_PAGE_BYTES = 10 * 1024 * 1024;
+const MAX_DRAWIO_INFLATE_BYTES = 10 * 1024 * 1024;
+
+async function readZipEntryBounded(
+  entry: unzipper.File,
+  maxBytes: number,
+): Promise<Buffer> {
+  const declaredSize = Number(entry.vars?.uncompressedSize || 0);
+  if (declaredSize > maxBytes) {
+    throw new Error(`Archive entry "${entry.path}" exceeds maximum allowed size`);
+  }
+  return new Promise<Buffer>((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    let total = 0;
+    let settled = false;
+    const stream = entry.stream();
+    stream.on('data', (chunk: Buffer) => {
+      total += chunk.length;
+      if (total > maxBytes) {
+        if (!settled) {
+          settled = true;
+          stream.destroy();
+          reject(new Error(`Archive entry "${entry.path}" exceeded ${maxBytes} bytes`));
+        }
+        return;
+      }
+      chunks.push(chunk);
+    });
+    stream.on('error', (err) => {
+      if (!settled) {
+        settled = true;
+        reject(err);
+      }
+    });
+    stream.on('end', () => {
+      if (!settled) {
+        settled = true;
+        resolve(Buffer.concat(chunks, total));
+      }
+    });
+  });
+}
+
 /**
  * Converts a .vsdx OOXML file buffer into an SVG string preview by parsing page XML shapes & connectors.
  */
@@ -68,7 +111,7 @@ export async function convertVsdxToSvg(buffer: Buffer): Promise<string> {
     </svg>`;
   }
 
-  const xmlText = (await pageEntry.buffer()).toString('utf8');
+  const xmlText = (await readZipEntryBounded(pageEntry, MAX_VSDX_PAGE_BYTES)).toString('utf8');
   const parsed = xmlParser.parse(xmlText);
   const pageContents = parsed?.PageContents;
   const rawShapes = pageContents?.Shapes?.Shape;
@@ -162,7 +205,7 @@ export function parseDrawioToReactFlow(xmlContent: string): {
   if (!model && firstDiagram && typeof firstDiagram['#text'] === 'string') {
     try {
       const compressed = Buffer.from(firstDiagram['#text'].trim(), 'base64');
-      const inflated = inflateRawSync(compressed).toString('utf8');
+      const inflated = inflateRawSync(compressed, { maxOutputLength: MAX_DRAWIO_INFLATE_BYTES }).toString('utf8');
       const decoded = decodeURIComponent(inflated);
       const innerParsed = xmlParser.parse(decoded);
       model = innerParsed?.mxGraphModel || innerParsed;
