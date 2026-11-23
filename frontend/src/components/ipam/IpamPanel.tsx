@@ -1,8 +1,20 @@
 'use client';
 
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
-import { AlertCircle, ExternalLink, Layers, Pencil, Plus, RefreshCw, Search, Trash2, X } from 'lucide-react';
+import {
+  AlertCircle,
+  ArrowUpDown,
+  Building2,
+  ExternalLink,
+  Layers,
+  Pencil,
+  Plus,
+  RefreshCw,
+  Search,
+  Trash2,
+  X,
+} from 'lucide-react';
 import { ConfirmActionModal } from '@/components/common/ConfirmActionModal';
 import { DeviceCategoryTechIcon, TechIpamIcon } from '@/components/icons/TechIcons';
 import { apiFetch, ApiError } from '@/lib/api';
@@ -57,6 +69,67 @@ interface UnmappedSummary {
   suggestedSubnets: SuggestedSubnet[];
 }
 
+interface LookupDeviceItem {
+  id: string;
+  siteId: string;
+  name: string;
+  managementIp?: string | null;
+  macAddress?: string | null;
+  location?: string | null;
+  category: string;
+  status: string;
+  agentLive?: boolean;
+  lastLatencyMs?: number | null;
+  site?: { id: string; siteCode: string; siteName: string };
+}
+
+interface LookupAllocationItem {
+  id: string;
+  ipAddress: string;
+  status: IpAllocationStatus;
+  hostname?: string | null;
+  macAddress?: string | null;
+  description?: string | null;
+  subnet: { id: string; cidr: string; vlanNumber?: number | null; gateway?: string | null };
+  device?: {
+    id: string;
+    name: string;
+    model?: string | null;
+    location?: string | null;
+    category: string;
+    status: string;
+    agentLive?: boolean;
+    lastLatencyMs?: number | null;
+  } | null;
+  site?: { id: string; siteCode: string; siteName: string };
+}
+
+function parseIpv4Uint(ip: string): number | null {
+  const parts = ip.trim().split('.');
+  if (parts.length !== 4) return null;
+  let num = 0;
+  for (const p of parts) {
+    if (!/^\d{1,3}$/.test(p)) return null;
+    const oct = Number(p);
+    if (oct < 0 || oct > 255) return null;
+    num = num * 256 + oct;
+  }
+  return num;
+}
+
+function isIpv4InCidr(ip: string, cidr: string): boolean {
+  const [netStr, prefixStr] = cidr.split('/');
+  const ipNum = parseIpv4Uint(ip);
+  const netNum = parseIpv4Uint(netStr || '');
+  const prefix = Number(prefixStr);
+  if (ipNum === null || netNum === null || !Number.isInteger(prefix) || prefix < 0 || prefix > 32) {
+    return false;
+  }
+  if (prefix === 0) return true;
+  const mask = (~0 << (32 - prefix)) >>> 0;
+  return ((ipNum >>> 0) & mask) === ((netNum >>> 0) & mask);
+}
+
 const IP_TILE_CLASS: Record<IpAllocationStatus, string> = {
   AVAILABLE: 'bg-emerald-50 border-emerald-200 text-emerald-800 dark:bg-emerald-950/40 dark:border-emerald-900 dark:text-emerald-300',
   ALLOCATED: 'bg-blue-600 border-blue-700 text-white',
@@ -104,10 +177,22 @@ export function IpamPanel({
     vlanNumber?: number | null;
   } | null>(null);
   const [ipLookup, setIpLookup] = useState('');
-  const [lookupResult, setLookupResult] = useState<string | null>(null);
+  const [selectedSiteFilter, setSelectedSiteFilter] = useState('');
+  const [sortMode, setSortMode] = useState<'SITE' | 'CIDR' | 'UTIL'>('SITE');
+  const [usedIpSearch, setUsedIpSearch] = useState('');
+  const [highlightedIp, setHighlightedIp] = useState<string | null>(null);
+  const [lookupLoading, setLookupLoading] = useState(false);
+  const [lookupPanel, setLookupPanel] = useState<{
+    query: string;
+    devices: LookupDeviceItem[];
+    allocations: LookupAllocationItem[];
+    matchingSubnets: Subnet[];
+  } | null>(null);
+  const [lookupError, setLookupError] = useState<string | null>(null);
   const [unmappedSummary, setUnmappedSummary] = useState<UnmappedSummary | null>(null);
   const [syncing, setSyncing] = useState(false);
   const [syncMessage, setSyncMessage] = useState<string | null>(null);
+  const subnetDetailRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     apiFetch<{ sites: Site[] }>('/sites')
@@ -245,50 +330,228 @@ export function IpamPanel({
 
   const handleLookup = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!ipLookup.trim()) return;
+    const q = ipLookup.trim();
+    if (!q) {
+      setLookupPanel(null);
+      setLookupError(null);
+      return;
+    }
+    setLookupLoading(true);
+    setLookupError(null);
     try {
+      const qs = new URLSearchParams({ q });
+      if (fixedSiteId) qs.set('siteId', fixedSiteId);
+      else if (selectedSiteFilter) qs.set('siteId', selectedSiteFilter);
       const res = await apiFetch<{
-        devices: Array<{ name: string; location?: string | null; site?: { siteCode: string } }>;
-        allocations: Array<{ status: string; subnet: { cidr: string; vlanNumber?: number | null } }>;
-      }>(`/ipam/lookup?ip=${encodeURIComponent(ipLookup.trim())}`);
-      if (res.devices.length > 0) {
-        const d = res.devices[0];
-        setLookupResult(
-          `${ipLookup.trim()} → ${d.name} (${d.site?.siteCode || '-'}, Location: ${d.location || '-'})`,
-        );
-      } else if (res.allocations.length > 0) {
-        const a = res.allocations[0];
-        setLookupResult(
-          `${ipLookup.trim()} → Status: ${a.status} in ${a.subnet.cidr} (VLAN ${a.subnet.vlanNumber || '-'})`,
-        );
-      } else {
-        setLookupResult(`${ipLookup.trim()} is not currently assigned to any device or allocation.`);
-      }
+        devices: LookupDeviceItem[];
+        allocations: LookupAllocationItem[];
+      }>(`/ipam/lookup?${qs.toString()}`);
+
+      const isExactIpv4 = parseIpv4Uint(q) !== null;
+      const containingSubnets = isExactIpv4
+        ? subnets.filter(
+            (s) =>
+              (!selectedSiteFilter || s.siteId === selectedSiteFilter) &&
+              isIpv4InCidr(q, s.cidr),
+          )
+        : [];
+
+      setLookupPanel({
+        query: q,
+        devices: res.devices,
+        allocations: res.allocations,
+        matchingSubnets: containingSubnets,
+      });
     } catch {
-      setLookupResult('Lookup failed');
+      setLookupError('Lookup failed');
+    } finally {
+      setLookupLoading(false);
     }
   };
 
+  const handleJumpToIp = async (subnetId: string, ipAddress?: string | null) => {
+    const targetSub = subnets.find((s) => s.id === subnetId);
+    if (!targetSub) return;
+    const blockPrefix =
+      ipAddress && ipAddress.includes('.') ? ipAddress.split('.').slice(0, 3).join('.') : undefined;
+    setHighlightedIp(ipAddress || null);
+    setUsedIpSearch(ipAddress || '');
+    await openSubnetGrid(targetSub, blockPrefix);
+    setTimeout(() => {
+      subnetDetailRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 60);
+  };
+
+  const siteSubnetCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const s of subnets) {
+      counts.set(s.siteId, (counts.get(s.siteId) || 0) + 1);
+    }
+    return counts;
+  }, [subnets]);
+
+  const activeSiteTabs = useMemo(() => {
+    return sites
+      .filter((s) => (siteSubnetCounts.get(s.id) || 0) > 0)
+      .map((s) => ({
+        ...s,
+        subnetCount: siteSubnetCounts.get(s.id) || 0,
+      }));
+  }, [sites, siteSubnetCounts]);
+
+  const filteredSubnets = useMemo(() => {
+    const q = ipLookup.trim().toLowerCase();
+    const isExactIpv4 = parseIpv4Uint(ipLookup.trim()) !== null;
+
+    const matched = subnets.filter((sub) => {
+      if (!fixedSiteId && selectedSiteFilter && sub.siteId !== selectedSiteFilter) {
+        return false;
+      }
+      if (!q) return true;
+      if (isExactIpv4 && isIpv4InCidr(ipLookup.trim(), sub.cidr)) {
+        return true;
+      }
+      const haystack = [
+        sub.cidr,
+        sub.subnetMask,
+        sub.gateway || '',
+        sub.dns1 || '',
+        sub.dns2 || '',
+        sub.description || '',
+        sub.vlanNumber != null ? `vlan ${sub.vlanNumber} ${sub.vlanNumber}` : '',
+        sub.site?.siteCode || '',
+        sub.site?.siteName || '',
+      ]
+        .join(' ')
+        .toLowerCase();
+      return haystack.includes(q);
+    });
+
+    const sorted = [...matched];
+    sorted.sort((a, b) => {
+      if (sortMode === 'UTIL') {
+        return (b.utilizationPct ?? 0) - (a.utilizationPct ?? 0);
+      }
+      if (sortMode === 'CIDR') {
+        const aIp = parseIpv4Uint(a.cidr.split('/')[0]) ?? 0;
+        const bIp = parseIpv4Uint(b.cidr.split('/')[0]) ?? 0;
+        return aIp - bIp;
+      }
+      const siteCmp = (a.site?.siteCode || '').localeCompare(b.site?.siteCode || '');
+      if (siteCmp !== 0) return siteCmp;
+      return (parseIpv4Uint(a.cidr.split('/')[0]) ?? 0) - (parseIpv4Uint(b.cidr.split('/')[0]) ?? 0);
+    });
+    return sorted;
+  }, [subnets, fixedSiteId, selectedSiteFilter, ipLookup, sortMode]);
+
+  const filteredAllocatedIps = useMemo(() => {
+    const q = usedIpSearch.trim().toLowerCase();
+    if (!q) return allocatedIps;
+    return allocatedIps.filter((cell) => {
+      const hay = [
+        cell.ipAddress,
+        cell.status,
+        cell.hostname || '',
+        cell.macAddress || '',
+        cell.description || '',
+        cell.device?.name || '',
+        cell.device?.category || '',
+        cell.device?.model || '',
+        cell.device?.vendor || '',
+        cell.device?.location || '',
+        cell.device?.vlan || '',
+      ]
+        .join(' ')
+        .toLowerCase();
+      return hay.includes(q);
+    });
+  }, [allocatedIps, usedIpSearch]);
+
   return (
     <div className="space-y-4">
+      {/* Top Toolbar: Unified Search + Site Dropdown + Sort + Actions */}
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <form onSubmit={handleLookup} className="flex items-center gap-2">
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
-            <input
-              value={ipLookup}
-              onChange={(e) => setIpLookup(e.target.value)}
-              placeholder={t('ipam.lookupPlaceholder')}
-              className="pl-9 pr-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm font-mono w-64"
-            />
+        <div className="flex flex-wrap items-center gap-2 flex-1 min-w-[260px]">
+          <form onSubmit={handleLookup} className="flex items-center gap-2 flex-1 max-w-md min-w-[240px]">
+            <div className="relative flex-1">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+              <input
+                value={ipLookup}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  setIpLookup(val);
+                  if (!val.trim()) {
+                    setLookupPanel(null);
+                    setLookupError(null);
+                  }
+                }}
+                placeholder="ค้นหา Subnet, VLAN, IP, ชื่ออุปกรณ์ หรือ MAC..."
+                className="w-full pl-9 pr-8 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm"
+              />
+              {ipLookup && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIpLookup('');
+                    setLookupPanel(null);
+                    setLookupError(null);
+                  }}
+                  title="ล้างคำค้นหา"
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              )}
+            </div>
+            <button
+              type="submit"
+              disabled={lookupLoading}
+              className="px-3.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-900 text-white text-xs font-semibold cursor-pointer disabled:opacity-50 shrink-0"
+            >
+              {lookupLoading ? 'กำลังค้น...' : t('ipam.lookupBtn')}
+            </button>
+          </form>
+
+          {!fixedSiteId && (
+            <div className="flex items-center gap-1.5">
+              <Building2 className="h-4 w-4 text-slate-400 shrink-0" />
+              <select
+                value={selectedSiteFilter}
+                onChange={(e) => {
+                  setSelectedSiteFilter(e.target.value);
+                  setSelectedSubnet(null);
+                  setLookupPanel(null);
+                }}
+                aria-label="Filter by Site"
+                className="px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-semibold cursor-pointer"
+              >
+                <option value="">ทุก Site ({subnets.length} Subnets)</option>
+                {sites.map((s) => {
+                  const cnt = siteSubnetCounts.get(s.id) || 0;
+                  return (
+                    <option key={s.id} value={s.id}>
+                      {s.siteCode} — {s.siteName} ({cnt})
+                    </option>
+                  );
+                })}
+              </select>
+            </div>
+          )}
+
+          <div className="flex items-center gap-1.5">
+            <ArrowUpDown className="h-3.5 w-3.5 text-slate-400 shrink-0" />
+            <select
+              value={sortMode}
+              onChange={(e) => setSortMode(e.target.value as 'SITE' | 'CIDR' | 'UTIL')}
+              aria-label="Sort subnets"
+              className="px-2.5 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs cursor-pointer"
+            >
+              <option value="SITE">เรียงตาม Site</option>
+              <option value="CIDR">เรียงตาม IP Subnet</option>
+              <option value="UTIL">เรียงตาม % ใช้งาน</option>
+            </select>
           </div>
-          <button
-            type="submit"
-            className="px-3 py-1.5 rounded-lg bg-slate-800 text-white text-xs font-semibold cursor-pointer"
-          >
-            {t('ipam.lookupBtn')}
-          </button>
-        </form>
+        </div>
 
         {canEdit && (
           <div className="flex flex-wrap items-center gap-2">
@@ -303,7 +566,9 @@ export function IpamPanel({
             </button>
             <button
               onClick={() => {
-                setAddSubnetPreset(null);
+                setAddSubnetPreset(
+                  !fixedSiteId && selectedSiteFilter ? { siteId: selectedSiteFilter } : null,
+                );
                 setShowAddSubnet(true);
               }}
               className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold cursor-pointer"
@@ -315,12 +580,186 @@ export function IpamPanel({
         )}
       </div>
 
-      {lookupResult && (
-        <div className="rounded-lg bg-blue-50 dark:bg-blue-950/50 border border-blue-200 dark:border-blue-800 px-4 py-2.5 text-sm flex items-center justify-between">
-          <span>{lookupResult}</span>
-          <button onClick={() => setLookupResult(null)}>
+      {/* Quick Clickable Site Filter Pills */}
+      {!fixedSiteId && activeSiteTabs.length > 1 && (
+        <div className="flex flex-wrap items-center gap-1.5">
+          <button
+            type="button"
+            onClick={() => {
+              setSelectedSiteFilter('');
+              setSelectedSubnet(null);
+            }}
+            className={`px-3 py-1 rounded-full text-xs font-semibold transition cursor-pointer ${
+              selectedSiteFilter === ''
+                ? 'bg-[#0f2942] text-white shadow-sm'
+                : 'bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800'
+            }`}
+          >
+            ทั้งหมด ({subnets.length})
+          </button>
+          {activeSiteTabs.map((s) => (
+            <button
+              key={s.id}
+              type="button"
+              onClick={() => {
+                setSelectedSiteFilter((cur) => (cur === s.id ? '' : s.id));
+                setSelectedSubnet(null);
+              }}
+              className={`px-3 py-1 rounded-full text-xs font-semibold transition cursor-pointer ${
+                selectedSiteFilter === s.id
+                  ? 'bg-blue-600 text-white shadow-sm'
+                  : 'bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800'
+              }`}
+            >
+              {s.siteCode} ({s.subnetCount})
+            </button>
+          ))}
+        </div>
+      )}
+
+      {lookupError && (
+        <div className="rounded-lg bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800 px-4 py-2 text-xs text-red-700 dark:text-red-300 flex items-center justify-between">
+          <span>{lookupError}</span>
+          <button onClick={() => setLookupError(null)} className="cursor-pointer">
             <X className="h-4 w-4" />
           </button>
+        </div>
+      )}
+
+      {lookupPanel && (
+        <div className="rounded-xl bg-blue-50/80 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800 p-4 space-y-2.5 text-xs">
+          <div className="flex items-center justify-between gap-2">
+            <div className="font-bold text-sm text-blue-900 dark:text-blue-200">
+              ผลการค้นหา &ldquo;{lookupPanel.query}&rdquo; — พบใน IPAM {lookupPanel.allocations.length} รายการ, อุปกรณ์ {lookupPanel.devices.length} เครื่อง
+            </div>
+            <button
+              type="button"
+              onClick={() => setLookupPanel(null)}
+              className="p-1 rounded hover:bg-blue-100 dark:hover:bg-blue-900/50 cursor-pointer"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+
+          {lookupPanel.allocations.length > 0 && (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+              {lookupPanel.allocations.map((a) => {
+                const dev = a.device;
+                const isAgentOnline = Boolean(dev?.agentLive && dev.status === 'ONLINE');
+                return (
+                  <button
+                    key={a.id}
+                    type="button"
+                    onClick={() => handleJumpToIp(a.subnet.id, a.ipAddress)}
+                    className="text-left rounded-lg bg-white dark:bg-slate-900 border border-blue-200 dark:border-blue-800 hover:border-blue-500 px-3 py-2 transition cursor-pointer flex items-center justify-between gap-2"
+                  >
+                    <div className="min-w-0 space-y-0.5">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="font-mono font-bold text-blue-700 dark:text-blue-300">
+                          {a.ipAddress}
+                        </span>
+                        <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${IP_BADGE_CLASS[a.status]}`}>
+                          {a.status}
+                        </span>
+                        {a.site && (
+                          <span className="px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 font-semibold text-[10px]">
+                            {a.site.siteCode}
+                          </span>
+                        )}
+                      </div>
+                      <div className="font-medium truncate text-slate-800 dark:text-slate-100 flex items-center gap-1.5">
+                        {dev && (
+                          <span className={getDeviceLedClass(dev.status, isAgentOnline)} aria-hidden="true" />
+                        )}
+                        <span>{dev?.name || a.hostname || a.description || '-'}</span>
+                      </div>
+                      <div className="text-[11px] text-slate-500 font-mono">
+                        {a.subnet.cidr}
+                        {a.subnet.vlanNumber ? ` • VLAN ${a.subnet.vlanNumber}` : ''}
+                      </div>
+                    </div>
+                    <span className="text-[11px] font-semibold text-blue-600 dark:text-blue-400 shrink-0">
+                      เปิดดู →
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+
+          {lookupPanel.devices
+            .filter((d) => !lookupPanel.allocations.some((a) => a.ipAddress === d.managementIp && a.site?.id === d.siteId))
+            .map((d) => {
+              const matchedSub = subnets.find(
+                (s) => s.siteId === d.siteId && d.managementIp && isIpv4InCidr(d.managementIp, s.cidr),
+              );
+              const isAgentOnline = Boolean(d.agentLive && d.status === 'ONLINE');
+              return (
+                <div
+                  key={d.id}
+                  className="rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 px-3 py-2 flex flex-wrap items-center justify-between gap-2"
+                >
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className={getDeviceLedClass(d.status, isAgentOnline)} aria-hidden="true" />
+                    <span className="font-mono font-bold text-blue-700 dark:text-blue-300">
+                      {d.managementIp || 'No IP'}
+                    </span>
+                    <span className="font-semibold">{d.name}</span>
+                    {d.site && (
+                      <span className="px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-[10px] font-semibold">
+                        {d.site.siteCode}
+                      </span>
+                    )}
+                    <span className="text-slate-500">{d.location || ''}</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {matchedSub && d.managementIp && (
+                      <button
+                        type="button"
+                        onClick={() => handleJumpToIp(matchedSub.id, d.managementIp)}
+                        className="px-2.5 py-1 rounded bg-blue-50 dark:bg-blue-950 text-blue-700 dark:text-blue-300 font-semibold hover:bg-blue-100 cursor-pointer"
+                      >
+                        เปิด Subnet {matchedSub.cidr}
+                      </button>
+                    )}
+                    <Link
+                      href={`/sites/${d.siteId}?tab=inventory&deviceId=${d.id}`}
+                      className="inline-flex items-center gap-1 px-2.5 py-1 rounded border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 font-semibold"
+                    >
+                      Inventory <ExternalLink className="h-3 w-3" />
+                    </Link>
+                  </div>
+                </div>
+              );
+            })}
+
+          {lookupPanel.allocations.length === 0 &&
+            lookupPanel.devices.length === 0 &&
+            lookupPanel.matchingSubnets.length > 0 && (
+              <div className="flex flex-wrap items-center gap-2 text-emerald-800 dark:text-emerald-300">
+                <span>
+                  IP <strong>{lookupPanel.query}</strong> ยังว่างอยู่ (Available) ใน Subnet:
+                </span>
+                {lookupPanel.matchingSubnets.map((sub) => (
+                  <button
+                    key={sub.id}
+                    type="button"
+                    onClick={() => handleJumpToIp(sub.id, lookupPanel.query)}
+                    className="px-2.5 py-1 rounded bg-emerald-600 hover:bg-emerald-700 text-white font-mono font-semibold cursor-pointer"
+                  >
+                    {sub.cidr} ({sub.site?.siteCode || '-'}) — เปิดดู
+                  </button>
+                ))}
+              </div>
+            )}
+
+          {lookupPanel.allocations.length === 0 &&
+            lookupPanel.devices.length === 0 &&
+            lookupPanel.matchingSubnets.length === 0 && (
+              <div className="text-slate-600 dark:text-slate-300">
+                ไม่พบ IP, ชื่ออุปกรณ์ หรือ Subnet ที่ตรงกับ &ldquo;{lookupPanel.query}&rdquo;
+              </div>
+            )}
         </div>
       )}
 
@@ -423,11 +862,30 @@ export function IpamPanel({
           <div className="col-span-full rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-8 text-center text-sm text-slate-500">
             No subnets defined yet. Add a subnet such as <code>172.28.7.0/24</code> (VLAN 1211).
           </div>
+        ) : filteredSubnets.length === 0 ? (
+          <div className="col-span-full rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-8 text-center text-sm text-slate-500 space-y-2">
+            <div>ไม่พบ Subnet ที่ตรงกับเงื่อนไขการค้นหา</div>
+            <button
+              type="button"
+              onClick={() => {
+                setIpLookup('');
+                setSelectedSiteFilter('');
+                setLookupPanel(null);
+              }}
+              className="px-3 py-1.5 rounded-lg bg-blue-600 text-white text-xs font-semibold cursor-pointer"
+            >
+              แสดงทั้งหมด ({subnets.length} Subnets)
+            </button>
+          </div>
         ) : (
-          subnets.map((sub) => (
+          filteredSubnets.map((sub) => (
             <div
               key={sub.id}
-              onClick={() => openSubnetGrid(sub)}
+              onClick={() => {
+                setHighlightedIp(null);
+                setUsedIpSearch('');
+                openSubnetGrid(sub);
+              }}
               className={`nims-card rounded-2xl p-4 cursor-pointer ${
                 selectedSubnet?.id === sub.id
                   ? 'border-[var(--nims-secondary)] ring-2 ring-[var(--nims-glow)]'
@@ -514,25 +972,55 @@ export function IpamPanel({
 
       {/* Interactive IP Matrix & Used Allocations */}
       {selectedSubnet && (
-        <div className="space-y-4">
+        <div ref={subnetDetailRef} className="space-y-4">
           {/* Used / Allocated IPs Summary Table */}
           <div className="rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 overflow-hidden">
             <div className="px-5 py-3.5 border-b border-slate-200 dark:border-slate-800 flex flex-wrap items-center justify-between gap-2">
               <div>
                 <h3 className="font-bold text-sm sm:text-base flex items-center gap-2">
                   <span className="font-mono">{selectedSubnet.cidr}</span>
-                  <span>— Active / Used IPs ({allocatedIps.length})</span>
+                  <span>
+                    — Active / Used IPs ({filteredAllocatedIps.length}
+                    {usedIpSearch.trim() ? ` / ${allocatedIps.length}` : ''})
+                  </span>
                 </h3>
                 <p className="text-xs text-slate-500">
                   Auto-linked by Site ({selectedSubnet.site?.siteCode || '-'})
                   {selectedSubnet.vlanNumber ? ` • VLAN ${selectedSubnet.vlanNumber}` : ''}
                 </p>
               </div>
+              {allocatedIps.length > 0 && (
+                <div className="relative">
+                  <Search className="h-3.5 w-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
+                  <input
+                    value={usedIpSearch}
+                    onChange={(e) => setUsedIpSearch(e.target.value)}
+                    placeholder="กรอง IP / ชื่ออุปกรณ์ / MAC ในวงนี้..."
+                    className="pl-8 pr-7 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950 text-xs w-56 sm:w-64"
+                  />
+                  {usedIpSearch && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setUsedIpSearch('');
+                        setHighlightedIp(null);
+                      }}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  )}
+                </div>
+              )}
             </div>
 
             {allocatedIps.length === 0 ? (
               <div className="p-6 text-center text-xs text-slate-500">
                 No IPs currently allocated or reserved in this subnet.
+              </div>
+            ) : filteredAllocatedIps.length === 0 ? (
+              <div className="p-6 text-center text-xs text-slate-500">
+                ไม่พบ IP หรืออุปกรณ์ที่ตรงกับ &ldquo;{usedIpSearch}&rdquo; ในวงนี้
               </div>
             ) : (
               <div className="overflow-x-auto">
@@ -549,7 +1037,7 @@ export function IpamPanel({
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                    {allocatedIps.map((cell) => {
+                    {filteredAllocatedIps.map((cell) => {
                       const blockPrefix = cell.ipAddress.split('.').slice(0, 3).join('.');
                       const dev = cell.device;
                       const devLive = Boolean(
@@ -557,11 +1045,14 @@ export function IpamPanel({
                       );
                       const isAgentOnline = Boolean(devLive && dev?.status === 'ONLINE');
                       const isOffline = dev?.status === 'OFFLINE';
+                      const isHighlighted = highlightedIp === cell.ipAddress;
                       return (
                         <tr
                           key={cell.ipAddress}
                           onClick={() => setSelectedIpCell(cell)}
-                          className="hover:bg-slate-50 dark:hover:bg-slate-800/40 cursor-pointer"
+                          className={`hover:bg-slate-50 dark:hover:bg-slate-800/40 cursor-pointer ${
+                            isHighlighted ? 'bg-amber-50/90 dark:bg-amber-950/40 ring-1 ring-inset ring-amber-400' : ''
+                          }`}
                         >
                           <td className="px-4 py-2.5 font-mono font-semibold text-blue-600 dark:text-blue-400">
                             {cell.ipAddress}
@@ -738,6 +1229,7 @@ export function IpamPanel({
                 );
                 const isAgentOnline = Boolean(devLive && dev?.status === 'ONLINE');
                 const isOffline = dev?.status === 'OFFLINE';
+                const isHighlighted = highlightedIp === cell.ipAddress;
                 const tileClass = isOffline
                   ? 'bg-red-600 border-red-700 text-white'
                   : isAgentOnline
@@ -757,7 +1249,9 @@ export function IpamPanel({
                         ? ` - ${cell.hostname}`
                         : ''
                     }`}
-                    className={`relative px-1 py-1.5 rounded border text-xs font-mono font-semibold text-center transition hover:scale-105 cursor-pointer flex flex-col items-center justify-center min-h-[44px] ${tileClass}`}
+                    className={`relative px-1 py-1.5 rounded border text-xs font-mono font-semibold text-center transition hover:scale-105 cursor-pointer flex flex-col items-center justify-center min-h-[44px] ${tileClass} ${
+                      isHighlighted ? 'ring-2 ring-amber-400 ring-offset-2 scale-105' : ''
+                    }`}
                   >
                     {isAgentOnline && (
                       <span

@@ -748,31 +748,102 @@ router.post('/ips/allocate', async (req, res, next) => {
 
 router.get('/lookup', async (req, res, next) => {
   try {
-    const ip = typeof req.query.ip === 'string' ? req.query.ip.trim() : '';
-    if (!ip) {
-      res.status(400).json({ error: 'Query parameter ip is required' });
+    const rawQuery =
+      typeof req.query.q === 'string'
+        ? req.query.q.trim()
+        : typeof req.query.ip === 'string'
+          ? req.query.ip.trim()
+          : '';
+    if (!rawQuery) {
+      res.status(400).json({ error: 'Query parameter ip or q is required' });
       return;
     }
 
+    const requestedSiteId =
+      typeof req.query.siteId === 'string' && req.query.siteId.trim()
+        ? req.query.siteId.trim()
+        : undefined;
     const permitted = getPermittedSiteIds(req.user!, 'canViewIpam');
-    const siteWhere = permitted !== null ? { siteId: { in: permitted } } : {};
+    if (requestedSiteId && permitted !== null && !permitted.includes(requestedSiteId)) {
+      res.status(403).json({ error: 'Access denied' });
+      return;
+    }
+
+    const siteWhere = requestedSiteId
+      ? { siteId: requestedSiteId }
+      : permitted !== null
+        ? { siteId: { in: permitted } }
+        : {};
 
     const [devices, allocations] = await Promise.all([
       prisma.device.findMany({
-        where: { ...siteWhere, managementIp: ip },
+        where: {
+          ...siteWhere,
+          OR: [
+            { managementIp: { contains: rawQuery, mode: 'insensitive' } },
+            { name: { contains: rawQuery, mode: 'insensitive' } },
+            { macAddress: { contains: rawQuery, mode: 'insensitive' } },
+            { location: { contains: rawQuery, mode: 'insensitive' } },
+            { model: { contains: rawQuery, mode: 'insensitive' } },
+          ],
+        },
         include: { site: { select: { id: true, siteCode: true, siteName: true } } },
+        take: 25,
+        orderBy: { name: 'asc' },
       }),
       prisma.ipAddress.findMany({
-        where: { ...siteWhere, ipAddress: ip },
+        where: {
+          ...siteWhere,
+          OR: [
+            { ipAddress: { contains: rawQuery, mode: 'insensitive' } },
+            { hostname: { contains: rawQuery, mode: 'insensitive' } },
+            { macAddress: { contains: rawQuery, mode: 'insensitive' } },
+            { description: { contains: rawQuery, mode: 'insensitive' } },
+            { device: { name: { contains: rawQuery, mode: 'insensitive' } } },
+          ],
+        },
         include: {
           subnet: { select: { id: true, cidr: true, vlanNumber: true, gateway: true } },
-          device: { select: { id: true, name: true, model: true, location: true, category: true } },
+          device: {
+            select: {
+              id: true,
+              siteId: true,
+              name: true,
+              model: true,
+              location: true,
+              category: true,
+              status: true,
+              managementIp: true,
+              monitorEnabled: true,
+              lastPingAt: true,
+              lastLatencyMs: true,
+            },
+          },
           site: { select: { id: true, siteCode: true, siteName: true } },
         },
+        take: 25,
+        orderBy: { ipAddress: 'asc' },
       }),
     ]);
 
-    res.json({ ip, devices, allocations });
+    const liveSiteIds = await getLiveAgentSiteIds(
+      Array.from(
+        new Set([
+          ...devices.map((d) => d.siteId),
+          ...allocations.map((a) => a.siteId),
+        ]),
+      ),
+    );
+
+    res.json({
+      ip: rawQuery,
+      q: rawQuery,
+      devices: devices.map((d) => withAgentTelemetry(d, liveSiteIds)),
+      allocations: allocations.map((a) => ({
+        ...a,
+        device: a.device ? withAgentTelemetry(a.device, liveSiteIds) : null,
+      })),
+    });
   } catch (err) {
     next(err);
   }
