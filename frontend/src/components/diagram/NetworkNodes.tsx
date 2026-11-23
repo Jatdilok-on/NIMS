@@ -29,6 +29,7 @@ import {
 import {
   TechBarcodeIcon,
   TechEsxiIcon,
+  TechHandheldIcon,
   TechIpCamIcon,
   TechNasIcon,
   TechNvrIcon,
@@ -111,6 +112,7 @@ const NODE_META: Record<
   tv: { icon: TechTvIcon, bg: 'bg-cyan-50 dark:bg-cyan-950/70', border: 'border-cyan-600' },
   printer: { icon: TechPrinterIcon, bg: 'bg-sky-50 dark:bg-sky-950/70', border: 'border-sky-600' },
   barcode: { icon: TechBarcodeIcon, bg: 'bg-teal-50 dark:bg-teal-950/70', border: 'border-teal-600' },
+  handheld: { icon: TechHandheldIcon, bg: 'bg-cyan-50 dark:bg-cyan-950/70', border: 'border-cyan-600' },
   wireless_bridge: { icon: Radio, bg: 'bg-teal-50 dark:bg-teal-950/70', border: 'border-teal-600' },
   client: { icon: Laptop, bg: 'bg-violet-50 dark:bg-violet-950/70', border: 'border-violet-600' },
   custom_icon: { icon: HardDrive, bg: 'bg-slate-50 dark:bg-slate-800', border: 'border-slate-500' },

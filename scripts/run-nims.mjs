@@ -171,7 +171,24 @@ function runPrisma(args, envVars = {}) {
 
 function ensurePrismaClientGenerated(envVars) {
   const generatedEntry = path.join(BACKEND_DIR, 'node_modules', '.prisma', 'client', 'index.js');
-  if (!fs.existsSync(generatedEntry)) {
+  const sourceSchemaPath = path.join(BACKEND_DIR, 'prisma', 'schema.prisma');
+  const generatedSchemaPath = path.join(BACKEND_DIR, 'node_modules', '.prisma', 'client', 'schema.prisma');
+
+  let needsGenerate = !fs.existsSync(generatedEntry);
+  if (!needsGenerate && fs.existsSync(sourceSchemaPath) && fs.existsSync(generatedSchemaPath)) {
+    try {
+      const srcSchema = fs.readFileSync(sourceSchemaPath, 'utf8').replace(/\r\n/g, '\n');
+      const genSchema = fs.readFileSync(generatedSchemaPath, 'utf8').replace(/\r\n/g, '\n');
+      if (srcSchema !== genSchema) {
+        needsGenerate = true;
+      }
+    } catch {
+      needsGenerate = true;
+    }
+  }
+
+  if (needsGenerate) {
+    console.log('[NIMS] Syncing offline Prisma Client with updated schema...');
     runPrisma(['generate'], envVars);
   }
 }
@@ -232,11 +249,11 @@ switch (command) {
     ensureEnvFile();
     const envVars = loadRootEnv();
     const buildEnv = { ...envVars, NODE_ENV: 'production' };
+    ensurePrismaClientGenerated(buildEnv);
     const hasBackendBuild = fs.existsSync(path.join(BACKEND_DIR, 'dist', 'index.js'));
     const hasFrontendBuild = fs.existsSync(path.join(FRONTEND_DIR, '.next', 'BUILD_ID'));
     if (!hasBackendBuild || !hasFrontendBuild) {
       console.log('[NIMS] Production build not found; building backend & frontend first...');
-      ensurePrismaClientGenerated(buildEnv);
       runSync(npmCmd, ['run', 'build'], BACKEND_DIR, buildEnv);
       runSync(npmCmd, ['run', 'build'], FRONTEND_DIR, buildEnv);
     }

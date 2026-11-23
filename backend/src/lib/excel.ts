@@ -1,7 +1,12 @@
 import ExcelJS from 'exceljs';
 import PDFDocument from 'pdfkit';
 import { Readable } from 'stream';
-import { DeviceCategory, RoleCode } from '@prisma/client';
+import { RoleCode } from '@prisma/client';
+import {
+  BUILT_IN_DEVICE_CATEGORY_CODES,
+  DeviceCategory,
+  normalizeDeviceTypeCode,
+} from './deviceCategories';
 
 export interface ParsedSpreadsheet {
   headers: string[];
@@ -548,83 +553,100 @@ export function buildInventoryCsv(rows: ExportDeviceRow[]): string {
   return '\uFEFF' + lines.join('\r\n');
 }
 
+const BUILT_IN_CATEGORY_SET = new Set<string>(BUILT_IN_DEVICE_CATEGORY_CODES);
+
 const CATEGORY_SYNONYMS: Array<{ patterns: string[]; category: DeviceCategory }> = [
   {
     patterns: ['ap_client', 'ap client', 'ap-client', 'wireless client', 'wireless bridge', 'cpe', 'bridge'],
-    category: DeviceCategory.AP_CLIENT,
+    category: 'AP_CLIENT',
   },
   {
     patterns: ['access_point', 'access point', 'access-point', 'wifi ap', 'wireless ap', 'ap'],
-    category: DeviceCategory.ACCESS_POINT,
+    category: 'ACCESS_POINT',
   },
   {
     patterns: ['ip_cam', 'ip cam', 'ip-cam', 'ipcam', 'ip camera', 'ipcamera', 'cctv', 'camera', 'cam'],
-    category: DeviceCategory.IP_CAM,
+    category: 'IP_CAM',
   },
   {
     patterns: ['plc', 'programmable logic controller', 'plc controller'],
-    category: DeviceCategory.PLC,
+    category: 'PLC',
   },
   {
     patterns: ['wlc', 'wireless controller', 'controller', 'ac controller'],
-    category: DeviceCategory.WLC,
+    category: 'WLC',
   },
   {
     patterns: ['switch', 'sw', 'core switch', 'l2 switch', 'l3 switch', 'distribution switch'],
-    category: DeviceCategory.SWITCH,
+    category: 'SWITCH',
   },
   {
     patterns: ['esxi', 'vmware', 'vmware esxi', 'hypervisor'],
-    category: DeviceCategory.ESXI,
+    category: 'ESXI',
   },
   {
     patterns: ['vm', 'virtual machine', 'guest vm'],
-    category: DeviceCategory.VM,
+    category: 'VM',
   },
   {
     patterns: ['server', 'svr', 'physical server', 'rack server'],
-    category: DeviceCategory.SERVER,
+    category: 'SERVER',
   },
   {
     patterns: ['nas', 'nas storage', 'storage', 'synology', 'qnap'],
-    category: DeviceCategory.NAS,
+    category: 'NAS',
   },
   {
     patterns: ['ups', 'backup power', 'power supply'],
-    category: DeviceCategory.UPS,
+    category: 'UPS',
   },
   {
     patterns: ['nvr', 'nvr recorder', 'network video recorder', 'dvr'],
-    category: DeviceCategory.NVR,
+    category: 'NVR',
   },
   {
     patterns: ['pc', 'workstation', 'desktop', 'computer', 'client pc', 'operator pc'],
-    category: DeviceCategory.PC,
+    category: 'PC',
   },
   {
     patterns: ['tv', 'smart tv', 'television', 'tv display', 'tv dashboard', 'digital signage'],
-    category: DeviceCategory.TV,
+    category: 'TV',
   },
   {
     patterns: ['printer', 'label printer', 'network printer', 'zebra', 'เครื่องพิมพ์'],
-    category: DeviceCategory.PRINTER,
+    category: 'PRINTER',
+  },
+  {
+    patterns: ['handheld', 'handheld terminal', 'pda', 'rf scanner', 'rf gun', 'mobile computer', 'แฮนด์เฮลด์'],
+    category: 'HANDHELD',
   },
   {
     patterns: ['barcode', 'barcode scanner', 'barcode reader', 'scanner', 'บาร์โค้ด', 'เครื่องสแกน'],
-    category: DeviceCategory.BARCODE,
+    category: 'BARCODE',
   },
 ];
 
 export function normalizeDeviceCategory(
   rawValue?: string | null,
   fallback?: DeviceCategory,
+  customTypes?: Array<{ code: string; name: string }>,
 ): DeviceCategory | null {
   const cleaned = (rawValue || '').trim();
   if (!cleaned) return fallback ?? null;
 
-  const upper = cleaned.toUpperCase().replace(/[\s-]+/g, '_');
-  if (upper in DeviceCategory) {
-    return upper as DeviceCategory;
+  const upper = normalizeDeviceTypeCode(cleaned);
+  if (BUILT_IN_CATEGORY_SET.has(upper)) {
+    return upper;
+  }
+
+  if (customTypes && customTypes.length > 0) {
+    const lower = cleaned.toLowerCase();
+    const customMatch = customTypes.find(
+      (dt) => dt.code === upper || dt.code.toLowerCase() === lower || dt.name.trim().toLowerCase() === lower,
+    );
+    if (customMatch) {
+      return customMatch.code;
+    }
   }
 
   const lower = cleaned.toLowerCase();
@@ -655,7 +677,7 @@ export interface SampleDeviceTemplateRow {
 export const SAMPLE_INVENTORY_TEMPLATE_ROWS: SampleDeviceTemplateRow[] = [
   {
     itemNo: 1,
-    category: DeviceCategory.SWITCH,
+    category: 'SWITCH',
     name: 'CORE-SW-01',
     model: 'RG-NBS5200-24GT4XS',
     vendor: 'Ruijie',
@@ -670,7 +692,7 @@ export const SAMPLE_INVENTORY_TEMPLATE_ROWS: SampleDeviceTemplateRow[] = [
   },
   {
     itemNo: 2,
-    category: DeviceCategory.ACCESS_POINT,
+    category: 'ACCESS_POINT',
     name: 'AP-ZONE-A-01',
     model: 'RG-AP820-L(V3)',
     vendor: 'Ruijie',
@@ -685,7 +707,7 @@ export const SAMPLE_INVENTORY_TEMPLATE_ROWS: SampleDeviceTemplateRow[] = [
   },
   {
     itemNo: 3,
-    category: DeviceCategory.AP_CLIENT,
+    category: 'AP_CLIENT',
     name: 'CPE-SRM-01',
     model: 'CPE210',
     vendor: 'TP-Link',
@@ -700,7 +722,7 @@ export const SAMPLE_INVENTORY_TEMPLATE_ROWS: SampleDeviceTemplateRow[] = [
   },
   {
     itemNo: 4,
-    category: DeviceCategory.WLC,
+    category: 'WLC',
     name: 'WLC-MAIN-01',
     model: 'RG-WS6008',
     vendor: 'Ruijie',
@@ -715,7 +737,7 @@ export const SAMPLE_INVENTORY_TEMPLATE_ROWS: SampleDeviceTemplateRow[] = [
   },
   {
     itemNo: 5,
-    category: DeviceCategory.SERVER,
+    category: 'SERVER',
     name: 'SVR-WCS-01',
     model: 'PowerEdge R750',
     vendor: 'Dell',
@@ -730,7 +752,7 @@ export const SAMPLE_INVENTORY_TEMPLATE_ROWS: SampleDeviceTemplateRow[] = [
   },
   {
     itemNo: 6,
-    category: DeviceCategory.PLC,
+    category: 'PLC',
     name: 'PLC-CONVEYOR-01',
     model: 'Q06UDEHCPU',
     vendor: 'Mitsubishi',
@@ -745,7 +767,7 @@ export const SAMPLE_INVENTORY_TEMPLATE_ROWS: SampleDeviceTemplateRow[] = [
   },
   {
     itemNo: 7,
-    category: DeviceCategory.ESXI,
+    category: 'ESXI',
     name: 'ESXI-HOST-01',
     model: 'ProLiant DL380 Gen10',
     vendor: 'HPE',
@@ -760,7 +782,7 @@ export const SAMPLE_INVENTORY_TEMPLATE_ROWS: SampleDeviceTemplateRow[] = [
   },
   {
     itemNo: 8,
-    category: DeviceCategory.VM,
+    category: 'VM',
     name: 'VM-NIMS-01',
     model: 'Ubuntu 22.04 LTS',
     vendor: 'VMware',
@@ -775,7 +797,7 @@ export const SAMPLE_INVENTORY_TEMPLATE_ROWS: SampleDeviceTemplateRow[] = [
   },
   {
     itemNo: 9,
-    category: DeviceCategory.NAS,
+    category: 'NAS',
     name: 'NAS-BACKUP-01',
     model: 'RS1221+',
     vendor: 'Synology',
@@ -790,7 +812,7 @@ export const SAMPLE_INVENTORY_TEMPLATE_ROWS: SampleDeviceTemplateRow[] = [
   },
   {
     itemNo: 10,
-    category: DeviceCategory.UPS,
+    category: 'UPS',
     name: 'UPS-RACK-A',
     model: 'Smart-UPS 3000VA',
     vendor: 'APC',
@@ -805,7 +827,7 @@ export const SAMPLE_INVENTORY_TEMPLATE_ROWS: SampleDeviceTemplateRow[] = [
   },
   {
     itemNo: 11,
-    category: DeviceCategory.IP_CAM,
+    category: 'IP_CAM',
     name: 'CAM-GATE-01',
     model: 'DS-2CD2143G2-I',
     vendor: 'Hikvision',
@@ -820,7 +842,7 @@ export const SAMPLE_INVENTORY_TEMPLATE_ROWS: SampleDeviceTemplateRow[] = [
   },
   {
     itemNo: 12,
-    category: DeviceCategory.PC,
+    category: 'PC',
     name: 'PC-OPERATOR-01',
     model: 'OptiPlex 7010',
     vendor: 'Dell',
@@ -835,7 +857,7 @@ export const SAMPLE_INVENTORY_TEMPLATE_ROWS: SampleDeviceTemplateRow[] = [
   },
   {
     itemNo: 13,
-    category: DeviceCategory.NVR,
+    category: 'NVR',
     name: 'NVR-CCTV-01',
     model: 'DS-9632NI-M8',
     vendor: 'Hikvision',
@@ -850,7 +872,7 @@ export const SAMPLE_INVENTORY_TEMPLATE_ROWS: SampleDeviceTemplateRow[] = [
   },
   {
     itemNo: 14,
-    category: DeviceCategory.TV,
+    category: 'TV',
     name: 'TV-DASHBOARD-01',
     model: 'UA55CU7000K',
     vendor: 'Samsung',
@@ -865,7 +887,7 @@ export const SAMPLE_INVENTORY_TEMPLATE_ROWS: SampleDeviceTemplateRow[] = [
   },
   {
     itemNo: 15,
-    category: DeviceCategory.PRINTER,
+    category: 'PRINTER',
     name: 'PRT-LABEL-01',
     model: 'ZT411',
     vendor: 'Zebra',
@@ -880,7 +902,7 @@ export const SAMPLE_INVENTORY_TEMPLATE_ROWS: SampleDeviceTemplateRow[] = [
   },
   {
     itemNo: 16,
-    category: DeviceCategory.BARCODE,
+    category: 'BARCODE',
     name: 'BCS-GATE-01',
     model: 'DataMan 280',
     vendor: 'Cognex',
@@ -892,6 +914,21 @@ export const SAMPLE_INVENTORY_TEMPLATE_ROWS: SampleDeviceTemplateRow[] = [
     status: 'ONLINE',
     responsiblePerson: 'Automation Team',
     remark: 'Fixed Network Barcode Reader',
+  },
+  {
+    itemNo: 17,
+    category: 'HANDHELD',
+    name: 'HHT-WH-01',
+    model: 'MC9300',
+    vendor: 'Zebra',
+    macAddress: 'AA:BB:CC:11:22:17',
+    serialNumber: 'SN-HHT-0017',
+    managementIp: '192.168.20.80',
+    vlan: '20',
+    location: 'Warehouse Picking Zone',
+    status: 'ONLINE',
+    responsiblePerson: 'Warehouse Operation',
+    remark: 'Handheld PDA / RF Terminal',
   },
 ];
 

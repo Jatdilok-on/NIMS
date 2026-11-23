@@ -40,6 +40,7 @@ import {
   TechDeviceAllIcon,
   TechDocumentIcon,
   TechEsxiIcon,
+  TechHandheldIcon,
   TechIpCamIcon,
   TechIpamIcon,
   TechNasIcon,
@@ -80,6 +81,8 @@ interface DashboardSummary {
     totalTv?: number;
     totalPrinter?: number;
     totalBarcode?: number;
+    totalHandheld?: number;
+    byCategory?: Record<string, number>;
     totalNetworkDevices: number;
     totalDocuments: number;
     totalNetworkDiagrams: number;
@@ -355,6 +358,45 @@ export default function DashboardPage() {
           orb: 'from-teal-500 to-cyan-600 shadow-teal-500/25',
           bar: 'bg-teal-500',
         },
+        {
+          category: 'HANDHELD',
+          label: 'Handheld / PDA',
+          value: summary.kpis.totalHandheld ?? 0,
+          icon: TechHandheldIcon,
+          orb: 'from-cyan-500 to-blue-600 shadow-cyan-500/25',
+          bar: 'bg-cyan-500',
+        },
+        ...(summary.charts.devicesByType || [])
+          .filter(
+            (dt) =>
+              ![
+                'SWITCH',
+                'ACCESS_POINT',
+                'AP_CLIENT',
+                'WLC',
+                'SERVER',
+                'PLC',
+                'ESXI',
+                'VM',
+                'NAS',
+                'UPS',
+                'IP_CAM',
+                'PC',
+                'NVR',
+                'TV',
+                'PRINTER',
+                'BARCODE',
+                'HANDHELD',
+              ].includes(dt.category),
+          )
+          .map((dt) => ({
+            category: dt.category,
+            label: dt.type,
+            value: dt.count ?? 0,
+            icon: TechDeviceAllIcon,
+            orb: 'from-slate-500 to-slate-700 shadow-slate-500/25',
+            bar: 'bg-slate-500',
+          })),
       ]
     : [];
 

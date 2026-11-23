@@ -1,9 +1,10 @@
 import { Router } from 'express';
-import { DeviceCategory, DeviceStatus, Prisma, RoleCode } from '@prisma/client';
+import { DeviceStatus, Prisma, RoleCode } from '@prisma/client';
 import { prisma } from '../lib/prisma';
 import { authenticate } from '../middleware/auth';
 import { getPermittedSiteIds } from '../middleware/rbac';
 import { getLiveAgentSiteIds, resolveEffectiveDeviceStatus } from '../lib/agentService';
+import { BUILT_IN_DEVICE_CATEGORY_CODES } from '../lib/deviceCategories';
 
 const router = Router();
 
@@ -54,6 +55,7 @@ router.get('/summary', async (req, res, next) => {
     const [
       sites,
       categoryGroups,
+      registeredDeviceTypes,
       deviceStatusRows,
       liveSiteIds,
       recentCreatedDevices,
@@ -75,6 +77,10 @@ router.get('/summary', async (req, res, next) => {
         by: ['category'],
         where: deviceWhere,
         _count: { _all: true },
+      }),
+      prisma.deviceType.findMany({
+        select: { code: true, name: true, iconKey: true, isSystem: true },
+        orderBy: [{ isSystem: 'desc' }, { createdAt: 'asc' }],
       }),
       prisma.device.findMany({
         where: deviceWhere,
@@ -110,24 +116,15 @@ router.get('/summary', async (req, res, next) => {
       }),
     ]);
 
-    const byCategory: Record<DeviceCategory, number> = {
-      SWITCH: 0,
-      ACCESS_POINT: 0,
-      AP_CLIENT: 0,
-      WLC: 0,
-      SERVER: 0,
-      PLC: 0,
-      ESXI: 0,
-      VM: 0,
-      NAS: 0,
-      UPS: 0,
-      IP_CAM: 0,
-      PC: 0,
-      NVR: 0,
-      TV: 0,
-      PRINTER: 0,
-      BARCODE: 0,
-    };
+    const byCategory: Record<string, number> = {};
+    for (const code of BUILT_IN_DEVICE_CATEGORY_CODES) {
+      byCategory[code] = 0;
+    }
+    for (const dt of registeredDeviceTypes) {
+      if (!(dt.code in byCategory)) {
+        byCategory[dt.code] = 0;
+      }
+    }
 
     const byStatus: Record<DeviceStatus, number> = {
       ONLINE: 0,
@@ -161,25 +158,78 @@ router.get('/summary', async (req, res, next) => {
       }
     }
 
+    const CHART_LABEL_OVERRIDES: Record<string, string> = {
+      SWITCH: 'Switch',
+      ACCESS_POINT: 'Access Point',
+      AP_CLIENT: 'AP Client',
+      WLC: 'WLC',
+      SERVER: 'Server',
+      PLC: 'PLC',
+      ESXI: 'ESXi',
+      VM: 'VM',
+      NAS: 'NAS',
+      UPS: 'UPS',
+      IP_CAM: 'IP Camera',
+      PC: 'PC',
+      NVR: 'NVR',
+      TV: 'TV',
+      PRINTER: 'Printer',
+      BARCODE: 'Barcode',
+      HANDHELD: 'Handheld',
+    };
+
+    const seenChartCategories = new Set<string>();
+    const devicesByType: Array<{
+      type: string;
+      category: string;
+      iconKey?: string | null;
+      isSystem?: boolean;
+      count: number;
+    }> = [];
+
+    for (const dt of registeredDeviceTypes) {
+      seenChartCategories.add(dt.code);
+      devicesByType.push({
+        type: CHART_LABEL_OVERRIDES[dt.code] || dt.name,
+        category: dt.code,
+        iconKey: dt.iconKey || dt.code,
+        isSystem: dt.isSystem,
+        count: byCategory[dt.code] ?? 0,
+      });
+    }
+    for (const [category, count] of Object.entries(byCategory)) {
+      if (!seenChartCategories.has(category) && count > 0) {
+        devicesByType.push({
+          type: CHART_LABEL_OVERRIDES[category] || category,
+          category,
+          iconKey: category,
+          isSystem: false,
+          count,
+        });
+      }
+    }
+
     res.json({
       kpis: {
         totalSites: sites.length,
-        totalSwitches: byCategory.SWITCH,
-        totalAccessPoints: byCategory.ACCESS_POINT,
-        totalApClients: byCategory.AP_CLIENT,
-        totalWlc: byCategory.WLC,
-        totalServers: byCategory.SERVER,
-        totalPlc: byCategory.PLC,
-        totalEsxi: byCategory.ESXI,
-        totalVm: byCategory.VM,
-        totalNas: byCategory.NAS,
-        totalUps: byCategory.UPS,
-        totalIpCams: byCategory.IP_CAM,
-        totalPc: byCategory.PC,
-        totalNvr: byCategory.NVR,
-        totalTv: byCategory.TV,
-        totalPrinter: byCategory.PRINTER,
-        totalBarcode: byCategory.BARCODE,
+        totalSwitches: byCategory.SWITCH ?? 0,
+        totalAccessPoints: byCategory.ACCESS_POINT ?? 0,
+        totalApClients: byCategory.AP_CLIENT ?? 0,
+        totalWlc: byCategory.WLC ?? 0,
+        totalServers: byCategory.SERVER ?? 0,
+        totalPlc: byCategory.PLC ?? 0,
+        totalEsxi: byCategory.ESXI ?? 0,
+        totalVm: byCategory.VM ?? 0,
+        totalNas: byCategory.NAS ?? 0,
+        totalUps: byCategory.UPS ?? 0,
+        totalIpCams: byCategory.IP_CAM ?? 0,
+        totalPc: byCategory.PC ?? 0,
+        totalNvr: byCategory.NVR ?? 0,
+        totalTv: byCategory.TV ?? 0,
+        totalPrinter: byCategory.PRINTER ?? 0,
+        totalBarcode: byCategory.BARCODE ?? 0,
+        totalHandheld: byCategory.HANDHELD ?? 0,
+        byCategory,
         totalNetworkDevices,
         totalDocuments,
         totalNetworkDiagrams: totalDiagrams,
@@ -192,24 +242,7 @@ router.get('/summary', async (req, res, next) => {
           siteName: s.siteName,
           count: s._count.devices,
         })),
-        devicesByType: [
-          { type: 'Switch', category: 'SWITCH', count: byCategory.SWITCH },
-          { type: 'Access Point', category: 'ACCESS_POINT', count: byCategory.ACCESS_POINT },
-          { type: 'AP Client', category: 'AP_CLIENT', count: byCategory.AP_CLIENT },
-          { type: 'WLC', category: 'WLC', count: byCategory.WLC },
-          { type: 'Server', category: 'SERVER', count: byCategory.SERVER },
-          { type: 'PLC', category: 'PLC', count: byCategory.PLC },
-          { type: 'ESXi', category: 'ESXI', count: byCategory.ESXI },
-          { type: 'VM', category: 'VM', count: byCategory.VM },
-          { type: 'NAS', category: 'NAS', count: byCategory.NAS },
-          { type: 'UPS', category: 'UPS', count: byCategory.UPS },
-          { type: 'IP Camera', category: 'IP_CAM', count: byCategory.IP_CAM },
-          { type: 'PC', category: 'PC', count: byCategory.PC },
-          { type: 'NVR', category: 'NVR', count: byCategory.NVR },
-          { type: 'TV', category: 'TV', count: byCategory.TV },
-          { type: 'Printer', category: 'PRINTER', count: byCategory.PRINTER },
-          { type: 'Barcode', category: 'BARCODE', count: byCategory.BARCODE },
-        ],
+        devicesByType,
         devicesByStatus: [
           { status: 'ONLINE', label: 'Online', count: byStatus.ONLINE },
           { status: 'OFFLINE', label: 'Offline', count: byStatus.OFFLINE },

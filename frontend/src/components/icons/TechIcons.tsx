@@ -481,14 +481,49 @@ export function TechBarcodeIcon({ className = 'w-5 h-5' }: TechIconProps) {
   );
 }
 
+export function TechHandheldIcon({ className = 'w-5 h-5' }: TechIconProps) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" className={className} aria-hidden="true">
+      <rect x="6.5" y="3.5" width="11" height="17" rx="2.4" stroke="currentColor" strokeWidth="1.6" />
+      <rect x="8.8" y="6" width="6.4" height="5.5" rx="1" fill="currentColor" fillOpacity="0.16" stroke="currentColor" strokeWidth="1.2" />
+      <path d="M9.5 14.2H11M13 14.2H14.5M9.5 16.5H11M13 16.5H14.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+      <path d="M10.5 2.2C11.4 1.6 12.6 1.6 13.5 2.2" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+export const DEVICE_ICON_OPTIONS: Array<{ key: string; label: string }> = [
+  { key: 'HANDHELD', label: 'Handheld / PDA' },
+  { key: 'SWITCH', label: 'Switch' },
+  { key: 'ACCESS_POINT', label: 'Access Point' },
+  { key: 'AP_CLIENT', label: 'AP Client' },
+  { key: 'WLC', label: 'WLAN Controller' },
+  { key: 'SERVER', label: 'Server' },
+  { key: 'PLC', label: 'PLC' },
+  { key: 'ESXI', label: 'ESXi Host' },
+  { key: 'VM', label: 'Virtual Machine' },
+  { key: 'NAS', label: 'NAS Storage' },
+  { key: 'UPS', label: 'UPS' },
+  { key: 'IP_CAM', label: 'IP Camera' },
+  { key: 'PC', label: 'PC / Workstation' },
+  { key: 'NVR', label: 'NVR Recorder' },
+  { key: 'TV', label: 'TV / Display' },
+  { key: 'PRINTER', label: 'Printer' },
+  { key: 'BARCODE', label: 'Barcode Scanner' },
+  { key: 'GENERIC', label: 'Generic Device' },
+];
+
 export function DeviceCategoryTechIcon({
   category,
+  iconKey,
   className = 'w-5 h-5',
 }: {
   category: DeviceCategory | string;
+  iconKey?: string | null;
   className?: string;
 }) {
-  switch (category) {
+  const key = (iconKey || category || '').toUpperCase();
+  switch (key) {
     case 'SWITCH':
       return <TechSwitchIcon className={className} />;
     case 'ACCESS_POINT':
@@ -521,6 +556,8 @@ export function DeviceCategoryTechIcon({
       return <TechPrinterIcon className={className} />;
     case 'BARCODE':
       return <TechBarcodeIcon className={className} />;
+    case 'HANDHELD':
+      return <TechHandheldIcon className={className} />;
     default:
       return <TechDeviceAllIcon className={className} />;
   }

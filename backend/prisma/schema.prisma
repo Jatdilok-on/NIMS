@@ -19,25 +19,6 @@ enum RoleCode {
   IP_VIEWER
 }
 
-enum DeviceCategory {
-  SWITCH
-  ACCESS_POINT
-  AP_CLIENT
-  WLC
-  SERVER
-  PLC
-  ESXI
-  VM
-  NAS
-  UPS
-  IP_CAM
-  PC
-  NVR
-  TV
-  PRINTER
-  BARCODE
-}
-
 enum DeviceStatus {
   ONLINE
   OFFLINE
@@ -341,11 +322,14 @@ model MaintenanceRecord {
 // ============================================================================
 
 model DeviceType {
-  id          String         @id @default(auto()) @map("_id") @db.ObjectId
-  code        DeviceCategory @unique
+  id          String   @id @default(auto()) @map("_id") @db.ObjectId
+  code        String   @unique
   name        String
   description String?
-  createdAt   DateTime       @default(now())
+  iconKey     String?
+  isSystem    Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @default(now()) @updatedAt
 
   devices Device[]
 
@@ -356,7 +340,7 @@ model Device {
   id                String         @id @default(auto()) @map("_id") @db.ObjectId
   siteId            String         @db.ObjectId
   deviceTypeId      String         @db.ObjectId
-  category          DeviceCategory
+  category          String
   itemNo            Int?
   name              String
   model             String?

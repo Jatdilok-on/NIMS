@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import request from 'supertest';
 import jwt from 'jsonwebtoken';
-import { DeviceCategory, RoleCode } from '@prisma/client';
+import { RoleCode } from '@prisma/client';
 import { env } from '../config/env';
 import { hashToken } from '../lib/crypto';
 import { prisma } from '../lib/prisma';
@@ -225,7 +225,7 @@ describe('Security Hardening & API Regression Tests', () => {
       {
         itemNo: 1,
         siteCode: 'BTV',
-        category: DeviceCategory.SWITCH,
+        category: 'SWITCH',
         name: '=CMD("calc")',
         model: '+SUM(1,2)',
         vendor: '@evil',
@@ -244,8 +244,15 @@ describe('Security Hardening & API Regression Tests', () => {
     expect(csv).toContain("'+SUM");
     expect(csv).toContain("'@evil");
 
-    expect(normalizeDeviceCategory('PLC Controller')).toBe(DeviceCategory.PLC);
-    expect(normalizeDeviceCategory('Storage Server')).toBe(DeviceCategory.SERVER);
+    expect(normalizeDeviceCategory('PLC Controller')).toBe('PLC');
+    expect(normalizeDeviceCategory('Storage Server')).toBe('SERVER');
+    expect(normalizeDeviceCategory('Handheld Terminal')).toBe('HANDHELD');
+    expect(normalizeDeviceCategory('PDA')).toBe('HANDHELD');
+    expect(
+      normalizeDeviceCategory('RFID Reader', undefined, [
+        { code: 'RFID_READER', name: 'RFID Reader' },
+      ]),
+    ).toBe('RFID_READER');
   });
 
   it('excludes network and broadcast addresses from host IP allocation checks for <= /30', () => {
@@ -319,5 +326,96 @@ describe('Security Hardening & API Regression Tests', () => {
     devUpdateSpy.mockRestore();
     auditSpy.mockRestore();
     sessionSpy.mockRestore();
+  });
+
+  it('allows SUPER_ADMIN & SITE_ADMIN to manage custom device types while blocking non-admins and system deletion', async () => {
+    const app = createApp();
+
+    // 1. NETWORK_ENGINEER is denied POST /api/devices/types
+    const engSession = mockSessionLookup({
+      userId: 'eng-1',
+      roleCode: RoleCode.NETWORK_ENGINEER,
+    });
+    const engDeniedRes = await request(app)
+      .post('/api/devices/types')
+      .set('Authorization', `Bearer ${engSession.rawJwt}`)
+      .send({ name: 'RFID Reader', iconKey: 'HANDHELD' });
+    expect(engDeniedRes.status).toBe(403);
+    engSession.sessionSpy.mockRestore();
+
+    // 2. SITE_ADMIN creates custom device type cleanly
+    const adminSession = mockSessionLookup({
+      userId: 'site-admin-1',
+      roleCode: RoleCode.SITE_ADMIN,
+    });
+    const findUniqueSpy = vi.spyOn(prisma.deviceType, 'findUnique').mockResolvedValue(null as never);
+    const createSpy = vi.spyOn(prisma.deviceType, 'create').mockResolvedValue({
+      id: 'dt-rfid',
+      code: 'RFID_READER',
+      name: 'RFID Reader',
+      description: 'Fixed RFID Portal',
+      iconKey: 'HANDHELD',
+      isSystem: false,
+      _count: { devices: 0 },
+    } as never);
+    const auditSpy = vi.spyOn(prisma.auditLog, 'create').mockResolvedValue({} as never);
+
+    const createRes = await request(app)
+      .post('/api/devices/types')
+      .set('Authorization', `Bearer ${adminSession.rawJwt}`)
+      .send({
+        name: 'RFID Reader',
+        description: 'Fixed RFID Portal',
+        iconKey: 'HANDHELD',
+      });
+    expect(createRes.status).toBe(201);
+    expect(createRes.body.deviceType.code).toBe('RFID_READER');
+    expect(createRes.body.deviceType.isSystem).toBe(false);
+
+    // 3. Built-in system type (e.g. HANDHELD) cannot be deleted
+    findUniqueSpy.mockResolvedValueOnce({
+      id: 'dt-handheld',
+      code: 'HANDHELD',
+      name: 'Handheld Terminal / PDA',
+      isSystem: true,
+    } as never);
+    const delSysRes = await request(app)
+      .delete('/api/devices/types/dt-handheld')
+      .set('Authorization', `Bearer ${adminSession.rawJwt}`);
+    expect(delSysRes.status).toBe(400);
+
+    // 4. Custom type still in use by devices returns 409
+    findUniqueSpy.mockResolvedValueOnce({
+      id: 'dt-rfid',
+      code: 'RFID_READER',
+      name: 'RFID Reader',
+      isSystem: false,
+    } as never);
+    const countSpy = vi.spyOn(prisma.device, 'count').mockResolvedValueOnce(3 as never);
+    const delUsedRes = await request(app)
+      .delete('/api/devices/types/dt-rfid')
+      .set('Authorization', `Bearer ${adminSession.rawJwt}`);
+    expect(delUsedRes.status).toBe(409);
+
+    // 5. Unused custom type can be deleted
+    findUniqueSpy.mockResolvedValueOnce({
+      id: 'dt-rfid',
+      code: 'RFID_READER',
+      name: 'RFID Reader',
+      isSystem: false,
+    } as never);
+    countSpy.mockResolvedValueOnce(0 as never);
+    const delSpy = vi.spyOn(prisma.deviceType, 'delete').mockResolvedValueOnce({} as never);
+    const delOkRes = await request(app)
+      .delete('/api/devices/types/dt-rfid')
+      .set('Authorization', `Bearer ${adminSession.rawJwt}`);
+    expect(delOkRes.status).toBe(200);
+
+    findUniqueSpy.mockRestore();
+    createSpy.mockRestore();
+    countSpy.mockRestore();
+    delSpy.mockRestore();
+    auditSpy.mockRestore();
+    adminSession.sessionSpy.mockRestore();
   });
 });

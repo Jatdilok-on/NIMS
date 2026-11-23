@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import ExcelJS from 'exceljs';
 import archiver from 'archiver';
-import { DeviceCategory, DeviceStatus, RoleCode } from '@prisma/client';
+import { DeviceStatus, RoleCode } from '@prisma/client';
 import { decryptSecret, encryptSecret, hashPassword, hashToken, verifyPassword } from '../lib/crypto';
 import {
   canManageSiteAgents,
@@ -111,15 +111,17 @@ describe('IPAM CIDR Math & MAC Normalization', () => {
     expect(pickBestSubnetForDevice(subnets, '191.20.5.50', '10')?.id).toBe('s-16');
     expect(pickBestSubnetForDevice(subnets, '191.20.5.50', '99')).toBeUndefined();
 
-    expect(mapDiagramTypeToDeviceCategory('plc')).toBe(DeviceCategory.PLC);
-    expect(mapDiagramTypeToDeviceCategory('esxi')).toBe(DeviceCategory.ESXI);
-    expect(mapDiagramTypeToDeviceCategory('vm')).toBe(DeviceCategory.VM);
-    expect(mapDiagramTypeToDeviceCategory('nas')).toBe(DeviceCategory.NAS);
-    expect(mapDiagramTypeToDeviceCategory('ups')).toBe(DeviceCategory.UPS);
-    expect(mapDiagramTypeToDeviceCategory('plc', 'SERVER')).toBe(DeviceCategory.SERVER);
-    expect(mapDiagramTypeToDeviceCategory('access_point')).toBe(DeviceCategory.ACCESS_POINT);
-    expect(mapDiagramTypeToDeviceCategory('wireless_bridge')).toBe(DeviceCategory.AP_CLIENT);
-    expect(mapDiagramTypeToDeviceCategory('server')).toBe(DeviceCategory.SERVER);
+    expect(mapDiagramTypeToDeviceCategory('plc')).toBe('PLC');
+    expect(mapDiagramTypeToDeviceCategory('esxi')).toBe('ESXI');
+    expect(mapDiagramTypeToDeviceCategory('vm')).toBe('VM');
+    expect(mapDiagramTypeToDeviceCategory('nas')).toBe('NAS');
+    expect(mapDiagramTypeToDeviceCategory('ups')).toBe('UPS');
+    expect(mapDiagramTypeToDeviceCategory('plc', 'SERVER')).toBe('SERVER');
+    expect(mapDiagramTypeToDeviceCategory('access_point')).toBe('ACCESS_POINT');
+    expect(mapDiagramTypeToDeviceCategory('wireless_bridge')).toBe('AP_CLIENT');
+    expect(mapDiagramTypeToDeviceCategory('server')).toBe('SERVER');
+    expect(mapDiagramTypeToDeviceCategory('handheld')).toBe('HANDHELD');
+    expect(mapDiagramTypeToDeviceCategory('custom', 'RFID_READER')).toBe('RFID_READER');
   });
 });
 
@@ -163,7 +165,7 @@ describe('Excel Import/Export & PDF Export', () => {
       {
         itemNo: 1,
         siteCode: 'BTV',
-        category: DeviceCategory.SWITCH,
+        category: 'SWITCH',
         name: 'BTV-SW-01',
         model: 'Aruba 6200F',
         vendor: 'Aruba',

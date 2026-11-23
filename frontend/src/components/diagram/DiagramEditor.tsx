@@ -43,7 +43,7 @@ import {
   getDeviceLedClass,
   isDeviceAgentLive,
 } from '@/lib/deviceTelemetry';
-import { Device, DeviceCategory, DeviceStatus, DiagramItem } from '@/lib/types';
+import { Device, DeviceCategory, DeviceStatus, DeviceTypeItem, DiagramItem } from '@/lib/types';
 import {
   isGeneralShapeType,
   NetworkDeviceNode,
@@ -70,6 +70,7 @@ const PALETTE_ITEMS = [
   { type: 'tv', label: 'TV / Display' },
   { type: 'printer', label: 'Printer' },
   { type: 'barcode', label: 'Barcode' },
+  { type: 'handheld', label: 'Handheld' },
   { type: 'plc', label: 'PLC' },
   { type: 'cloud', label: 'Cloud' },
   { type: 'internet', label: 'Internet' },
@@ -187,6 +188,8 @@ function mapIconTypeToCategory(deviceType: string): DeviceCategory {
       return 'PRINTER';
     case 'barcode':
       return 'BARCODE';
+    case 'handheld':
+      return 'HANDHELD';
     default:
       return 'SWITCH';
   }
@@ -208,6 +211,7 @@ const HARDWARE_ICON_TYPES = new Set([
   'tv',
   'printer',
   'barcode',
+  'handheld',
   'plc',
   'wireless_bridge',
   'client',
@@ -248,6 +252,8 @@ function mapCategoryToIconType(category: string): string {
       return 'printer';
     case 'BARCODE':
       return 'barcode';
+    case 'HANDHELD':
+      return 'handheld';
     default:
       return 'switch';
   }
@@ -354,6 +360,7 @@ function InnerDiagramEditor({
   const [showMobilePalette, setShowMobilePalette] = useState(false);
   const [deviceFilter, setDeviceFilter] = useState('');
   const [inventoryDevices, setInventoryDevices] = useState<Device[]>(siteDevices);
+  const [deviceTypes, setDeviceTypes] = useState<DeviceTypeItem[]>([]);
   const clipboardRef = useRef<{ nodes: Node[]; edges: Edge[]; pasteCount: number } | null>(null);
   const importMenuRef = useRef<HTMLDivElement>(null);
   const bgMenuRef = useRef<HTMLDivElement>(null);
@@ -377,6 +384,11 @@ function InnerDiagramEditor({
         .catch(() => {});
     };
     refreshDevices();
+    apiFetch<{ deviceTypes: DeviceTypeItem[] }>('/devices/types')
+      .then((res) => {
+        if (!cancelled) setDeviceTypes(res.deviceTypes || []);
+      })
+      .catch(() => {});
     const timer = setInterval(refreshDevices, 10000);
     return () => {
       cancelled = true;
@@ -2311,6 +2323,35 @@ function InnerDiagramEditor({
                               <option value="TV">TV / Display</option>
                               <option value="PRINTER">Printer</option>
                               <option value="BARCODE">Barcode Scanner</option>
+                              <option value="HANDHELD">Handheld Terminal / PDA</option>
+                              {deviceTypes
+                                .filter(
+                                  (dt) =>
+                                    ![
+                                      'SWITCH',
+                                      'ACCESS_POINT',
+                                      'AP_CLIENT',
+                                      'WLC',
+                                      'SERVER',
+                                      'PLC',
+                                      'ESXI',
+                                      'VM',
+                                      'NAS',
+                                      'UPS',
+                                      'IP_CAM',
+                                      'PC',
+                                      'NVR',
+                                      'TV',
+                                      'PRINTER',
+                                      'BARCODE',
+                                      'HANDHELD',
+                                    ].includes(dt.code),
+                                )
+                                .map((dt) => (
+                                  <option key={dt.code} value={dt.code}>
+                                    {dt.name}
+                                  </option>
+                                ))}
                             </select>
                           </div>
                           {canEdit && (
