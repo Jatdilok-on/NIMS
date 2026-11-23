@@ -1,10 +1,10 @@
 'use client';
 
-import React, { useMemo, useState } from 'react';
+import React, { useState } from 'react';
 import { AlertTriangle, CheckCircle2, Download, FileSpreadsheet, X } from 'lucide-react';
 import { apiFetch, apiUploadWithProgress, ApiError } from '@/lib/api';
 import { FileDropzone } from '@/components/common/FileDropzone';
-import { DeviceCategory, DeviceTypeItem, Site } from '@/lib/types';
+import { DeviceCategory, Site } from '@/lib/types';
 
 interface PreviewRow {
   rowNumber: number;
@@ -60,17 +60,11 @@ const TARGET_FIELDS = [
   { value: 'operatingSystem', label: 'Operating System' },
 ];
 
-function inferCategoryClient(
-  rawVal: string | undefined,
-  fallback: DeviceCategory,
-  options: Array<{ value: DeviceCategory; label: string }> = DEVICE_CATEGORY_OPTIONS,
-): DeviceCategory {
+function inferCategoryClient(rawVal: string | undefined, fallback: DeviceCategory): DeviceCategory {
   const s = (rawVal || '').trim().toLowerCase();
   if (!s) return fallback;
   const upper = s.toUpperCase().replace(/[\s-]+/g, '_');
-  if (options.some((o) => o.value === upper)) return upper as DeviceCategory;
-  const customByName = options.find((o) => o.label.trim().toLowerCase() === s);
-  if (customByName) return customByName.value;
+  if (DEVICE_CATEGORY_OPTIONS.some((o) => o.value === upper)) return upper as DeviceCategory;
   if (s.includes('ap client') || s.includes('ap_client') || s.includes('bridge') || s.includes('cpe')) return 'AP_CLIENT';
   if (s.includes('access point') || s === 'ap') return 'ACCESS_POINT';
   if (s.includes('cam') || s.includes('cctv')) return 'IP_CAM';
@@ -103,28 +97,14 @@ function inferSiteClient(rawVal: string | undefined, sites: Site[], fallbackSite
 export function ImportWizardModal({
   sites,
   fixedSiteId,
-  deviceTypes,
   onClose,
   onImported,
 }: {
   sites: Site[];
   fixedSiteId?: string;
-  deviceTypes?: DeviceTypeItem[];
   onClose: () => void;
   onImported: () => void;
 }) {
-  const categoryOptions = useMemo(() => {
-    if (!deviceTypes || deviceTypes.length === 0) return DEVICE_CATEGORY_OPTIONS;
-    const seen = new Set(DEVICE_CATEGORY_OPTIONS.map((o) => o.value));
-    const list = [...DEVICE_CATEGORY_OPTIONS];
-    for (const dt of deviceTypes) {
-      if (!seen.has(dt.code)) {
-        seen.add(dt.code);
-        list.push({ value: dt.code, label: dt.name });
-      }
-    }
-    return list;
-  }, [deviceTypes]);
   const [step, setStep] = useState<'UPLOAD' | 'PREVIEW' | 'SUMMARY'>('UPLOAD');
   const [siteId, setSiteId] = useState(fixedSiteId || 'AUTO');
   const [fallbackSiteId, setFallbackSiteId] = useState(fixedSiteId || sites[0]?.id || '');
@@ -208,7 +188,7 @@ export function ImportWizardModal({
     if (nextTarget === 'category') {
       const resolvedFallback = category === 'AUTO' ? fallbackCategory : category;
       setRowCategories(
-        previewRows.map((r) => inferCategoryClient(r.raw[header], resolvedFallback, categoryOptions)),
+        previewRows.map((r) => inferCategoryClient(r.raw[header], resolvedFallback)),
       );
     } else if (nextTarget === 'site') {
       setRowSites(
@@ -360,7 +340,7 @@ export function ImportWizardModal({
                     <option value="AUTO">
                       Auto-Detect per Row (Use &quot;Type&quot; Column — Mixed Devices)
                     </option>
-                    {categoryOptions.map((opt) => (
+                    {DEVICE_CATEGORY_OPTIONS.map((opt) => (
                       <option key={opt.value} value={opt.value}>
                         Fixed / Default: {opt.label}
                       </option>
@@ -378,7 +358,7 @@ export function ImportWizardModal({
                       onChange={(e) => setFallbackCategory(e.target.value as DeviceCategory)}
                       className="w-full px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800"
                     >
-                      {categoryOptions.map((opt) => (
+                      {DEVICE_CATEGORY_OPTIONS.map((opt) => (
                         <option key={opt.value} value={opt.value}>
                           {opt.label}
                         </option>
@@ -473,7 +453,7 @@ export function ImportWizardModal({
                         className="px-2 py-1 rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900"
                       >
                         <option value="">-- Change all --</option>
-                        {categoryOptions.map((opt) => (
+                        {DEVICE_CATEGORY_OPTIONS.map((opt) => (
                           <option key={opt.value} value={opt.value}>
                             {opt.label}
                           </option>
@@ -573,7 +553,7 @@ export function ImportWizardModal({
                             }}
                             className="px-2 py-1 rounded border border-blue-200 dark:border-blue-800 bg-blue-50/50 dark:bg-blue-950/40 font-semibold text-blue-700 dark:text-blue-300"
                           >
-                            {categoryOptions.map((opt) => (
+                            {DEVICE_CATEGORY_OPTIONS.map((opt) => (
                               <option key={opt.value} value={opt.value}>
                                 {opt.label}
                               </option>

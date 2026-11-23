@@ -1,23 +1,14 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { DeviceStatus, Prisma, RoleCode } from '@prisma/client';
+import { DeviceCategory, DeviceStatus, Prisma } from '@prisma/client';
 import { prisma } from '../lib/prisma';
 import { authenticate } from '../middleware/auth';
-import {
-  getPermittedSiteIds,
-  hasSitePermission,
-  requireRoles,
-  requireSitePermission,
-} from '../middleware/rbac';
+import { getPermittedSiteIds, hasSitePermission, requireSitePermission } from '../middleware/rbac';
 import {
   createDeviceWithDetails,
   releaseDeviceIpamAllocations,
   updateDeviceWithDetails,
 } from '../lib/deviceService';
-import {
-  DEVICE_TYPE_CODE_REGEX,
-  normalizeDeviceTypeCode,
-} from '../lib/deviceCategories';
 import { recordAuditLog } from '../lib/audit';
 import {
   getLiveAgentSiteIds,
@@ -29,7 +20,7 @@ router.use(authenticate);
 
 const deviceInputSchema = z.object({
   siteId: z.string().min(1),
-  category: z.string().min(1).max(60).transform((v) => normalizeDeviceTypeCode(v)),
+  category: z.nativeEnum(DeviceCategory),
   itemNo: z.number().int().positive().optional().nullable(),
   name: z.string().min(1).max(200),
   model: z.string().max(150).optional().nullable(),
@@ -231,8 +222,10 @@ router.get('/', async (req, res, next) => {
       return;
     }
 
-    const rawCategory = typeof req.query.category === 'string' ? req.query.category.trim() : '';
-    const category = rawCategory ? normalizeDeviceTypeCode(rawCategory) || undefined : undefined;
+    const category =
+      typeof req.query.category === 'string' && req.query.category in DeviceCategory
+        ? (req.query.category as DeviceCategory)
+        : undefined;
     const status =
       typeof req.query.status === 'string' && req.query.status in DeviceStatus
         ? (req.query.status as DeviceStatus)
@@ -439,177 +432,6 @@ router.get('/', async (req, res, next) => {
   }
 });
 
-const deviceTypeCreateSchema = z.object({
-  code: z.string().min(1).max(60).optional(),
-  name: z.string().trim().min(1).max(80),
-  description: z.string().trim().max(300).optional().nullable(),
-  iconKey: z.string().trim().max(40).optional().nullable(),
-});
-
-const deviceTypeUpdateSchema = z.object({
-  name: z.string().trim().min(1).max(80).optional(),
-  description: z.string().trim().max(300).optional().nullable(),
-  iconKey: z.string().trim().max(40).optional().nullable(),
-});
-
-router.get('/types', async (_req, res, next) => {
-  try {
-    const deviceTypes = await prisma.deviceType.findMany({
-      include: {
-        _count: { select: { devices: true } },
-      },
-      orderBy: [{ isSystem: 'desc' }, { name: 'asc' }],
-    });
-    res.json({ deviceTypes });
-  } catch (err) {
-    next(err);
-  }
-});
-
-router.post(
-  '/types',
-  requireRoles(RoleCode.SUPER_ADMIN, RoleCode.SITE_ADMIN),
-  async (req, res, next) => {
-    try {
-      const body = deviceTypeCreateSchema.parse(req.body);
-      const normalizedCode = normalizeDeviceTypeCode(body.code || body.name);
-      if (!normalizedCode || !DEVICE_TYPE_CODE_REGEX.test(normalizedCode)) {
-        res.status(400).json({
-          error:
-            'Device type code must be 2-50 uppercase alphanumeric characters or underscores starting with a letter (e.g. HANDHELD, RFID_READER)',
-        });
-        return;
-      }
-
-      const normalizedIconKey = body.iconKey ? normalizeDeviceTypeCode(body.iconKey) || null : normalizedCode;
-      const existing = await prisma.deviceType.findUnique({ where: { code: normalizedCode } });
-      if (existing) {
-        res.status(409).json({ error: `Device type code "${normalizedCode}" already exists` });
-        return;
-      }
-
-      const created = await prisma.deviceType.create({
-        data: {
-          code: normalizedCode,
-          name: body.name,
-          description: body.description?.trim() || null,
-          iconKey: normalizedIconKey,
-          isSystem: false,
-        },
-        include: {
-          _count: { select: { devices: true } },
-        },
-      });
-
-      await recordAuditLog({
-        req,
-        userId: req.user!.id,
-        username: req.user!.username,
-        action: 'ADD_DEVICE_TYPE',
-        module: 'INVENTORY',
-        details: { code: created.code, name: created.name, iconKey: created.iconKey },
-      });
-
-      res.status(201).json({ deviceType: created });
-    } catch (err) {
-      next(err);
-    }
-  },
-);
-
-router.put(
-  '/types/:id',
-  requireRoles(RoleCode.SUPER_ADMIN, RoleCode.SITE_ADMIN),
-  async (req, res, next) => {
-    try {
-      const typeId = String(req.params.id);
-      const existing = await prisma.deviceType.findUnique({ where: { id: typeId } });
-      if (!existing) {
-        res.status(404).json({ error: 'Device type not found' });
-        return;
-      }
-
-      const body = deviceTypeUpdateSchema.parse(req.body);
-      const nextIconKey =
-        body.iconKey !== undefined
-          ? body.iconKey
-            ? normalizeDeviceTypeCode(body.iconKey) || null
-            : null
-          : undefined;
-
-      const updated = await prisma.deviceType.update({
-        where: { id: existing.id },
-        data: {
-          ...(body.name !== undefined ? { name: body.name } : {}),
-          ...(body.description !== undefined ? { description: body.description?.trim() || null } : {}),
-          ...(nextIconKey !== undefined ? { iconKey: nextIconKey } : {}),
-        },
-        include: {
-          _count: { select: { devices: true } },
-        },
-      });
-
-      await recordAuditLog({
-        req,
-        userId: req.user!.id,
-        username: req.user!.username,
-        action: 'EDIT_DEVICE_TYPE',
-        module: 'INVENTORY',
-        details: { code: updated.code, name: updated.name, iconKey: updated.iconKey },
-      });
-
-      res.json({ deviceType: updated });
-    } catch (err) {
-      next(err);
-    }
-  },
-);
-
-router.delete(
-  '/types/:id',
-  requireRoles(RoleCode.SUPER_ADMIN, RoleCode.SITE_ADMIN),
-  async (req, res, next) => {
-    try {
-      const typeId = String(req.params.id);
-      const existing = await prisma.deviceType.findUnique({
-        where: { id: typeId },
-      });
-      if (!existing) {
-        res.status(404).json({ error: 'Device type not found' });
-        return;
-      }
-      if (existing.isSystem) {
-        res.status(400).json({ error: 'Built-in system device types cannot be deleted' });
-        return;
-      }
-      const inUseCount = await prisma.device.count({
-        where: { OR: [{ deviceTypeId: existing.id }, { category: existing.code }] },
-      });
-      if (inUseCount > 0) {
-        res.status(409).json({
-          error: `Cannot delete device type "${existing.name}" because ${inUseCount} device(s) use it`,
-        });
-        return;
-      }
-
-      await prisma.deviceType.delete({ where: { id: existing.id } });
-
-      await recordAuditLog({
-        req,
-        userId: req.user!.id,
-        username: req.user!.username,
-        action: 'DELETE_DEVICE_TYPE',
-        module: 'INVENTORY',
-        details: { code: existing.code, name: existing.name },
-      });
-
-      res.json({ message: 'Device type deleted' });
-    } catch (err) {
-      next(err);
-    }
-  },
-);
-
 router.get('/:id', async (req, res, next) => {
   try {
     const device = await prisma.device.findUnique({
@@ -683,7 +505,7 @@ router.put('/bulk', async (req, res, next) => {
   try {
     const bulkSchema = z.object({
       deviceIds: z.array(z.string().min(1)).min(1),
-      category: z.string().min(1).max(60).transform((v) => normalizeDeviceTypeCode(v)).optional(),
+      category: z.nativeEnum(DeviceCategory).optional(),
       status: z.nativeEnum(DeviceStatus).optional(),
     });
     const body = bulkSchema.parse(req.body);
@@ -704,11 +526,7 @@ router.put('/bulk', async (req, res, next) => {
 
     let nextDeviceTypeId: string | undefined = undefined;
     if (body.category) {
-      const dt = await prisma.deviceType.findUnique({ where: { code: body.category } });
-      if (!dt) {
-        res.status(400).json({ error: `Unknown device category "${body.category}"` });
-        return;
-      }
+      const dt = await prisma.deviceType.findUniqueOrThrow({ where: { code: body.category } });
       nextDeviceTypeId = dt.id;
     }
 

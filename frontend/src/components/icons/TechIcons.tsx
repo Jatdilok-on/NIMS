@@ -492,38 +492,14 @@ export function TechHandheldIcon({ className = 'w-5 h-5' }: TechIconProps) {
   );
 }
 
-export const DEVICE_ICON_OPTIONS: Array<{ key: string; label: string }> = [
-  { key: 'HANDHELD', label: 'Handheld / PDA' },
-  { key: 'SWITCH', label: 'Switch' },
-  { key: 'ACCESS_POINT', label: 'Access Point' },
-  { key: 'AP_CLIENT', label: 'AP Client' },
-  { key: 'WLC', label: 'WLAN Controller' },
-  { key: 'SERVER', label: 'Server' },
-  { key: 'PLC', label: 'PLC' },
-  { key: 'ESXI', label: 'ESXi Host' },
-  { key: 'VM', label: 'Virtual Machine' },
-  { key: 'NAS', label: 'NAS Storage' },
-  { key: 'UPS', label: 'UPS' },
-  { key: 'IP_CAM', label: 'IP Camera' },
-  { key: 'PC', label: 'PC / Workstation' },
-  { key: 'NVR', label: 'NVR Recorder' },
-  { key: 'TV', label: 'TV / Display' },
-  { key: 'PRINTER', label: 'Printer' },
-  { key: 'BARCODE', label: 'Barcode Scanner' },
-  { key: 'GENERIC', label: 'Generic Device' },
-];
-
 export function DeviceCategoryTechIcon({
   category,
-  iconKey,
   className = 'w-5 h-5',
 }: {
   category: DeviceCategory | string;
-  iconKey?: string | null;
   className?: string;
 }) {
-  const key = (iconKey || category || '').toUpperCase();
-  switch (key) {
+  switch (category) {
     case 'SWITCH':
       return <TechSwitchIcon className={className} />;
     case 'ACCESS_POINT':

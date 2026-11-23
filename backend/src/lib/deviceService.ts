@@ -1,12 +1,7 @@
-import { DeviceStatus, IpAllocationStatus, Prisma } from '@prisma/client';
+import { DeviceCategory, DeviceStatus, IpAllocationStatus, Prisma } from '@prisma/client';
 import { prisma } from './prisma';
 import { isIpInCidr, isValidIpv4, normalizeMacAddress, parseCidr, parseVlanNumber } from './ipam';
 import { HttpError } from '../middleware/errorHandler';
-import {
-  DEVICE_TYPE_CODE_REGEX,
-  DeviceCategory,
-  normalizeDeviceTypeCode,
-} from './deviceCategories';
 
 export interface DevicePayload {
   siteId: string;
@@ -254,13 +249,9 @@ export async function createDeviceWithDetails(payload: DevicePayload) {
     payload.macAddress,
   );
 
-  const normalizedCategory = normalizeDeviceTypeCode(payload.category);
-  const deviceType = normalizedCategory
-    ? await prisma.deviceType.findUnique({ where: { code: normalizedCategory } })
-    : null;
-  if (!deviceType) {
-    throw new HttpError(400, `Unknown device category "${payload.category}"`);
-  }
+  const deviceType = await prisma.deviceType.findUniqueOrThrow({
+    where: { code: payload.category },
+  });
 
   const monitorEnabled = payload.monitorEnabled ?? true;
   const effectiveCreateStatus =
@@ -275,7 +266,7 @@ export async function createDeviceWithDetails(payload: DevicePayload) {
       data: {
         siteId: payload.siteId,
         deviceTypeId: deviceType.id,
-        category: deviceType.code,
+        category: payload.category,
         itemNo: payload.itemNo ?? null,
         name: payload.name.trim(),
         model: payload.model?.trim() || null,
@@ -292,7 +283,7 @@ export async function createDeviceWithDetails(payload: DevicePayload) {
       },
     });
 
-    if (device.category === 'SWITCH') {
+    if (payload.category === DeviceCategory.SWITCH) {
       const d = payload.switchDetail || {};
       await tx.switchDetail.create({
         data: {
@@ -307,7 +298,7 @@ export async function createDeviceWithDetails(payload: DevicePayload) {
           warrantyExpiration: parseOptionalDate(d.warrantyExpiration),
         },
       });
-    } else if (device.category === 'ACCESS_POINT') {
+    } else if (payload.category === DeviceCategory.ACCESS_POINT) {
       const d = payload.accessPointDetail || {};
       await tx.accessPointDetail.create({
         data: {
@@ -320,7 +311,7 @@ export async function createDeviceWithDetails(payload: DevicePayload) {
           controller: d.controller ?? null,
         },
       });
-    } else if (device.category === 'AP_CLIENT') {
+    } else if (payload.category === DeviceCategory.AP_CLIENT) {
       const d = payload.apClientDetail || {};
       await tx.apClientDetail.create({
         data: {
@@ -332,7 +323,7 @@ export async function createDeviceWithDetails(payload: DevicePayload) {
           connectedDevice: d.connectedDevice ?? null,
         },
       });
-    } else if (device.category === 'WLC') {
+    } else if (payload.category === DeviceCategory.WLC) {
       const d = payload.controllerDetail || {};
       await tx.controllerDetail.create({
         data: {
@@ -342,12 +333,12 @@ export async function createDeviceWithDetails(payload: DevicePayload) {
         },
       });
     } else if (
-      device.category === 'SERVER' ||
-      device.category === 'ESXI' ||
-      device.category === 'VM' ||
-      device.category === 'NAS' ||
-      device.category === 'PC' ||
-      device.category === 'NVR'
+      payload.category === DeviceCategory.SERVER ||
+      payload.category === DeviceCategory.ESXI ||
+      payload.category === DeviceCategory.VM ||
+      payload.category === DeviceCategory.NAS ||
+      payload.category === DeviceCategory.PC ||
+      payload.category === DeviceCategory.NVR
     ) {
       const d = payload.serverDetail || {};
       await tx.serverDetail.create({
@@ -402,34 +393,28 @@ export async function updateDeviceWithDetails(deviceId: string, payload: Partial
     deviceId,
   );
 
-  const nextCategory =
-    payload.category !== undefined ? normalizeDeviceTypeCode(payload.category) : existing.category;
-  const categoryChanged = payload.category !== undefined && nextCategory !== existing.category;
+  const nextCategory = payload.category ?? existing.category;
+  const categoryChanged = payload.category !== undefined && payload.category !== existing.category;
   let nextDeviceTypeId: string | undefined = undefined;
   if (categoryChanged) {
-    const dt = nextCategory
-      ? await prisma.deviceType.findUnique({ where: { code: nextCategory } })
-      : null;
-    if (!dt) {
-      throw new HttpError(400, `Unknown device category "${payload.category}"`);
-    }
+    const dt = await prisma.deviceType.findUniqueOrThrow({ where: { code: nextCategory } });
     nextDeviceTypeId = dt.id;
     // Remove stale subtype detail records from previous category
-    if (existing.category === 'SWITCH') {
+    if (existing.category === DeviceCategory.SWITCH) {
       await prisma.switchDetail.deleteMany({ where: { deviceId } });
-    } else if (existing.category === 'ACCESS_POINT') {
+    } else if (existing.category === DeviceCategory.ACCESS_POINT) {
       await prisma.accessPointDetail.deleteMany({ where: { deviceId } });
-    } else if (existing.category === 'AP_CLIENT') {
+    } else if (existing.category === DeviceCategory.AP_CLIENT) {
       await prisma.apClientDetail.deleteMany({ where: { deviceId } });
-    } else if (existing.category === 'WLC') {
+    } else if (existing.category === DeviceCategory.WLC) {
       await prisma.controllerDetail.deleteMany({ where: { deviceId } });
     } else if (
-      nextCategory !== 'SERVER' &&
-      nextCategory !== 'ESXI' &&
-      nextCategory !== 'VM' &&
-      nextCategory !== 'NAS' &&
-      nextCategory !== 'PC' &&
-      nextCategory !== 'NVR'
+      nextCategory !== DeviceCategory.SERVER &&
+      nextCategory !== DeviceCategory.ESXI &&
+      nextCategory !== DeviceCategory.VM &&
+      nextCategory !== DeviceCategory.NAS &&
+      nextCategory !== DeviceCategory.PC &&
+      nextCategory !== DeviceCategory.NVR
     ) {
       await prisma.serverDetail.deleteMany({ where: { deviceId } });
     }
@@ -476,7 +461,7 @@ export async function updateDeviceWithDetails(deviceId: string, payload: Partial
       },
     });
 
-    if (updated.category === 'SWITCH' && payload.switchDetail) {
+    if (updated.category === DeviceCategory.SWITCH && payload.switchDetail) {
       const d = payload.switchDetail;
       const existingDetail = await tx.switchDetail.findUnique({ where: { deviceId } });
       if (existingDetail) {
@@ -507,7 +492,7 @@ export async function updateDeviceWithDetails(deviceId: string, payload: Partial
           },
         });
       }
-    } else if (updated.category === 'ACCESS_POINT' && payload.accessPointDetail) {
+    } else if (updated.category === DeviceCategory.ACCESS_POINT && payload.accessPointDetail) {
       const existingDetail = await tx.accessPointDetail.findUnique({ where: { deviceId } });
       if (existingDetail) {
         await tx.accessPointDetail.update({
@@ -519,7 +504,7 @@ export async function updateDeviceWithDetails(deviceId: string, payload: Partial
           data: { deviceId, ...payload.accessPointDetail },
         });
       }
-    } else if (updated.category === 'AP_CLIENT' && payload.apClientDetail) {
+    } else if (updated.category === DeviceCategory.AP_CLIENT && payload.apClientDetail) {
       const existingDetail = await tx.apClientDetail.findUnique({ where: { deviceId } });
       if (existingDetail) {
         await tx.apClientDetail.update({
@@ -531,7 +516,7 @@ export async function updateDeviceWithDetails(deviceId: string, payload: Partial
           data: { deviceId, ...payload.apClientDetail },
         });
       }
-    } else if (updated.category === 'WLC' && payload.controllerDetail) {
+    } else if (updated.category === DeviceCategory.WLC && payload.controllerDetail) {
       const existingDetail = await tx.controllerDetail.findUnique({ where: { deviceId } });
       if (existingDetail) {
         await tx.controllerDetail.update({
@@ -544,12 +529,12 @@ export async function updateDeviceWithDetails(deviceId: string, payload: Partial
         });
       }
     } else if (
-      (updated.category === 'SERVER' ||
-        updated.category === 'ESXI' ||
-        updated.category === 'VM' ||
-        updated.category === 'NAS' ||
-        updated.category === 'PC' ||
-        updated.category === 'NVR') &&
+      (updated.category === DeviceCategory.SERVER ||
+        updated.category === DeviceCategory.ESXI ||
+        updated.category === DeviceCategory.VM ||
+        updated.category === DeviceCategory.NAS ||
+        updated.category === DeviceCategory.PC ||
+        updated.category === DeviceCategory.NVR) &&
       payload.serverDetail
     ) {
       const d = payload.serverDetail;
@@ -647,48 +632,66 @@ export function mapDiagramTypeToDeviceCategory(
   deviceType?: string | null,
   explicitCategory?: string | null,
 ): DeviceCategory {
-  if (explicitCategory) {
-    const normalizedExplicit = normalizeDeviceTypeCode(explicitCategory);
-    if (normalizedExplicit && DEVICE_TYPE_CODE_REGEX.test(normalizedExplicit)) {
-      return normalizedExplicit;
-    }
+  if (
+    explicitCategory &&
+    [
+      'SWITCH',
+      'ACCESS_POINT',
+      'AP_CLIENT',
+      'WLC',
+      'SERVER',
+      'PLC',
+      'ESXI',
+      'VM',
+      'NAS',
+      'UPS',
+      'IP_CAM',
+      'PC',
+      'NVR',
+      'TV',
+      'PRINTER',
+      'BARCODE',
+      'HANDHELD',
+    ].includes(explicitCategory)
+  ) {
+    return explicitCategory as DeviceCategory;
   }
   switch (deviceType) {
     case 'access_point':
-      return 'ACCESS_POINT';
+      return DeviceCategory.ACCESS_POINT;
     case 'wireless_bridge':
     case 'client':
-      return 'AP_CLIENT';
+      return DeviceCategory.AP_CLIENT;
     case 'wlc':
-      return 'WLC';
+      return DeviceCategory.WLC;
     case 'server':
-      return 'SERVER';
+      return DeviceCategory.SERVER;
     case 'plc':
-      return 'PLC';
+      return DeviceCategory.PLC;
     case 'esxi':
-      return 'ESXI';
+      return DeviceCategory.ESXI;
     case 'vm':
-      return 'VM';
+      return DeviceCategory.VM;
     case 'nas':
-      return 'NAS';
+      return DeviceCategory.NAS;
     case 'ups':
-      return 'UPS';
+      return DeviceCategory.UPS;
     case 'ip_cam':
-      return 'IP_CAM';
+      return DeviceCategory.IP_CAM;
     case 'pc':
-      return 'PC';
+      return DeviceCategory.PC;
     case 'nvr':
-      return 'NVR';
+      return DeviceCategory.NVR;
     case 'tv':
-      return 'TV';
+      return DeviceCategory.TV;
     case 'printer':
-      return 'PRINTER';
+      return DeviceCategory.PRINTER;
     case 'barcode':
-      return 'BARCODE';
+      return DeviceCategory.BARCODE;
     case 'handheld':
-      return 'HANDHELD';
+      return DeviceCategory.HANDHELD;
     default:
-      return 'SWITCH';
+      return DeviceCategory.SWITCH;
   }
 }
 

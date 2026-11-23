@@ -1,9 +1,8 @@
 import { Router } from 'express';
 import multer from 'multer';
 import { z } from 'zod';
-import { DeviceStatus } from '@prisma/client';
+import { DeviceCategory, DeviceStatus } from '@prisma/client';
 import { prisma } from '../lib/prisma';
-import { normalizeDeviceTypeCode } from '../lib/deviceCategories';
 import { authenticate } from '../middleware/auth';
 import { getPermittedSiteIds, hasSitePermission } from '../middleware/rbac';
 import {
@@ -105,20 +104,15 @@ router.post('/import/preview', upload.single('file'), async (req, res, next) => 
     const rawFallbackSiteId = String(req.body.fallbackSiteId || '').trim();
     const isAutoSiteMode = rawSiteId === 'AUTO';
 
-    const rawCategory = String(req.body.category || 'AUTO').trim();
-    const fallbackRaw = String(req.body.fallbackCategory || '').trim();
-    const isAutoMode = rawCategory.toUpperCase() === 'AUTO';
-
-    const registeredDeviceTypes = await prisma.deviceType.findMany({
-      select: { code: true, name: true },
-    });
-
-    const fixedCategory = !isAutoMode
-      ? normalizeDeviceCategory(rawCategory, undefined, registeredDeviceTypes) ?? undefined
-      : undefined;
-    const fallbackCategory = fallbackRaw
-      ? normalizeDeviceCategory(fallbackRaw, fixedCategory, registeredDeviceTypes) ?? fixedCategory
-      : fixedCategory;
+    const rawCategory = String(req.body.category || 'AUTO').toUpperCase();
+    const fallbackRaw = String(req.body.fallbackCategory || '').toUpperCase();
+    const isAutoMode = rawCategory === 'AUTO';
+    const fixedCategory =
+      !isAutoMode && rawCategory in DeviceCategory ? (rawCategory as DeviceCategory) : undefined;
+    const fallbackCategory =
+      fallbackRaw in DeviceCategory
+        ? (fallbackRaw as DeviceCategory)
+        : fixedCategory;
 
     if (!rawSiteId || (!isAutoMode && !fixedCategory)) {
       res.status(400).json({ error: 'Valid siteId (or AUTO) and inventory category (or AUTO) are required' });
@@ -229,9 +223,9 @@ router.post('/import/preview', upload.single('file'), async (req, res, next) => 
       }
 
       const resolvedCategory = isAutoMode
-        ? normalizeDeviceCategory(rawType, fallbackCategory, registeredDeviceTypes)
+        ? normalizeDeviceCategory(rawType, fallbackCategory)
         : rawType
-          ? normalizeDeviceCategory(rawType, fixedCategory, registeredDeviceTypes)
+          ? normalizeDeviceCategory(rawType, fixedCategory)
           : fixedCategory ?? null;
 
       if (!resolvedCategory) {
@@ -307,13 +301,13 @@ router.post('/import/preview', upload.single('file'), async (req, res, next) => 
 const confirmImportSchema = z.object({
   siteId: z.string().min(1),
   fallbackSiteId: z.string().optional(),
-  category: z.string().min(1).max(60).default('AUTO'),
-  fallbackCategory: z.string().max(60).optional(),
+  category: z.union([z.literal('AUTO'), z.nativeEnum(DeviceCategory)]).default('AUTO'),
+  fallbackCategory: z.nativeEnum(DeviceCategory).optional(),
   columnMapping: z.record(z.string()),
   defaultVlan: z.string().optional(),
   skipDuplicates: z.boolean().default(true),
   rows: z.array(z.record(z.string())),
-  rowCategories: z.array(z.string().min(1).max(60)).optional(),
+  rowCategories: z.array(z.nativeEnum(DeviceCategory)).optional(),
   rowSites: z.array(z.string()).optional(),
 });
 
@@ -327,22 +321,6 @@ router.post('/import/confirm', async (req, res, next) => {
       res.status(403).json({ error: 'Permission denied to import inventory into this site' });
       return;
     }
-
-    const registeredDeviceTypes = await prisma.deviceType.findMany({
-      select: { code: true, name: true },
-    });
-
-    const isAutoCategory = body.category.trim().toUpperCase() === 'AUTO';
-    const fixedConfirmCat = !isAutoCategory
-      ? normalizeDeviceCategory(body.category, undefined, registeredDeviceTypes)
-      : null;
-    if (!isAutoCategory && !fixedConfirmCat) {
-      res.status(400).json({ error: `Unknown inventory category "${body.category}"` });
-      return;
-    }
-    const fallbackConfirmCat = body.fallbackCategory
-      ? normalizeDeviceCategory(body.fallbackCategory, undefined, registeredDeviceTypes)
-      : fixedConfirmCat;
 
     const accessibleSites = await prisma.site.findMany({
       where: isAutoSiteMode
@@ -399,10 +377,11 @@ router.post('/import/confirm', async (req, res, next) => {
         continue;
       }
 
-      const fallbackCat = fallbackConfirmCat ?? undefined;
-      const rowCategory = body.rowCategories?.[i]
-        ? normalizeDeviceCategory(body.rowCategories[i], undefined, registeredDeviceTypes)
-        : normalizeDeviceCategory(mapped.category, fallbackCat, registeredDeviceTypes);
+      const fallbackCat =
+        body.category === 'AUTO' ? body.fallbackCategory : body.category;
+      const rowCategory =
+        body.rowCategories?.[i] ??
+        normalizeDeviceCategory(mapped.category, fallbackCat);
       if (!rowCategory) {
         errors.push({
           rowIndex: i + 1,
@@ -437,7 +416,7 @@ router.post('/import/confirm', async (req, res, next) => {
         remark: mapped.remark || null,
       };
 
-      if (rowCategory === 'SWITCH') {
+      if (rowCategory === DeviceCategory.SWITCH) {
         payload.switchDetail = {
           managementVlan: vlanVal,
           rack: mapped.rack || null,
@@ -445,7 +424,7 @@ router.post('/import/confirm', async (req, res, next) => {
           portCount: portCountNum && !Number.isNaN(portCountNum) ? portCountNum : null,
           firmwareVersion: mapped.firmwareVersion || null,
         };
-      } else if (rowCategory === 'ACCESS_POINT') {
+      } else if (rowCategory === DeviceCategory.ACCESS_POINT) {
         payload.accessPointDetail = {
           ssid: mapped.ssid || null,
           channel: mapped.channel || null,
@@ -453,7 +432,7 @@ router.post('/import/confirm', async (req, res, next) => {
           floor: mapped.floor || null,
           controller: mapped.controller || null,
         };
-      } else if (rowCategory === 'AP_CLIENT') {
+      } else if (rowCategory === DeviceCategory.AP_CLIENT) {
         payload.apClientDetail = {
           connectedAp: mapped.connectedAp || null,
           wirelessMode: mapped.wirelessMode || null,
@@ -461,17 +440,17 @@ router.post('/import/confirm', async (req, res, next) => {
           frequency: mapped.frequency || null,
           connectedDevice: mapped.connectedDevice || null,
         };
-      } else if (rowCategory === 'WLC') {
+      } else if (rowCategory === DeviceCategory.WLC) {
         payload.controllerDetail = {
           controllerVersion: mapped.firmwareVersion || null,
         };
       } else if (
-        rowCategory === 'SERVER' ||
-        rowCategory === 'ESXI' ||
-        rowCategory === 'VM' ||
-        rowCategory === 'NAS' ||
-        rowCategory === 'PC' ||
-        rowCategory === 'NVR'
+        rowCategory === DeviceCategory.SERVER ||
+        rowCategory === DeviceCategory.ESXI ||
+        rowCategory === DeviceCategory.VM ||
+        rowCategory === DeviceCategory.NAS ||
+        rowCategory === DeviceCategory.PC ||
+        rowCategory === DeviceCategory.NVR
       ) {
         payload.serverDetail = {
           hostname: mapped.hostname || name,
@@ -540,11 +519,10 @@ router.get('/export', async (req, res, next) => {
   try {
     const format = String(req.query.format || 'xlsx').toLowerCase();
     const siteId = typeof req.query.siteId === 'string' ? req.query.siteId : undefined;
-    const normalizedExportCat =
-      typeof req.query.category === 'string' && req.query.category.trim()
-        ? normalizeDeviceTypeCode(req.query.category)
-        : '';
-    const category = normalizedExportCat || undefined;
+    const category =
+      typeof req.query.category === 'string' && req.query.category in DeviceCategory
+        ? (req.query.category as DeviceCategory)
+        : undefined;
 
     const permittedSiteIds = getPermittedSiteIds(req.user!, 'canViewInventory');
     if (siteId && permittedSiteIds !== null && !permittedSiteIds.includes(siteId)) {

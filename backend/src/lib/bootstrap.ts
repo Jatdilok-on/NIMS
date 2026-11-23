@@ -1,4 +1,4 @@
-import { RoleCode } from '@prisma/client';
+import { DeviceCategory, RoleCode } from '@prisma/client';
 import { prisma } from './prisma';
 import { env } from '../config/env';
 
@@ -30,30 +30,24 @@ const SYSTEM_ROLES: { code: RoleCode; name: string; description: string }[] = [
   },
 ];
 
-const SYSTEM_DEVICE_TYPES: {
-  code: string;
-  name: string;
-  description: string;
-  iconKey: string;
-  isSystem: boolean;
-}[] = [
-  { code: 'SWITCH', name: 'Switch', description: 'Layer 2 / Layer 3 Network Switches', iconKey: 'SWITCH', isSystem: true },
-  { code: 'ACCESS_POINT', name: 'Access Point', description: 'Wireless Access Points', iconKey: 'ACCESS_POINT', isSystem: true },
-  { code: 'AP_CLIENT', name: 'AP Client', description: 'Wireless Bridges and Client Devices', iconKey: 'AP_CLIENT', isSystem: true },
-  { code: 'WLC', name: 'Wireless Controller (WLC)', description: 'Wireless LAN Controllers', iconKey: 'WLC', isSystem: true },
-  { code: 'SERVER', name: 'Server', description: 'Physical & Virtual Infrastructure Servers', iconKey: 'SERVER', isSystem: true },
-  { code: 'PLC', name: 'PLC', description: 'Programmable Logic Controllers & Industrial Automation', iconKey: 'PLC', isSystem: true },
-  { code: 'ESXI', name: 'VMware ESXi', description: 'Hypervisor & Virtualization Hosts', iconKey: 'ESXI', isSystem: true },
-  { code: 'VM', name: 'Virtual Machine (VM)', description: 'Guest Virtual Machines', iconKey: 'VM', isSystem: true },
-  { code: 'NAS', name: 'NAS Storage', description: 'Network-Attached Storage Appliances', iconKey: 'NAS', isSystem: true },
-  { code: 'UPS', name: 'UPS', description: 'Uninterruptible Power Supplies', iconKey: 'UPS', isSystem: true },
-  { code: 'IP_CAM', name: 'IP Camera (CCTV)', description: 'Network IP Cameras & CCTV Devices', iconKey: 'IP_CAM', isSystem: true },
-  { code: 'PC', name: 'PC / Workstation', description: 'Desktop PCs & Operator Workstations', iconKey: 'PC', isSystem: true },
-  { code: 'NVR', name: 'NVR Recorder', description: 'Network Video Recorders & CCTV Storage', iconKey: 'NVR', isSystem: true },
-  { code: 'TV', name: 'TV / Display', description: 'Smart TVs, Dashboard Displays & Digital Signage', iconKey: 'TV', isSystem: true },
-  { code: 'PRINTER', name: 'Printer', description: 'Network Printers & Industrial Label Printers', iconKey: 'PRINTER', isSystem: true },
-  { code: 'BARCODE', name: 'Barcode Scanner', description: 'Fixed & Handheld Barcode Scanners / Readers', iconKey: 'BARCODE', isSystem: true },
-  { code: 'HANDHELD', name: 'Handheld Terminal / PDA', description: 'Mobile Handheld Terminals, RF Scanners & Rugged PDAs', iconKey: 'HANDHELD', isSystem: true },
+const SYSTEM_DEVICE_TYPES: { code: DeviceCategory; name: string; description: string }[] = [
+  { code: DeviceCategory.SWITCH, name: 'Switch', description: 'Layer 2 / Layer 3 Network Switches' },
+  { code: DeviceCategory.ACCESS_POINT, name: 'Access Point', description: 'Wireless Access Points' },
+  { code: DeviceCategory.AP_CLIENT, name: 'AP Client', description: 'Wireless Bridges and Client Devices' },
+  { code: DeviceCategory.WLC, name: 'Wireless Controller (WLC)', description: 'Wireless LAN Controllers' },
+  { code: DeviceCategory.SERVER, name: 'Server', description: 'Physical & Virtual Infrastructure Servers' },
+  { code: DeviceCategory.PLC, name: 'PLC', description: 'Programmable Logic Controllers & Industrial Automation' },
+  { code: DeviceCategory.ESXI, name: 'VMware ESXi', description: 'Hypervisor & Virtualization Hosts' },
+  { code: DeviceCategory.VM, name: 'Virtual Machine (VM)', description: 'Guest Virtual Machines' },
+  { code: DeviceCategory.NAS, name: 'NAS Storage', description: 'Network-Attached Storage Appliances' },
+  { code: DeviceCategory.UPS, name: 'UPS', description: 'Uninterruptible Power Supplies' },
+  { code: DeviceCategory.IP_CAM, name: 'IP Camera (CCTV)', description: 'Network IP Cameras & CCTV Devices' },
+  { code: DeviceCategory.PC, name: 'PC / Workstation', description: 'Desktop PCs & Operator Workstations' },
+  { code: DeviceCategory.NVR, name: 'NVR Recorder', description: 'Network Video Recorders & CCTV Storage' },
+  { code: DeviceCategory.TV, name: 'TV / Display', description: 'Smart TVs, Dashboard Displays & Digital Signage' },
+  { code: DeviceCategory.PRINTER, name: 'Printer', description: 'Network Printers & Industrial Label Printers' },
+  { code: DeviceCategory.BARCODE, name: 'Barcode Scanner', description: 'Fixed & Handheld Barcode Scanners / Readers' },
+  { code: DeviceCategory.HANDHELD, name: 'Handheld Terminal / PDA', description: 'Mobile Handheld Terminals, RF Scanners & Rugged PDAs' },
 ];
 
 const SYSTEM_PERMISSIONS: { code: string; module: string; action: string; description: string }[] = [
@@ -92,12 +86,7 @@ export async function ensureReferenceData(): Promise<void> {
     if (existing) {
       await prisma.deviceType.update({
         where: { id: existing.id },
-        data: {
-          name: dt.name,
-          description: dt.description,
-          iconKey: dt.iconKey,
-          isSystem: true,
-        },
+        data: { name: dt.name, description: dt.description },
       });
     } else {
       await prisma.deviceType.create({ data: dt });

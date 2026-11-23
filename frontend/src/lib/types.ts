@@ -5,21 +5,24 @@ export type RoleCode =
   | 'VIEWER'
   | 'IP_VIEWER';
 
-export type DeviceCategory = string;
-
-export interface DeviceTypeItem {
-  id: string;
-  code: string;
-  name: string;
-  description?: string | null;
-  iconKey?: string | null;
-  isSystem: boolean;
-  _count?: {
-    devices: number;
-  };
-  createdAt?: string;
-  updatedAt?: string;
-}
+export type DeviceCategory =
+  | 'SWITCH'
+  | 'ACCESS_POINT'
+  | 'AP_CLIENT'
+  | 'WLC'
+  | 'SERVER'
+  | 'PLC'
+  | 'ESXI'
+  | 'VM'
+  | 'NAS'
+  | 'UPS'
+  | 'IP_CAM'
+  | 'PC'
+  | 'NVR'
+  | 'TV'
+  | 'PRINTER'
+  | 'BARCODE'
+  | 'HANDHELD';
 export type DeviceStatus = 'ONLINE' | 'OFFLINE' | 'MAINTENANCE' | 'UNKNOWN';
 export type IpAllocationStatus = 'AVAILABLE' | 'ALLOCATED' | 'RESERVED' | 'GATEWAY' | 'DHCP';
 export type LoginType =

@@ -43,7 +43,7 @@ import {
   getDeviceLedClass,
   isDeviceAgentLive,
 } from '@/lib/deviceTelemetry';
-import { Device, DeviceCategory, DeviceStatus, DeviceTypeItem, DiagramItem } from '@/lib/types';
+import { Device, DeviceCategory, DeviceStatus, DiagramItem } from '@/lib/types';
 import {
   isGeneralShapeType,
   NetworkDeviceNode,
@@ -360,7 +360,6 @@ function InnerDiagramEditor({
   const [showMobilePalette, setShowMobilePalette] = useState(false);
   const [deviceFilter, setDeviceFilter] = useState('');
   const [inventoryDevices, setInventoryDevices] = useState<Device[]>(siteDevices);
-  const [deviceTypes, setDeviceTypes] = useState<DeviceTypeItem[]>([]);
   const clipboardRef = useRef<{ nodes: Node[]; edges: Edge[]; pasteCount: number } | null>(null);
   const importMenuRef = useRef<HTMLDivElement>(null);
   const bgMenuRef = useRef<HTMLDivElement>(null);
@@ -384,11 +383,6 @@ function InnerDiagramEditor({
         .catch(() => {});
     };
     refreshDevices();
-    apiFetch<{ deviceTypes: DeviceTypeItem[] }>('/devices/types')
-      .then((res) => {
-        if (!cancelled) setDeviceTypes(res.deviceTypes || []);
-      })
-      .catch(() => {});
     const timer = setInterval(refreshDevices, 10000);
     return () => {
       cancelled = true;
@@ -2324,34 +2318,6 @@ function InnerDiagramEditor({
                               <option value="PRINTER">Printer</option>
                               <option value="BARCODE">Barcode Scanner</option>
                               <option value="HANDHELD">Handheld Terminal / PDA</option>
-                              {deviceTypes
-                                .filter(
-                                  (dt) =>
-                                    ![
-                                      'SWITCH',
-                                      'ACCESS_POINT',
-                                      'AP_CLIENT',
-                                      'WLC',
-                                      'SERVER',
-                                      'PLC',
-                                      'ESXI',
-                                      'VM',
-                                      'NAS',
-                                      'UPS',
-                                      'IP_CAM',
-                                      'PC',
-                                      'NVR',
-                                      'TV',
-                                      'PRINTER',
-                                      'BARCODE',
-                                      'HANDHELD',
-                                    ].includes(dt.code),
-                                )
-                                .map((dt) => (
-                                  <option key={dt.code} value={dt.code}>
-                                    {dt.name}
-                                  </option>
-                                ))}
                             </select>
                           </div>
                           {canEdit && (

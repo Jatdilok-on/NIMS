@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
   AlertTriangle,
   ChevronDown,
@@ -10,20 +10,17 @@ import {
   FileSpreadsheet,
   Plus,
   RotateCcw,
-  Tags,
   Trash2,
   Upload,
   X,
 } from 'lucide-react';
 import { apiFetch, ApiError } from '@/lib/api';
-import { useAuth } from '@/lib/auth-context';
 import { useI18n } from '@/lib/i18n';
 import { getDeviceLedClass, isDeviceAgentLive } from '@/lib/deviceTelemetry';
-import { Device, DeviceCategory, DeviceStatus, DeviceTypeItem, Site } from '@/lib/types';
+import { Device, DeviceCategory, DeviceStatus, Site } from '@/lib/types';
 import { DeviceCategoryTechIcon, TechDeviceAllIcon } from '@/components/icons/TechIcons';
 import { SearchInputWithClear, SiteQuickPills } from '@/components/common/SiteFilterBar';
 import { ImportWizardModal } from './ImportWizardModal';
-import { DeviceTypeManagerModal } from './DeviceTypeManagerModal';
 
 interface InventoryPanelProps {
   fixedSiteId?: string;
@@ -36,29 +33,25 @@ interface InventoryPanelProps {
 
 const VALID_STATUSES = new Set<string>(['ONLINE', 'OFFLINE', 'MAINTENANCE', 'UNKNOWN']);
 
-const DEFAULT_DEVICE_TYPES: Array<{ code: string; label: string; tabLabel: string }> = [
-  { code: 'SWITCH', label: 'Switch', tabLabel: 'Switches' },
-  { code: 'ACCESS_POINT', label: 'Access Point', tabLabel: 'Access Points' },
-  { code: 'AP_CLIENT', label: 'AP Client', tabLabel: 'AP Clients' },
-  { code: 'WLC', label: 'WLC Controller', tabLabel: 'WLC' },
-  { code: 'SERVER', label: 'Server', tabLabel: 'Servers' },
-  { code: 'PLC', label: 'PLC', tabLabel: 'PLC' },
-  { code: 'ESXI', label: 'ESXi Host', tabLabel: 'ESXi' },
-  { code: 'VM', label: 'Virtual Machine', tabLabel: 'VM' },
-  { code: 'NAS', label: 'NAS Storage', tabLabel: 'NAS' },
-  { code: 'UPS', label: 'UPS', tabLabel: 'UPS' },
-  { code: 'IP_CAM', label: 'IP Camera', tabLabel: 'IP Cameras' },
-  { code: 'PC', label: 'PC / Workstation', tabLabel: 'PC' },
-  { code: 'NVR', label: 'NVR Recorder', tabLabel: 'NVR' },
-  { code: 'TV', label: 'TV / Display', tabLabel: 'TV' },
-  { code: 'PRINTER', label: 'Printer', tabLabel: 'Printer' },
-  { code: 'BARCODE', label: 'Barcode Scanner', tabLabel: 'Barcode' },
-  { code: 'HANDHELD', label: 'Handheld Terminal / PDA', tabLabel: 'Handheld' },
-];
-
-const CATEGORY_LABELS: Record<string, string> = Object.fromEntries(
-  DEFAULT_DEVICE_TYPES.map((d) => [d.code, d.label]),
-);
+const CATEGORY_LABELS: Record<DeviceCategory, string> = {
+  SWITCH: 'Switch',
+  ACCESS_POINT: 'Access Point',
+  AP_CLIENT: 'AP Client',
+  WLC: 'WLC Controller',
+  SERVER: 'Server',
+  PLC: 'PLC',
+  ESXI: 'ESXi Host',
+  VM: 'Virtual Machine',
+  NAS: 'NAS Storage',
+  UPS: 'UPS',
+  IP_CAM: 'IP Camera',
+  PC: 'PC / Workstation',
+  NVR: 'NVR Recorder',
+  TV: 'TV / Display',
+  PRINTER: 'Printer',
+  BARCODE: 'Barcode Scanner',
+  HANDHELD: 'Handheld Terminal / PDA',
+};
 
 const STATUS_BADGE: Record<DeviceStatus, string> = {
   ONLINE:
@@ -123,17 +116,13 @@ export function InventoryPanel({
   initialCategory,
   initialStatus,
 }: InventoryPanelProps) {
-  const normalizedInitialCategory = initialCategory ? initialCategory.trim().toUpperCase() : '';
+  const normalizedInitialCategory =
+    initialCategory && initialCategory in CATEGORY_LABELS ? initialCategory : '';
   const normalizedInitialStatus =
     initialStatus && VALID_STATUSES.has(initialStatus) ? initialStatus : '';
 
-  const { user } = useAuth();
   const { t } = useI18n();
-  const canManageDeviceTypes =
-    user?.roleCode === 'SUPER_ADMIN' || user?.roleCode === 'SITE_ADMIN';
   const [sites, setSites] = useState<Site[]>([]);
-  const [deviceTypes, setDeviceTypes] = useState<DeviceTypeItem[]>([]);
-  const [showTypeManager, setShowTypeManager] = useState(false);
   const [devices, setDevices] = useState<Device[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
@@ -171,7 +160,7 @@ export function InventoryPanel({
       setSiteFilter(initialSiteId || '');
     }
     if (initialCategory !== undefined) {
-      setCategoryFilter(initialCategory ? initialCategory.trim().toUpperCase() : '');
+      setCategoryFilter(initialCategory && initialCategory in CATEGORY_LABELS ? initialCategory : '');
     }
     if (initialStatus !== undefined) {
       setStatusFilter(initialStatus && VALID_STATUSES.has(initialStatus) ? initialStatus : '');
@@ -179,73 +168,11 @@ export function InventoryPanel({
     setPage(1);
   }, [fixedSiteId, initialSiteId, initialCategory, initialStatus]);
 
-  const loadDeviceTypes = useCallback(async () => {
-    try {
-      const res = await apiFetch<{ deviceTypes: DeviceTypeItem[] }>('/devices/types');
-      setDeviceTypes(res.deviceTypes || []);
-    } catch {
-      // Fallback to built-in defaults if offline/unavailable
-    }
-  }, []);
-
   useEffect(() => {
     apiFetch<{ sites: Site[] }>('/sites')
       .then((res) => setSites(res.sites))
       .catch(() => {});
-    loadDeviceTypes();
-  }, [loadDeviceTypes]);
-
-  const categoryOptions = useMemo(() => {
-    const defaultTabMap = new Map(DEFAULT_DEVICE_TYPES.map((d) => [d.code, d.tabLabel]));
-    if (deviceTypes.length > 0) {
-      const byCode = new Map(deviceTypes.map((dt) => [dt.code, dt]));
-      const ordered: Array<{ code: string; name: string; tabLabel: string; iconKey?: string | null }> = [];
-      for (const def of DEFAULT_DEVICE_TYPES) {
-        const dt = byCode.get(def.code);
-        ordered.push({
-          code: def.code,
-          name: dt?.name || def.label,
-          tabLabel: def.tabLabel,
-          iconKey: dt?.iconKey || def.code,
-        });
-      }
-      for (const dt of deviceTypes) {
-        if (!defaultTabMap.has(dt.code)) {
-          ordered.push({
-            code: dt.code,
-            name: dt.name,
-            tabLabel: dt.name,
-            iconKey: dt.iconKey || dt.code,
-          });
-        }
-      }
-      return ordered;
-    }
-    return DEFAULT_DEVICE_TYPES.map((d) => ({
-      code: d.code,
-      name: d.label,
-      tabLabel: d.tabLabel,
-      iconKey: d.code,
-    }));
-  }, [deviceTypes]);
-
-  const categoryMetaMap = useMemo(() => {
-    const m = new Map<string, { name: string; iconKey?: string | null }>();
-    for (const opt of categoryOptions) {
-      m.set(opt.code, { name: opt.name, iconKey: opt.iconKey });
-    }
-    return m;
-  }, [categoryOptions]);
-
-  const getCategoryLabel = useCallback(
-    (code: string) => categoryMetaMap.get(code)?.name || CATEGORY_LABELS[code] || code,
-    [categoryMetaMap],
-  );
-
-  const getCategoryIconKey = useCallback(
-    (code: string) => categoryMetaMap.get(code)?.iconKey || code,
-    [categoryMetaMap],
-  );
+  }, []);
 
   const loadDevices = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
@@ -396,12 +323,24 @@ export function InventoryPanel({
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-wrap gap-1.5">
           {[
-            { value: '', label: t('inventory.allDevices'), iconKey: '' },
-            ...categoryOptions.map((opt) => ({
-              value: opt.code,
-              label: opt.tabLabel,
-              iconKey: opt.iconKey,
-            })),
+            { value: '', label: t('inventory.allDevices') },
+            { value: 'SWITCH', label: 'Switches' },
+            { value: 'ACCESS_POINT', label: 'Access Points' },
+            { value: 'AP_CLIENT', label: 'AP Clients' },
+            { value: 'WLC', label: 'WLC' },
+            { value: 'SERVER', label: 'Servers' },
+            { value: 'PLC', label: 'PLC' },
+            { value: 'ESXI', label: 'ESXi' },
+            { value: 'VM', label: 'VM' },
+            { value: 'NAS', label: 'NAS' },
+            { value: 'UPS', label: 'UPS' },
+            { value: 'IP_CAM', label: 'IP Cameras' },
+            { value: 'PC', label: 'PC' },
+            { value: 'NVR', label: 'NVR' },
+            { value: 'TV', label: 'TV' },
+            { value: 'PRINTER', label: 'Printer' },
+            { value: 'BARCODE', label: 'Barcode' },
+            { value: 'HANDHELD', label: 'Handheld' },
           ].map((tab) => {
             const active = categoryFilter === tab.value;
             return (
@@ -427,11 +366,7 @@ export function InventoryPanel({
                 }`}
               >
                 {tab.value ? (
-                  <DeviceCategoryTechIcon
-                    category={tab.value}
-                    iconKey={tab.iconKey}
-                    className="h-3.5 w-3.5"
-                  />
+                  <DeviceCategoryTechIcon category={tab.value} className="h-3.5 w-3.5" />
                 ) : (
                   <TechDeviceAllIcon className="h-3.5 w-3.5" />
                 )}
@@ -463,18 +398,6 @@ export function InventoryPanel({
             <Download className="h-3.5 w-3.5 text-red-600" />
             PDF
           </button>
-
-          {canManageDeviceTypes && (
-            <button
-              type="button"
-              onClick={() => setShowTypeManager(true)}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-semibold hover:bg-slate-50 dark:hover:bg-slate-800 cursor-pointer"
-              title="Add or edit device types (Admin / Super Admin)"
-            >
-              <Tags className="h-3.5 w-3.5 text-blue-600" />
-              Manage Types
-            </button>
-          )}
 
           {canEdit && (
             <>
@@ -612,9 +535,9 @@ export function InventoryPanel({
                 onChange={(e) => setBulkCategory(e.target.value as DeviceCategory)}
                 className="bg-transparent font-medium outline-none"
               >
-                {categoryOptions.map((opt) => (
-                  <option key={opt.code} value={opt.code}>
-                    {opt.name}
+                {Object.entries(CATEGORY_LABELS).map(([k, label]) => (
+                  <option key={k} value={k}>
+                    {label}
                   </option>
                 ))}
               </select>
@@ -774,13 +697,9 @@ export function InventoryPanel({
                     <td className="px-4 py-2.5 text-xs font-medium">
                       <span className="inline-flex items-center gap-2">
                         <span className="h-7 w-7 rounded-lg bg-sky-500/10 text-sky-600 dark:text-sky-400 flex items-center justify-center shrink-0">
-                          <DeviceCategoryTechIcon
-                            category={dev.category}
-                            iconKey={getCategoryIconKey(dev.category)}
-                            className="h-4 w-4"
-                          />
+                          <DeviceCategoryTechIcon category={dev.category} className="h-4 w-4" />
                         </span>
-                        <span>{getCategoryLabel(dev.category)}</span>
+                        <span>{CATEGORY_LABELS[dev.category]}</span>
                       </span>
                     </td>
                     <td className="px-4 py-2.5 font-semibold">
@@ -879,7 +798,7 @@ export function InventoryPanel({
               <div>
                 <div className="font-semibold text-sm">{dev.name}</div>
                 <div className="text-xs text-slate-500">
-                  {getCategoryLabel(dev.category)} • {dev.model || 'Unknown model'}
+                  {CATEGORY_LABELS[dev.category]} • {dev.model || 'Unknown model'}
                 </div>
               </div>
               <DeviceStatusPill status={dev.status} live={isDeviceAgentLive(dev)} />
@@ -959,7 +878,7 @@ export function InventoryPanel({
                 <div>
                   <h3 className="font-bold text-lg">{selectedDevice.name}</h3>
                   <p className="text-xs text-slate-500">
-                    {selectedDevice.site?.siteCode} • {getCategoryLabel(selectedDevice.category)}
+                    {selectedDevice.site?.siteCode} • {CATEGORY_LABELS[selectedDevice.category]}
                   </p>
                 </div>
                 <DeviceStatusPill status={selectedDevice.status} live={isDeviceAgentLive(selectedDevice)} />
@@ -1099,7 +1018,7 @@ export function InventoryPanel({
                     </span>
                     <span className="px-2 py-0.5 rounded bg-blue-50 dark:bg-blue-950 text-blue-700 dark:text-blue-300 font-semibold">
                       {deleteTarget.device.site?.siteCode || '-'} •{' '}
-                      {getCategoryLabel(deleteTarget.device.category)}
+                      {CATEGORY_LABELS[deleteTarget.device.category]}
                     </span>
                   </div>
                   <div className="grid grid-cols-2 gap-2 pt-1 text-slate-600 dark:text-slate-300">
@@ -1152,7 +1071,6 @@ export function InventoryPanel({
           sites={sites}
           fixedSiteId={fixedSiteId}
           editing={editingDevice}
-          categoryOptions={categoryOptions}
           onClose={() => setShowAddModal(false)}
           onSaved={() => {
             setShowAddModal(false);
@@ -1166,23 +1084,10 @@ export function InventoryPanel({
         <ImportWizardModal
           sites={sites}
           fixedSiteId={fixedSiteId}
-          deviceTypes={deviceTypes}
           onClose={() => setShowImportModal(false)}
           onImported={() => {
             setShowImportModal(false);
             loadDevices();
-          }}
-        />
-      )}
-
-      {/* Device Type Manager Modal (SUPER_ADMIN & SITE_ADMIN) */}
-      {showTypeManager && (
-        <DeviceTypeManagerModal
-          deviceTypes={deviceTypes}
-          onClose={() => setShowTypeManager(false)}
-          onUpdated={async () => {
-            await loadDeviceTypes();
-            loadDevices(true);
           }}
         />
       )}
@@ -1194,14 +1099,12 @@ function DeviceFormModal({
   sites,
   fixedSiteId,
   editing,
-  categoryOptions,
   onClose,
   onSaved,
 }: {
   sites: Site[];
   fixedSiteId?: string;
   editing: Device | null;
-  categoryOptions: Array<{ code: string; name: string }>;
   onClose: () => void;
   onSaved: () => void;
 }) {
@@ -1383,11 +1286,23 @@ function DeviceFormModal({
                 onChange={(e) => setCategory(e.target.value as DeviceCategory)}
                 className="w-full px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800"
               >
-                {categoryOptions.map((opt) => (
-                  <option key={opt.code} value={opt.code}>
-                    {opt.name}
-                  </option>
-                ))}
+                <option value="SWITCH">Switch</option>
+                <option value="ACCESS_POINT">Access Point</option>
+                <option value="AP_CLIENT">AP Client / Wireless Bridge</option>
+                <option value="WLC">Wireless Controller (WLC)</option>
+                <option value="SERVER">Server</option>
+                <option value="PLC">PLC / Industrial Controller</option>
+                <option value="ESXI">ESXi / Hypervisor Host</option>
+                <option value="VM">Virtual Machine (VM)</option>
+                <option value="NAS">NAS / Network Storage</option>
+                <option value="UPS">UPS / Backup Power</option>
+                <option value="IP_CAM">IP Camera (CCTV)</option>
+                <option value="PC">PC / Workstation</option>
+                <option value="NVR">NVR Recorder</option>
+                <option value="TV">TV / Display</option>
+                <option value="PRINTER">Printer</option>
+                <option value="BARCODE">Barcode Scanner</option>
+                <option value="HANDHELD">Handheld Terminal / PDA</option>
               </select>
             </div>
 
