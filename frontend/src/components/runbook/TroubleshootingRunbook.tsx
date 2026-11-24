@@ -870,7 +870,7 @@ export function TroubleshootingRunbook() {
                         onFailedIdxChange={(idx) => setDiagramFailedIdx(idx)}
                       />
 
-                      {/* Animated Case Troubleshooting Illustration synced 1-to-1 with Check-Flow Diagram & Guide Rules */}
+                      {/* Animated Case Troubleshooting Illustration synced 1-to-1 with Check-Flow Diagram */}
                       <RunbookCaseAnimation
                         guideId={activeGuide.id}
                         iconType={activeGuide.iconType}
@@ -878,9 +878,6 @@ export function TroubleshootingRunbook() {
                         diagramNodes={activeDiagramNodes}
                         failedIdx={diagramFailedIdx}
                         failedNode={failedNodeObj}
-                        networkMatrix={
-                          isTh ? activeGuide.thNetworkMatrix : activeGuide.enNetworkMatrix
-                        }
                         onSyncFailedIdx={(idx) => setDiagramFailedIdx(idx)}
                       />
                     </>

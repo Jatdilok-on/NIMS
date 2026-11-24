@@ -2,20 +2,12 @@
 
 import React, { useEffect, useId, useMemo, useState } from 'react';
 import {
-  AlertTriangle,
-  CheckCircle2,
   Film,
   Pause,
   Play,
   RotateCcw,
-  Wrench,
 } from 'lucide-react';
 import type { FlowNode } from './RunbookVisualDiagram';
-
-interface PingRule {
-  condition: string;
-  meaning: string;
-}
 
 interface EquipmentCaseConfig {
   titleTh: string;
@@ -64,40 +56,6 @@ function getNormalizedEquipmentKey(guideId: string, iconType: string): string {
   if (upper.includes('CLIENT') || iconType === 'CLIENT') return 'AP_CLIENT';
   if (upper.includes('AP') || iconType === 'AP') return 'ACCESS_POINT';
   return 'PLC_MAIN';
-}
-
-function matchNetworkRuleForNode(
-  failedNode: FlowNode | null,
-  failedIdx: number | null,
-  totalNodes: number,
-  rules: PingRule[],
-): PingRule | null {
-  if (!failedNode || failedIdx === null || rules.length === 0) return null;
-  const labelLower = failedNode.label.toLowerCase();
-
-  // 1. Direct keyword match against rule condition
-  for (const r of rules) {
-    const cond = r.condition.toLowerCase();
-    if (
-      (failedNode.roleKind === 'AP' && /bridge\s*ap|\bap\b/.test(cond) && /ไม่เจอ|fail|down/.test(cond)) ||
-      (failedNode.roleKind === 'CLIENT' && /bridge\s*cl|client|rutx|hap|phoenix/.test(cond) && /ไม่เจอ|fail|down/.test(cond)) ||
-      (failedNode.roleKind === 'PLC' && /plc/.test(cond) && /ไม่เจอ|fail|down/.test(cond)) ||
-      (failedNode.roleKind === 'VEHICLE' && /amr|rgv|shuttle|รถ/.test(cond) && /ไม่เจอ|fail|down/.test(cond)) ||
-      (failedNode.roleKind === 'SWITCH' && /switch/.test(cond) && /ไม่เจอ|fail|down/.test(cond))
-    ) {
-      return r;
-    }
-    const words = labelLower.split(/[\s()/]+/).filter((w) => w.length >= 3);
-    if (words.some((w) => cond.includes(w))) {
-      return r;
-    }
-  }
-
-  // 2. Positional fallback aligned with stage order
-  if (failedIdx === 0) return rules[0] || null;
-  if (failedIdx >= totalNodes - 1) return rules[rules.length - 1] || null;
-  const mappedIdx = Math.min(rules.length - 1, Math.max(0, failedIdx - 1));
-  return rules[mappedIdx] || null;
 }
 
 type VisualFaultStage = 'NONE' | 'UPSTREAM' | 'AP' | 'CLIENT' | 'ENDPOINT';
@@ -875,7 +833,6 @@ export function RunbookCaseAnimation({
   diagramNodes = [],
   failedIdx = null,
   failedNode = null,
-  networkMatrix = [],
   onSyncFailedIdx,
 }: {
   guideId: string;
@@ -884,7 +841,6 @@ export function RunbookCaseAnimation({
   diagramNodes?: FlowNode[];
   failedIdx?: number | null;
   failedNode?: FlowNode | null;
-  networkMatrix?: PingRule[];
   onSyncFailedIdx?: (idx: number | null) => void;
 }) {
   const eqKey = getNormalizedEquipmentKey(guideId, iconType);
@@ -894,11 +850,6 @@ export function RunbookCaseAnimation({
   const faultStage = useMemo(
     () => resolveFaultStage(failedNode, failedIdx, diagramNodes.length),
     [failedNode, failedIdx, diagramNodes.length],
-  );
-
-  const matchedRule = useMemo(
-    () => matchNetworkRuleForNode(failedNode, failedIdx, diagramNodes.length, networkMatrix),
-    [failedNode, failedIdx, diagramNodes.length, networkMatrix],
   );
 
   return (
@@ -978,49 +929,6 @@ export function RunbookCaseAnimation({
 
       {/* Realistic Hardware SVG Simulation */}
       <RealisticEquipmentSvg eqKey={eqKey} faultStage={faultStage} playing={playing} />
-
-      {/* Synchronized Diagnostic Banner Using Actual Guide Rule */}
-      {failedNode && failedIdx !== null ? (
-        <div className="rounded-xl border border-red-200 dark:border-red-900/60 bg-red-50/75 dark:bg-red-950/30 p-3 text-xs flex items-start gap-2.5">
-          <AlertTriangle className="h-4 w-4 text-red-600 shrink-0 mt-0.5" />
-          <div className="space-y-1">
-            <div className="font-bold text-red-700 dark:text-red-300">
-              {matchedRule
-                ? matchedRule.condition
-                : isTh
-                  ? `จุดที่ขาด (ด่าน ${failedIdx + 1}): ${failedNode.label}`
-                  : `Failure at Stage ${failedIdx + 1}: ${failedNode.label}`}
-            </div>
-            <div className="text-slate-700 dark:text-slate-200 leading-relaxed">
-              <span className="font-semibold">{isTh ? 'วิเคราะห์ & วิธีแก้: ' : 'Action: '}</span>
-              {matchedRule
-                ? matchedRule.meaning
-                : isTh
-                  ? failedNode.hintTh
-                  : failedNode.hintEn}
-            </div>
-          </div>
-        </div>
-      ) : (
-        <div className="rounded-xl border border-emerald-200 dark:border-emerald-900/60 bg-emerald-50/70 dark:bg-emerald-950/25 p-3 text-xs flex items-start gap-2.5">
-          <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0 mt-0.5" />
-          <div>
-            <div className="font-bold text-slate-800 dark:text-slate-100">
-              {isTh
-                ? 'สถานะปกติ: ทุกด่านในเส้นทางเชื่อมต่อและทำงานสมบูรณ์'
-                : 'Normal Status: All stages in the path are connected and healthy'}
-            </div>
-            <div className="text-slate-600 dark:text-slate-300 mt-0.5 flex items-center gap-1">
-              <Wrench className="h-3.5 w-3.5 text-emerald-600 shrink-0" />
-              <span>
-                {isTh
-                  ? 'คลิกที่จุดในแผนภาพด้านบน หรือปุ่มด่านด้านบน เพื่อจำลองอาการเสียจริงตามข้อในคู่มือ'
-                  : 'Click any stage in the diagram or buttons above to simulate the exact guide failure case.'}
-              </span>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
