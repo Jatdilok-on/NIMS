@@ -13,11 +13,11 @@ An on-premise web application for centralized multi-site network infrastructure 
   - Quick View modal for site details, Google Maps link, and VPN / credentials summary.
 
 - **NOC Dashboard & Analytics**
-  - Organization-wide or site-filtered KPIs (total sites, devices, diagrams, documents, and breakdown across 16 device categories).
+  - Organization-wide or site-filtered KPIs (total sites, devices, diagrams, documents, and breakdown across **17 device categories**).
   - Live device status (`ONLINE`, `OFFLINE`, `MAINTENANCE`, `UNKNOWN`), bar/donut charts, monthly growth trends, and scoped Recent Activity (all logs visible to `SUPER_ADMIN`).
 
 - **Device Inventory & Import/Export**
-  - Supports **16 device types**: `SWITCH`, `ACCESS_POINT`, `AP_CLIENT`, `WLC`, `SERVER`, `PLC`, `ESXI`, `VM`, `NAS`, `UPS`, `IP_CAM`, `PC`, `NVR`, `TV`, `PRINTER`, `BARCODE`.
+  - Supports **17 device types**: `SWITCH`, `ACCESS_POINT`, `AP_CLIENT`, `WLC`, `SERVER`, `PLC`, `ESXI`, `VM`, `NAS`, `UPS`, `IP_CAM`, `PC`, `NVR`, `TV`, `PRINTER`, `BARCODE`, `HANDHELD` (including import aliases such as `PDA`, `HHT`, `Hardheld`).
   - Per-site duplicate IP & MAC detection plus Global Search.
   - Excel / CSV import (supports Thai UTF-8 and Windows-874/TIS-620 CSV encoding), multi-category import in a single file, and auto-detected target site by column or filename.
   - Single-page listing with Bulk Edit / Bulk Delete and export to `.xlsx`, `.csv`, and `.pdf`.
@@ -46,8 +46,9 @@ An on-premise web application for centralized multi-site network infrastructure 
   - Production-hardened with HttpOnly Cookie Auth, CSRF Origin Validation, CSP/XSS Sanitization, and upload size/MIME validation.
 
 - **IT Service Device Check Runbook (`/runbook`)**
-  - Guided 4-step first-line troubleshooting SOP (**Step 1:** 10s Scope Isolation → **Step 2:** 4-Stage Sequential Ping → **Step 3:** Per-system guides for **SRM Cranes**, **AMR Vehicles**, **SHU Shuttles**, **PLC Main**, **Access Points**, **AP Clients/Bridges** → **Step 4:** Escalation Ticket Builder).
-  - Includes an **interactive clickable topology flow diagram** (switchable between `Ping Order: Source → End` and `Floor Check: Unit → Switch`), LED field cheat sheet, quick symptom selector, live site device IP lookup with 1-click `ping -n 5 <IP>` copy, and clean A4 printing across light & dark themes.
+  - Guided 4-step first-line troubleshooting SOP (**Step 1:** 10s Scope Isolation → **Step 2:** 4-Stage Sequential Ping → **Step 3:** Per-system guides for **SRM Cranes**, **AMR Vehicles**, **SHU Shuttles**, **RGV Rail Cars**, **PLC Main**, **Access Points**, **AP Clients/Bridges** → **Step 4:** Escalation Ticket Builder).
+  - Includes an **animated clickable triage flow diagram** (switchable between `Ping Order: Source → End` and `Floor Check: Unit → Switch`) paired with **realistic animated hardware case illustrations** synchronized 1-to-1 with each stage, LED field cheat sheet, quick symptom selector, live site device IP lookup with 1-click `ping -n 5 <IP>` copy, and clean A4 printing across light & dark themes.
+  - **4-Stage Escalation Ticket Builder**: dynamically adapts stage labels to the selected equipment guide, auto-populates `IP / VLAN / Location`, supports symptom patterns (`Hard Down`, `Flapping`, `High Latency`), provides smart isolation even when stages are skipped, and copies a structured summary in 1 click.
   - `NETWORK_ENGINEER`, `SITE_ADMIN`, and `SUPER_ADMIN` can easily **Add / Edit / Delete guides** and **attach field reference photos** directly from the UI (automatically backed up with `storage/`).
 
 - **Real-Time Monitoring (Site Ping Agents & Cross-Network Relay)**
@@ -56,8 +57,9 @@ An on-premise web application for centralized multi-site network infrastructure 
   - Supports **Cross-Network** deployments using **Notebook Bridge (`agent/relay/nims-relay-bridge.mjs`) + Cloudflare Workers & D1 Relay** for air-gapped servers without opening inbound firewall ports.
   - See architecture diagrams, flows, RBAC matrix, and capacity specs in [docs/PRESENTATION_FLOW.md](docs/PRESENTATION_FLOW.md).
 
-- **Backup & Restore**
-  - Portable `.zip` backups containing a MongoDB snapshot, uploaded storage files, and a SHA-256 manifest, supporting both manual and scheduled jobs (daily/weekly/monthly).
+- **System Settings, Backup & Retention (`/settings`)**
+  - Portable `.zip` backups supporting **Full Backup (MongoDB + Storage Files)** or **Database Only** with optional **notes** and a SHA-256 manifest, for both manual and scheduled jobs (daily/weekly/monthly).
+  - Supports **manual backup deletion**, **configurable retention policies (`backupRetentionCount` / `auditRetentionDays`) + one-click Prune**, and live **MongoDB Replica Set (`rs0`)**, storage usage, and **disk free space** telemetry.
 
 ---
 
