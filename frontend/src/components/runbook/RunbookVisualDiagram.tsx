@@ -302,7 +302,7 @@ export function RunbookVisualDiagram({
 
         {/* Visual Animated Node Chain */}
         <div className="overflow-x-auto pb-1 print:overflow-visible">
-          <div className="flex items-center justify-start lg:justify-between gap-1 min-w-[640px] py-3 px-1 print:min-w-0 print:flex-wrap print:gap-2">
+          <div className="flex items-center justify-start lg:justify-between gap-1 min-w-[640px] py-3 px-1 print:min-w-0 print:w-full print:flex-nowrap print:justify-between print:gap-1 print:py-1.5">
             {nodes.map((node, idx) => {
               const isFailed = failedIdx === idx;
               const isPassed = failedIdx !== null && idx < failedIdx;
@@ -332,7 +332,7 @@ export function RunbookVisualDiagram({
               return (
                 <React.Fragment key={`${node.label}-${idx}`}>
                   {idx > 0 && (
-                    <div className="flex-1 min-w-[64px] flex flex-col items-center justify-center px-1.5">
+                    <div className="flex-1 min-w-[64px] print:min-w-[26px] print:px-0.5 flex flex-col items-center justify-center px-1.5">
                       {/* Hop Type Badge */}
                       <span
                         className={`inline-flex items-center gap-1 text-[10px] font-bold mb-1.5 px-2 py-0.5 rounded-full whitespace-nowrap transition-colors ${
@@ -445,7 +445,7 @@ export function RunbookVisualDiagram({
                   <button
                     type="button"
                     onClick={() => setFailedIdx((cur) => (cur === idx ? null : idx))}
-                    className={`group relative flex flex-col items-center text-center w-38 shrink-0 rounded-2xl border p-3 transition-all duration-300 cursor-pointer ${
+                    className={`group relative flex flex-col items-center text-center w-38 shrink-0 print:w-auto print:flex-1 print:min-w-0 print:p-2 print:rounded-xl rounded-2xl border p-3 transition-all duration-300 cursor-pointer ${
                       isFailed
                         ? 'nims-runbook-fail-ring border-red-500 bg-red-50/95 dark:bg-red-950/55 shadow-md scale-[1.03]'
                         : isPassed
@@ -569,14 +569,14 @@ export function RunbookVisualDiagram({
       </div>
 
       {/* LED Visual Status Reference Strip */}
-      <div className="rounded-2xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-slate-900 p-4 break-inside-avoid">
+      <div className="rounded-2xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-slate-900 p-4 print:p-3 break-inside-avoid">
         <div className="text-[11px] font-bold uppercase tracking-wide text-slate-500 mb-2.5 flex items-center gap-1.5">
           <Wrench className="h-3.5 w-3.5 text-blue-600" />
           {isTh
             ? 'คู่มือดูสีไฟ LED หน้าเครื่องจริง (เช็กหน้างานใน 5 วินาที)'
             : 'Quick Hardware LED Visual Guide (5-Second Field Check)'}
         </div>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5 text-xs">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 print:grid-cols-4 gap-2.5 print:gap-2 text-xs">
           <div className="flex items-start gap-2.5 p-2.5 rounded-xl bg-emerald-50/60 dark:bg-emerald-950/25 border border-emerald-200/70 dark:border-emerald-900/50">
             <span className="relative flex h-3.5 w-3.5 mt-0.5 shrink-0">
               <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />

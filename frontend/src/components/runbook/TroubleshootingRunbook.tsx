@@ -34,6 +34,7 @@ import { getDeviceLedClass, isDeviceAgentLive } from '@/lib/deviceTelemetry';
 import { useI18n } from '@/lib/i18n';
 import { Device, Site } from '@/lib/types';
 import { RunbookVisualDiagram } from './RunbookVisualDiagram';
+import { RunbookCaseAnimation } from './RunbookCaseAnimation';
 
 type RunbookIconType =
   | 'CRANE'
@@ -489,12 +490,12 @@ export function TroubleshootingRunbook() {
       {viewMode === 'GUIDE' ? (
         <>
           {/* Step 1: Scope Triage */}
-          <div className="rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-4 space-y-3 break-inside-avoid">
+          <div className="rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-4 print:p-3 space-y-3 print:space-y-2 break-inside-avoid">
             <h2 className="text-sm font-bold flex items-center gap-2">
               <AlertTriangle className="h-4 w-4 text-amber-500" />
               {t('runbook.step0Title')}
             </h2>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
+            <div className="grid grid-cols-1 md:grid-cols-3 print:grid-cols-3 gap-3 print:gap-2 text-xs">
               <div className="p-3 rounded-lg border border-blue-200 dark:border-blue-900/60 bg-blue-50/50 dark:bg-blue-950/30">
                 <div className="font-bold text-blue-700 dark:text-blue-300 mb-1">
                   1. {t('runbook.scopeSingle')}
@@ -529,7 +530,7 @@ export function TroubleshootingRunbook() {
           </div>
 
           {/* Step 2: 4-Stage Sequential Ping */}
-          <div className="rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-4 space-y-3 break-inside-avoid">
+          <div className="rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-4 print:p-3 space-y-3 print:space-y-2 break-inside-avoid">
             <div>
               <h2 className="text-sm font-bold flex items-center gap-2">
                 <Server className="h-4 w-4 text-cyan-600" />
@@ -537,7 +538,7 @@ export function TroubleshootingRunbook() {
               </h2>
               <p className="text-xs text-slate-500 mt-0.5">{t('runbook.step1Hint')}</p>
             </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5 text-xs">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 print:grid-cols-4 gap-2.5 print:gap-2 text-xs">
               {[
                 {
                   step: '1',
@@ -582,8 +583,8 @@ export function TroubleshootingRunbook() {
           </div>
 
           {/* Step 3: Per-Device Check Selector, Live Site IP Helper & Guide Card */}
-          <div className="space-y-3">
-            <h2 className="text-sm font-bold flex items-center gap-2">
+          <div className="space-y-3 print:break-before-page">
+            <h2 className="text-sm font-bold flex items-center gap-2 print:break-after-avoid">
               <Wrench className="h-4 w-4 text-blue-600" />
               {t('runbook.step2Title')}
             </h2>
@@ -841,6 +842,13 @@ export function TroubleshootingRunbook() {
                   isTh={isTh}
                 />
 
+                {/* Animated Case Troubleshooting Illustration (SRM, AMR, SHU, RGV, PLC_MAIN, AP, AP_CLIENT) */}
+                <RunbookCaseAnimation
+                  guideId={activeGuide.id}
+                  iconType={activeGuide.iconType}
+                  isTh={isTh}
+                />
+
                 {/* Optional Field Photo uploaded by Network Engineer / Admin */}
                 {activeGuide.imageFile && (
                   <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/30 p-3.5 space-y-2">
@@ -875,7 +883,7 @@ export function TroubleshootingRunbook() {
                   </div>
                 )}
 
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 break-inside-avoid">
+                <div className="grid grid-cols-1 lg:grid-cols-2 print:grid-cols-2 gap-5 print:gap-3 break-inside-avoid">
                   <div className="space-y-2">
                     <h4 className="text-xs font-bold uppercase tracking-wide text-slate-500">
                       {t('runbook.physicalLabel')}
