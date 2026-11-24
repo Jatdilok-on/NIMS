@@ -18,7 +18,7 @@ import {
   XCircle,
 } from 'lucide-react';
 
-interface FlowNode {
+export interface FlowNode {
   label: string;
   linkTypeBefore: 'LAN' | 'WIFI' | null;
   roleKind: 'CORE' | 'SWITCH' | 'AP' | 'CLIENT' | 'PLC' | 'VEHICLE' | 'ENDPOINT';
@@ -87,7 +87,7 @@ function classifyNode(rawLabel: string): Omit<FlowNode, 'label' | 'linkTypeBefor
   };
 }
 
-function parsePathToNodes(pathText: string): FlowNode[] {
+export function parsePathToNodes(pathText: string): FlowNode[] {
   const normalized = (pathText || '')
     .replace(/~+\s*[^~→]+~+/g, ' ~~ ')
     .replace(/ลิงก์ไร้สาย/g, ' ~~ ')
@@ -165,21 +165,50 @@ export function RunbookVisualDiagram({
   guideId,
   pathText,
   isTh,
+  direction: controlledDirection,
+  onDirectionChange,
+  failedIdx: controlledFailedIdx,
+  onFailedIdxChange,
 }: {
   guideId: string;
   pathText: string;
   isTh: boolean;
+  direction?: 'PING' | 'FIELD';
+  onDirectionChange?: (dir: 'PING' | 'FIELD') => void;
+  failedIdx?: number | null;
+  onFailedIdxChange?: (idx: number | null, node: FlowNode | null) => void;
 }) {
   const rawNodes = useMemo(() => parsePathToNodes(pathText), [pathText]);
-  const [direction, setDirection] = useState<'PING' | 'FIELD'>('PING');
-  const [failedIdx, setFailedIdx] = useState<number | null>(null);
+  const [internalDirection, setInternalDirection] = useState<'PING' | 'FIELD'>('PING');
+  const [internalFailedIdx, setInternalFailedIdx] = useState<number | null>(null);
+
+  const direction = controlledDirection ?? internalDirection;
+  const failedIdx = controlledFailedIdx !== undefined ? controlledFailedIdx : internalFailedIdx;
+
+  const setDirection = (next: 'PING' | 'FIELD') => {
+    if (onDirectionChange) onDirectionChange(next);
+    else setInternalDirection(next);
+  };
+
+  const setFailedIdx = (nextOrUpdater: number | null | ((cur: number | null) => number | null), currentNodes: FlowNode[]) => {
+    const nextVal =
+      typeof nextOrUpdater === 'function' ? nextOrUpdater(failedIdx) : nextOrUpdater;
+    if (onFailedIdxChange) {
+      onFailedIdxChange(nextVal, nextVal !== null ? currentNodes[nextVal] ?? null : null);
+    } else {
+      setInternalFailedIdx(nextVal);
+    }
+  };
+
   const [isPlaying, setIsPlaying] = useState<boolean>(true);
   const [scanStep, setScanStep] = useState<number>(0);
 
   useEffect(() => {
-    setFailedIdx(null);
+    if (controlledFailedIdx === undefined) {
+      setInternalFailedIdx(null);
+    }
     setScanStep(0);
-  }, [guideId, pathText, direction]);
+  }, [guideId, pathText, direction, controlledFailedIdx]);
 
   const nodes = useMemo(() => {
     if (direction === 'PING' || rawNodes.length <= 1) return rawNodes;
@@ -252,7 +281,7 @@ export function RunbookVisualDiagram({
               {failedIdx !== null && (
                 <button
                   type="button"
-                  onClick={() => setFailedIdx(null)}
+                  onClick={() => setFailedIdx(null, nodes)}
                   className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-[11px] font-semibold text-slate-600 dark:text-slate-300 hover:text-blue-600 hover:border-blue-300 transition cursor-pointer"
                 >
                   <RotateCcw className="h-3 w-3" />
@@ -444,7 +473,7 @@ export function RunbookVisualDiagram({
                   {/* Interactive Stage Card */}
                   <button
                     type="button"
-                    onClick={() => setFailedIdx((cur) => (cur === idx ? null : idx))}
+                    onClick={() => setFailedIdx((cur) => (cur === idx ? null : idx), nodes)}
                     className={`group relative flex flex-col items-center text-center w-38 shrink-0 print:w-auto print:flex-1 print:min-w-0 print:p-2 print:rounded-xl rounded-2xl border p-3 transition-all duration-300 cursor-pointer ${
                       isFailed
                         ? 'nims-runbook-fail-ring border-red-500 bg-red-50/95 dark:bg-red-950/55 shadow-md scale-[1.03]'

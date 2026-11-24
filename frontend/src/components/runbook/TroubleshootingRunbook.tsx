@@ -33,7 +33,7 @@ import { useAuth } from '@/lib/auth-context';
 import { getDeviceLedClass, isDeviceAgentLive } from '@/lib/deviceTelemetry';
 import { useI18n } from '@/lib/i18n';
 import { Device, Site } from '@/lib/types';
-import { RunbookVisualDiagram } from './RunbookVisualDiagram';
+import { RunbookVisualDiagram, parsePathToNodes } from './RunbookVisualDiagram';
 import { RunbookCaseAnimation } from './RunbookCaseAnimation';
 
 type RunbookIconType =
@@ -144,6 +144,12 @@ export function TroubleshootingRunbook() {
   const [guides, setGuides] = useState<RunbookGuide[]>([]);
   const [selectedGuideId, setSelectedGuideId] = useState<string>('SRM');
   const [loadingGuides, setLoadingGuides] = useState(true);
+  const [diagramDirection, setDiagramDirection] = useState<'PING' | 'FIELD'>('PING');
+  const [diagramFailedIdx, setDiagramFailedIdx] = useState<number | null>(null);
+
+  useEffect(() => {
+    setDiagramFailedIdx(null);
+  }, [selectedGuideId]);
 
   // Modal state for Easy Add / Edit
   const [editingGuide, setEditingGuide] = useState<RunbookGuide | 'NEW' | null>(null);
@@ -836,18 +842,47 @@ export function TroubleshootingRunbook() {
                 </div>
 
                 {/* Visual Interactive Flow Diagram + LED Guide */}
-                <RunbookVisualDiagram
-                  guideId={activeGuide.id}
-                  pathText={isTh ? activeGuide.thPath : activeGuide.enPath}
-                  isTh={isTh}
-                />
+                {(() => {
+                  const rawDiagramNodes = parsePathToNodes(
+                    isTh ? activeGuide.thPath : activeGuide.enPath,
+                  );
+                  const activeDiagramNodes =
+                    diagramDirection === 'PING' || rawDiagramNodes.length <= 1
+                      ? rawDiagramNodes
+                      : [...rawDiagramNodes].reverse();
+                  const failedNodeObj =
+                    diagramFailedIdx !== null
+                      ? activeDiagramNodes[diagramFailedIdx] ?? null
+                      : null;
 
-                {/* Animated Case Troubleshooting Illustration (SRM, AMR, SHU, RGV, PLC_MAIN, AP, AP_CLIENT) */}
-                <RunbookCaseAnimation
-                  guideId={activeGuide.id}
-                  iconType={activeGuide.iconType}
-                  isTh={isTh}
-                />
+                  return (
+                    <>
+                      <RunbookVisualDiagram
+                        guideId={activeGuide.id}
+                        pathText={isTh ? activeGuide.thPath : activeGuide.enPath}
+                        isTh={isTh}
+                        direction={diagramDirection}
+                        onDirectionChange={(dir) => {
+                          setDiagramDirection(dir);
+                          setDiagramFailedIdx(null);
+                        }}
+                        failedIdx={diagramFailedIdx}
+                        onFailedIdxChange={(idx) => setDiagramFailedIdx(idx)}
+                      />
+
+                      {/* Animated Case Troubleshooting Illustration synced with Check-Flow Diagram */}
+                      <RunbookCaseAnimation
+                        guideId={activeGuide.id}
+                        iconType={activeGuide.iconType}
+                        isTh={isTh}
+                        diagramNodes={activeDiagramNodes}
+                        failedIdx={diagramFailedIdx}
+                        failedNode={failedNodeObj}
+                        onSyncFailedIdx={(idx) => setDiagramFailedIdx(idx)}
+                      />
+                    </>
+                  );
+                })()}
 
                 {/* Optional Field Photo uploaded by Network Engineer / Admin */}
                 {activeGuide.imageFile && (

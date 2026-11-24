@@ -10,7 +10,84 @@ import {
   Wrench,
 } from 'lucide-react';
 
+import type { FlowNode } from './RunbookVisualDiagram';
+
 type CaseScenarioId = 'NORMAL' | 'CASE_1' | 'CASE_2';
+
+function mapFailedNodeToScenario(eqKey: string, failedNode: FlowNode | null): CaseScenarioId {
+  if (!failedNode) return 'NORMAL';
+  const rk = failedNode.roleKind;
+  if (eqKey === 'SRM') {
+    return rk === 'PLC' || rk === 'ENDPOINT' ? 'CASE_2' : 'CASE_1';
+  }
+  if (eqKey === 'AMR') {
+    return rk === 'AP' || rk === 'SWITCH' || rk === 'CORE' ? 'CASE_1' : 'CASE_2';
+  }
+  if (eqKey === 'SHU') {
+    return rk === 'AP' || rk === 'CLIENT' ? 'CASE_1' : 'CASE_2';
+  }
+  if (eqKey === 'RGV') {
+    return rk === 'AP' || rk === 'SWITCH' ? 'CASE_2' : 'CASE_1';
+  }
+  if (eqKey === 'PLC_MAIN') {
+    return rk === 'PLC' || rk === 'ENDPOINT' ? 'CASE_2' : 'CASE_1';
+  }
+  if (eqKey === 'ACCESS_POINT') {
+    return rk === 'CLIENT' || rk === 'ENDPOINT' ? 'CASE_2' : 'CASE_1';
+  }
+  if (eqKey === 'AP_CLIENT') {
+    return rk === 'PLC' || rk === 'ENDPOINT' ? 'CASE_2' : 'CASE_1';
+  }
+  return 'CASE_1';
+}
+
+function findMatchingNodeIndex(
+  eqKey: string,
+  scenario: CaseScenarioId,
+  nodes: FlowNode[],
+): number | null {
+  if (scenario === 'NORMAL' || nodes.length === 0) return null;
+  const pickByKinds = (kinds: FlowNode['roleKind'][]) => {
+    const idx = nodes.findIndex((n) => kinds.includes(n.roleKind));
+    return idx >= 0 ? idx : null;
+  };
+  if (eqKey === 'SRM') {
+    return scenario === 'CASE_1'
+      ? pickByKinds(['CLIENT', 'AP']) ?? Math.min(1, nodes.length - 1)
+      : nodes.length - 1;
+  }
+  if (eqKey === 'AMR') {
+    return scenario === 'CASE_1'
+      ? pickByKinds(['AP', 'SWITCH']) ?? Math.min(1, nodes.length - 1)
+      : pickByKinds(['VEHICLE', 'CLIENT', 'ENDPOINT']) ?? nodes.length - 1;
+  }
+  if (eqKey === 'SHU') {
+    return scenario === 'CASE_1'
+      ? pickByKinds(['AP', 'CLIENT']) ?? Math.min(1, nodes.length - 1)
+      : nodes.length - 1;
+  }
+  if (eqKey === 'RGV') {
+    return scenario === 'CASE_1'
+      ? pickByKinds(['CLIENT', 'VEHICLE', 'PLC']) ?? nodes.length - 1
+      : pickByKinds(['AP', 'SWITCH']) ?? Math.min(1, nodes.length - 1);
+  }
+  if (eqKey === 'PLC_MAIN') {
+    return scenario === 'CASE_1'
+      ? pickByKinds(['SWITCH', 'CORE']) ?? 0
+      : pickByKinds(['PLC', 'ENDPOINT']) ?? nodes.length - 1;
+  }
+  if (eqKey === 'ACCESS_POINT') {
+    return scenario === 'CASE_1'
+      ? pickByKinds(['AP', 'SWITCH']) ?? Math.min(1, nodes.length - 1)
+      : pickByKinds(['CLIENT', 'ENDPOINT']) ?? nodes.length - 1;
+  }
+  if (eqKey === 'AP_CLIENT') {
+    return scenario === 'CASE_1'
+      ? pickByKinds(['CLIENT', 'AP']) ?? Math.min(1, nodes.length - 1)
+      : pickByKinds(['PLC', 'ENDPOINT']) ?? nodes.length - 1;
+  }
+  return null;
+}
 
 interface ScenarioMeta {
   id: CaseScenarioId;
@@ -836,19 +913,43 @@ export function RunbookCaseAnimation({
   guideId,
   iconType,
   isTh,
+  diagramNodes = [],
+  failedIdx = null,
+  failedNode = null,
+  onSyncFailedIdx,
 }: {
   guideId: string;
   iconType: string;
   isTh: boolean;
+  diagramNodes?: FlowNode[];
+  failedIdx?: number | null;
+  failedNode?: FlowNode | null;
+  onSyncFailedIdx?: (idx: number | null) => void;
 }) {
   const eqKey = getNormalizedEquipmentKey(guideId, iconType);
   const config = CASE_CONFIGS[eqKey] || CASE_CONFIGS.PLC_MAIN;
-  const [scenario, setScenario] = useState<CaseScenarioId>('NORMAL');
+  const [internalScenario, setInternalScenario] = useState<CaseScenarioId>('NORMAL');
   const [playing, setPlaying] = useState(true);
 
+  const scenario: CaseScenarioId = failedNode
+    ? mapFailedNodeToScenario(eqKey, failedNode)
+    : internalScenario;
+
   useEffect(() => {
-    setScenario('NORMAL');
+    setInternalScenario('NORMAL');
   }, [guideId]);
+
+  const handleSelectScenario = (scId: CaseScenarioId) => {
+    setInternalScenario(scId);
+    if (onSyncFailedIdx) {
+      if (scId === 'NORMAL') {
+        onSyncFailedIdx(null);
+      } else {
+        const matchIdx = findMatchingNodeIndex(eqKey, scId, diagramNodes);
+        if (matchIdx !== null) onSyncFailedIdx(matchIdx);
+      }
+    }
+  };
 
   const activeScenario =
     config.scenarios.find((s) => s.id === scenario) || config.scenarios[0];
@@ -856,7 +957,7 @@ export function RunbookCaseAnimation({
   return (
     <div className="rounded-2xl border border-slate-200/90 dark:border-slate-700/80 bg-white dark:bg-slate-900 p-4 space-y-3 break-inside-avoid">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="flex items-center gap-2 text-xs font-bold text-slate-800 dark:text-slate-100">
+        <div className="flex flex-wrap items-center gap-2 text-xs font-bold text-slate-800 dark:text-slate-100">
           <span className="h-7 w-7 rounded-xl bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 flex items-center justify-center shrink-0">
             <Film className="h-4 w-4" />
           </span>
@@ -865,6 +966,13 @@ export function RunbookCaseAnimation({
               ? `รูปประกอบการแก้ไขเคส: ${config.titleTh}`
               : `Animated Case Illustration: ${config.titleEn}`}
           </span>
+          {failedNode && failedIdx !== null && (
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-red-500/10 border border-red-500/25 text-red-600 dark:text-red-400 text-[10px] font-mono font-semibold">
+              {isTh
+                ? `ซิงค์กับด่าน ${failedIdx + 1}: ${failedNode.label}`
+                : `Synced Stage ${failedIdx + 1}: ${failedNode.label}`}
+            </span>
+          )}
         </div>
 
         <button
@@ -885,7 +993,7 @@ export function RunbookCaseAnimation({
             <button
               key={sc.id}
               type="button"
-              onClick={() => setScenario(sc.id)}
+              onClick={() => handleSelectScenario(sc.id)}
               className={`px-3 py-1.5 rounded-xl text-[11px] font-semibold border transition cursor-pointer ${
                 active
                   ? sc.severity === 'fail'
