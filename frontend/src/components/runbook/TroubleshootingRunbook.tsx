@@ -170,6 +170,7 @@ export function TroubleshootingRunbook() {
   const [selectedDeviceId, setSelectedDeviceId] = useState('');
   const [customUnit, setCustomUnit] = useState('');
   const [scope, setScope] = useState<'SINGLE' | 'ZONE' | 'FACTORY'>('SINGLE');
+  const [symptomPattern, setSymptomPattern] = useState<'DOWN' | 'FLAPPING' | 'LATENCY'>('DOWN');
   const [physChecks, setPhysChecks] = useState<Record<string, boolean>>({
     power: false,
     estop: false,
@@ -256,44 +257,82 @@ export function TroubleshootingRunbook() {
     [siteDevices, selectedDeviceId],
   );
 
+  const ticketStageLabels = useMemo(() => {
+    const guideObj = guides.find((g) => g.id === deviceType);
+    const parsed = guideObj
+      ? parsePathToNodes(isTh ? guideObj.thPath : guideObj.enPath)
+      : [];
+    const defaults = [
+      'Gateway / PLC Main',
+      'Access Point / Bridge AP',
+      'AP Client (RUTX10) / Bridge CL',
+      'End Device (PLC / AMR / Barcode)',
+    ];
+    return [
+      `1. ${parsed[0]?.label || defaults[0]}`,
+      `2. ${parsed[1]?.label || defaults[1]}`,
+      `3. ${parsed[2]?.label || defaults[2]}`,
+      `4. ${parsed[3]?.label || defaults[3]}`,
+    ] as const;
+  }, [guides, deviceType, isTh]);
+
   const autoDiagnosis = useMemo(() => {
     const { s1, s2, s3, s4 } = pingStages;
+    const [l1, l2, l3, l4] = ticketStageLabels;
+
     if (s1.status === 'FAIL') {
       return isTh
-        ? '🔴 ตัดวงระดับ Core/Gateway/PLC Main: เช็กไฟ Rack, Core/Access Switch และสายหลักก่อน'
-        : '🔴 Core / Gateway / PLC Main unreachable: check main rack power, switches, and uplink first.';
+        ? `🔴 ตัดวงระดับต้นทาง (${l1}): เช็กไฟ Rack, Core/Access Switch และสายหลักก่อน`
+        : `🔴 Upstream unreachable (${l1}): check main rack power, switches, and uplink first.`;
     }
-    if (s1.status === 'OK' && s2.status === 'FAIL') {
+    if (s2.status === 'FAIL') {
       return isTh
-        ? '🟠 ด่าน Access Point / Bridge AP ไม่ตอบ: ส่งต่อทีม Network เช็กพอร์ต Switch PoE / สาย UTP หรือ AP ตัวนั้น'
-        : '🟠 Access Point / Bridge AP unreachable: escalate to Network Team to check Switch PoE port / UTP cable.';
+        ? `🟠 ด่านที่ 2 (${l2}) ไม่ตอบ: ส่งต่อทีม Network เช็กพอร์ต Switch PoE / สาย UTP หรือตัว AP`
+        : `🟠 Stage 2 (${l2}) unreachable: escalate to Network Team to check Switch PoE port / UTP cable.`;
     }
-    if (s2.status === 'OK' && s3.status === 'FAIL') {
+    if (s3.status === 'FAIL') {
       return isTh
-        ? '🟡 ลิงก์ไร้สายถึง AP Client / Bridge CL ขาด: เช็กไฟบนรถ/เครน, เสา Wi-Fi, มุมจาน Bridge หรือจุดอับสัญญาณโซนนั้น'
-        : '🟡 Wireless link to Client/Bridge broken: verify onboard power, antenna, LoS, or zone RF coverage.';
+        ? `🟡 ด่านที่ 3 (${l3}) ขาด: เช็กไฟบนรถ/เครน, เสา Wi-Fi, มุมจาน Bridge หรือจุดอับสัญญาณโซนนั้น`
+        : `🟡 Stage 3 (${l3}) broken: verify onboard power, antenna, LoS, or zone RF coverage.`;
     }
-    if (s3.status === 'OK' && s4.status === 'FAIL') {
+    if (s4.status === 'FAIL') {
       return isTh
-        ? '🔵 Wi-Fi/Bridge มาถึงรถแล้ว แต่ End Device (PLC/Barcode) ไม่ตอบ: เช็กสาย LAN บนตัวรถ/เครน และไฟเลี้ยงตัวอุปกรณ์'
-        : '🔵 Wireless link OK, End Device down: check short LAN patch cable and power on the crane/shuttle.';
+        ? `🔵 ด่านที่ 4 (${l4}) ไม่ตอบ: สัญญาณก่อนหน้าถึงแล้ว — เช็กสาย LAN เส้นสั้นบนตัวเครื่องและไฟเลี้ยงปลายทาง`
+        : `🔵 Stage 4 (${l4}) down: upstream links OK — check short onboard LAN patch cable and device power.`;
     }
     if (s1.status === 'OK' && s2.status === 'OK' && s3.status === 'OK' && s4.status === 'OK') {
+      if (symptomPattern === 'FLAPPING') {
+        return isTh
+          ? '🟡 Ping ผ่าน แต่มีอาการหลุดเป็นช่วงๆ (Flapping): ส่งต่อทีม Network ตรวจ Roaming Handoff, สัญญาณรบกวน หรือขั้วสายหลวม'
+          : '🟡 Ping passes now but flapping: escalate to Network Team to inspect roaming handoff, RF noise, or loose cable.';
+      }
+      if (symptomPattern === 'LATENCY') {
+        return isTh
+          ? '🟡 Ping ผ่าน แต่ดีเลย์สูง (High Latency): ส่งต่อทีม Network ตรวจ Bandwidth / Channel Interference หรือพอร์ต Error'
+          : '🟡 Ping passes with high latency: escalate to Network Team to check RF interference or switch port errors.';
+      }
       return isTh
         ? '🟢 Ping ครบ 4 ด่านปกติ: Network ไม่ขาด — ให้ตรวจ E-Stop, Safety, PLC Program หรือระบบ WCS/WMS แทน'
         : '🟢 All 4 Ping stages pass: Network path is healthy — check E-Stop, safety interlocks, PLC or WCS/WMS.';
     }
+    if ([s1, s2, s3, s4].some((s) => s.status === 'OK')) {
+      return isTh
+        ? 'ℹ️ ด่านที่เลือกตอบสนองปกติ — กรุณาทดสอบด่านที่เหลือแล้วกด Reply OK หรือ Timeout เพื่อระบุจุดขาด'
+        : 'ℹ️ Marked stages reply OK — test remaining stages and mark Reply OK or Timeout to isolate the fault.';
+    }
     return isTh
       ? 'ℹ️ กรุณาเลือกผล Ping อย่างน้อยด่านที่ตรวจสอบ เพื่อช่วยระบุจุดที่น่าจะเสียให้อัตโนมัติ'
       : 'ℹ️ Mark the Ping stages you tested to receive an automatic layer-by-layer isolation hint.';
-  }, [pingStages, isTh]);
+  }, [pingStages, ticketStageLabels, symptomPattern, isTh]);
 
   const formattedSummary = useMemo(() => {
     const siteLabel = selectedSite ? `${selectedSite.siteCode} (${selectedSite.siteName})` : '-';
     const guideObj = guides.find((g) => g.id === deviceType);
     const typeLabel = guideObj ? (isTh ? guideObj.thTitle : guideObj.enTitle) : deviceType;
     const unitLabel = selectedDevice
-      ? `${selectedDevice.name} [${selectedDevice.managementIp || 'No IP'}]`
+      ? `${selectedDevice.name} [${selectedDevice.managementIp || 'No IP'}]${
+          selectedDevice.vlan ? ` | VLAN ${selectedDevice.vlan}` : ''
+        }${selectedDevice.location ? ` | ${selectedDevice.location}` : ''}`
       : customUnit.trim() || '-';
     const scopeLabel =
       scope === 'SINGLE'
@@ -301,6 +340,18 @@ export function TroubleshootingRunbook() {
         : scope === 'ZONE'
           ? t('runbook.scopeZone')
           : t('runbook.scopeFactory');
+    const patternLabel =
+      symptomPattern === 'DOWN'
+        ? isTh
+          ? 'ดับสนิท (Hard Down)'
+          : 'Hard Down'
+        : symptomPattern === 'FLAPPING'
+          ? isTh
+            ? 'หลุดเป็นช่วงๆ (Flapping)'
+            : 'Intermittent / Flapping'
+          : isTh
+            ? 'ช้า / ดีเลย์ (High Latency)'
+            : 'Slow / High Latency';
 
     const fmtPing = (label: string, p: { status: PingStageResult; ms: string }) => {
       const icon = p.status === 'OK' ? '✅ OK' : p.status === 'FAIL' ? '❌ Timeout' : '⬜ N/A';
@@ -318,15 +369,16 @@ export function TroubleshootingRunbook() {
       `System/Type: ${typeLabel}`,
       `Unit / IP: ${unitLabel}`,
       `Scope: ${scopeLabel}`,
+      `Pattern: ${patternLabel}`,
       ``,
       `Physical Inspection:`,
       checkedPhys,
       ``,
       `4-Stage Ping Triage:`,
-      fmtPing('1. Gateway / PLC Main', pingStages.s1),
-      fmtPing('2. Access Point / Bridge AP', pingStages.s2),
-      fmtPing('3. AP Client (RUTX10) / Bridge CL', pingStages.s3),
-      fmtPing('4. End Device (PLC / AMR / Barcode)', pingStages.s4),
+      fmtPing(ticketStageLabels[0], pingStages.s1),
+      fmtPing(ticketStageLabels[1], pingStages.s2),
+      fmtPing(ticketStageLabels[2], pingStages.s3),
+      fmtPing(ticketStageLabels[3], pingStages.s4),
       ``,
       `Assessment: ${autoDiagnosis}`,
       ...(notes.trim() ? [`Notes: ${notes.trim()}`] : []),
@@ -338,9 +390,11 @@ export function TroubleshootingRunbook() {
     selectedDevice,
     customUnit,
     scope,
+    symptomPattern,
     t,
     physChecks,
     isTh,
+    ticketStageLabels,
     pingStages,
     autoDiagnosis,
     notes,
@@ -370,6 +424,7 @@ export function TroubleshootingRunbook() {
     setSelectedDeviceId('');
     setCustomUnit('');
     setScope('SINGLE');
+    setSymptomPattern('DOWN');
     setPhysChecks({ power: false, estop: false, lan: false, rf: false });
     setPingStages({
       s1: { status: 'UNCHECKED', ms: '' },
@@ -1024,6 +1079,19 @@ export function TroubleshootingRunbook() {
                   ))}
                 </select>
               </div>
+              {selectedDevice && (
+                <div className="sm:col-span-2 flex flex-wrap items-center gap-2 text-[11px] px-3 py-2 rounded-lg bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700">
+                  <span className="font-mono font-bold text-blue-600 dark:text-blue-400">
+                    IP: {selectedDevice.managementIp || '-'}
+                  </span>
+                  <span className="text-slate-400">•</span>
+                  <span className="font-mono">VLAN: {selectedDevice.vlan || '-'}</span>
+                  <span className="text-slate-400">•</span>
+                  <span>Location: {selectedDevice.location || '-'}</span>
+                  <span className="text-slate-400">•</span>
+                  <span className="font-semibold">{selectedDevice.status}</span>
+                </div>
+              )}
 
               <div>
                 <label className="block font-semibold mb-1 text-slate-600 dark:text-slate-300">
@@ -1081,31 +1149,61 @@ export function TroubleshootingRunbook() {
               </div>
             </div>
 
-            <div className="text-xs">
-              <div className="font-semibold mb-1.5 text-slate-600 dark:text-slate-300">
-                {t('runbook.scopeLabel')}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
+              <div>
+                <div className="font-semibold mb-1.5 text-slate-600 dark:text-slate-300">
+                  {t('runbook.scopeLabel')}
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {(
+                    [
+                      ['SINGLE', t('runbook.scopeSingle')],
+                      ['ZONE', t('runbook.scopeZone')],
+                      ['FACTORY', t('runbook.scopeFactory')],
+                    ] as const
+                  ).map(([val, lbl]) => (
+                    <button
+                      key={val}
+                      type="button"
+                      onClick={() => setScope(val)}
+                      className={`px-3 py-1.5 rounded-lg border font-semibold cursor-pointer ${
+                        scope === val
+                          ? 'bg-blue-600 border-blue-600 text-white'
+                          : 'border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800'
+                      }`}
+                    >
+                      {lbl}
+                    </button>
+                  ))}
+                </div>
               </div>
-              <div className="flex flex-wrap gap-2">
-                {(
-                  [
-                    ['SINGLE', t('runbook.scopeSingle')],
-                    ['ZONE', t('runbook.scopeZone')],
-                    ['FACTORY', t('runbook.scopeFactory')],
-                  ] as const
-                ).map(([val, lbl]) => (
-                  <button
-                    key={val}
-                    type="button"
-                    onClick={() => setScope(val)}
-                    className={`px-3 py-1.5 rounded-lg border font-semibold cursor-pointer ${
-                      scope === val
-                        ? 'bg-blue-600 border-blue-600 text-white'
-                        : 'border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800'
-                    }`}
-                  >
-                    {lbl}
-                  </button>
-                ))}
+
+              <div>
+                <div className="font-semibold mb-1.5 text-slate-600 dark:text-slate-300">
+                  {isTh ? 'ลักษณะอาการ (Pattern)' : 'Symptom Pattern'}
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {(
+                    [
+                      ['DOWN', isTh ? 'ดับสนิท (Down)' : 'Hard Down'],
+                      ['FLAPPING', isTh ? 'หลุดเป็นช่วงๆ' : 'Flapping'],
+                      ['LATENCY', isTh ? 'ช้า / ดีเลย์' : 'High Latency'],
+                    ] as const
+                  ).map(([val, lbl]) => (
+                    <button
+                      key={val}
+                      type="button"
+                      onClick={() => setSymptomPattern(val)}
+                      className={`px-3 py-1.5 rounded-lg border font-semibold cursor-pointer ${
+                        symptomPattern === val
+                          ? 'bg-indigo-600 border-indigo-600 text-white'
+                          : 'border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800'
+                      }`}
+                    >
+                      {lbl}
+                    </button>
+                  ))}
+                </div>
               </div>
             </div>
 
@@ -1139,10 +1237,10 @@ export function TroubleshootingRunbook() {
               </div>
               {(
                 [
-                  ['s1', '1. Gateway / PLC Main'],
-                  ['s2', '2. Access Point / Bridge AP'],
-                  ['s3', '3. AP Client (RUTX10) / Bridge CL'],
-                  ['s4', '4. End Device (PLC / AMR / Barcode)'],
+                  ['s1', ticketStageLabels[0]],
+                  ['s2', ticketStageLabels[1]],
+                  ['s3', ticketStageLabels[2]],
+                  ['s4', ticketStageLabels[3]],
                 ] as const
               ).map(([stageKey, stageLabel]) => {
                 const st = pingStages[stageKey];
