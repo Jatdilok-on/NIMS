@@ -175,8 +175,8 @@ export const DEFAULT_RUNBOOK_GUIDES: RunbookGuide[] = [
     iconType: 'SHUTTLE',
     thTitle: 'SHU (รถ Shuttle ในชั้น Racking)',
     enTitle: 'SHU (4-Way Shuttle Car)',
-    thPath: 'PLC Main → Sundray AP (SSID: SHU) → AP Client บนรถ (RUTX10) → PLC & Barcode บนรถ',
-    enPath: 'PLC Main → Sundray AP (SHU SSID) → Onboard Client (RUTX10) → Onboard PLC & Barcode',
+    thPath: 'PLC Main → Access Point (SSID: SHU) → AP Client บนรถ (RUTX10) → PLC & Barcode บนรถ',
+    enPath: 'PLC Main → Access Point (SHU SSID) → Onboard Client (RUTX10) → Onboard PLC & Barcode',
     thPhysical: [
       'ตรวจแบตเตอรี่รถและเบรกเกอร์เลี้ยงชุดควบคุม (RUTX10 + PLC + Barcode)',
       'ดูเสาอากาศ Wi-Fi บนตัวรถ Shuttle ว่าหลวม, หัก, หรือเอียงหลุดขั้วหรือไม่',
@@ -370,8 +370,8 @@ export const DEFAULT_RUNBOOK_GUIDES: RunbookGuide[] = [
     id: 'ACCESS_POINT',
     codeBadge: 'AP • Wi-Fi',
     iconType: 'AP',
-    thTitle: 'Access Point (ตัวปล่อยสัญญาณ Wi-Fi เช่น Sundray)',
-    enTitle: 'Access Point (Zone Wi-Fi — e.g. Sundray NAP)',
+    thTitle: 'Access Point (ตัวปล่อยสัญญาณ Wi-Fi)',
+    enTitle: 'Access Point (Zone Wi-Fi AP)',
     thPath: 'Access Switch (PoE) → สาย UTP (Cat6) → Access Point → ปล่อย SSID (AMR / SHU)',
     enPath: 'Access Switch (PoE) → UTP Cable → Access Point → SSID Broadcast',
     thPhysical: [
@@ -564,10 +564,42 @@ function saveSeededDefaultIds(ids: Iterable<string>): void {
   });
 }
 
+function normalizeLegacyGuideBranding(guides: RunbookGuide[]): {
+  guides: RunbookGuide[];
+  changed: boolean;
+} {
+  let changed = false;
+  const replaceStr = (s: string) =>
+    s
+      .replace(/Sundray\s+AP/gi, 'Access Point')
+      .replace(/\s*เช่น\s*Sundray/gi, '')
+      .replace(/\s*—\s*e\.g\.\s*Sundray\s*NAP/gi, '');
+
+  const next = guides.map((g) => {
+    const thTitle = replaceStr(g.thTitle);
+    const enTitle = replaceStr(g.enTitle);
+    const thPath = replaceStr(g.thPath);
+    const enPath = replaceStr(g.enPath);
+    if (
+      thTitle !== g.thTitle ||
+      enTitle !== g.enTitle ||
+      thPath !== g.thPath ||
+      enPath !== g.enPath
+    ) {
+      changed = true;
+      return { ...g, thTitle, enTitle, thPath, enPath };
+    }
+    return g;
+  });
+  return { guides: next, changed };
+}
+
 function mergeNewlyAddedDefaults(existing: RunbookGuide[]): RunbookGuide[] {
+  const branded = normalizeLegacyGuideBranding(existing);
+  const currentGuides = branded.guides;
   const seededIds = loadSeededDefaultIds();
   const missingDefaults = DEFAULT_RUNBOOK_GUIDES.filter(
-    (def) => !seededIds.has(def.id) && !existing.some((g) => g.id === def.id),
+    (def) => !seededIds.has(def.id) && !currentGuides.some((g) => g.id === def.id),
   );
   if (missingDefaults.length === 0) {
     if (!fs.existsSync(getRunbookSeedStatePath())) {
@@ -577,10 +609,17 @@ function mergeNewlyAddedDefaults(existing: RunbookGuide[]): RunbookGuide[] {
         // non-fatal
       }
     }
-    return existing;
+    if (branded.changed) {
+      try {
+        writeGuidesAtomic(currentGuides);
+      } catch {
+        // non-fatal
+      }
+    }
+    return currentGuides;
   }
 
-  const next = [...existing];
+  const next = [...currentGuides];
   for (const def of missingDefaults) {
     const defIdx = DEFAULT_RUNBOOK_GUIDES.findIndex((d) => d.id === def.id);
     // Insert right after the nearest preceding default that exists, to preserve curated order
