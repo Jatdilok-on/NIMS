@@ -15,6 +15,7 @@ import {
   Server,
   Wifi,
   Wrench,
+  X,
   XCircle,
 } from 'lucide-react';
 
@@ -388,15 +389,15 @@ export function RunbookVisualDiagram({
                       {/* Animated SVG Cable / Wireless Wave Track */}
                       <div className="w-full relative h-5 flex items-center">
                         <svg
-                          viewBox="0 0 120 20"
+                          viewBox="0 0 100 20"
                           preserveAspectRatio="none"
-                          className="w-full h-5 overflow-visible"
+                          className="flex-1 h-5 overflow-visible"
                         >
                           {/* Subtle Base Track */}
                           <line
-                            x1="2"
+                            x1="0"
                             y1="10"
-                            x2="112"
+                            x2="100"
                             y2="10"
                             stroke={strokeColor}
                             strokeOpacity={linkIsDead ? 0.35 : 0.25}
@@ -408,9 +409,9 @@ export function RunbookVisualDiagram({
                           {/* Animated Flowing Pulse Stroke */}
                           {!linkIsDead && !linkIsBroken && (
                             <line
-                              x1="2"
+                              x1="0"
                               y1="10"
-                              x2="112"
+                              x2="100"
                               y2="10"
                               stroke={strokeColor}
                               strokeWidth="2.5"
@@ -420,35 +421,41 @@ export function RunbookVisualDiagram({
                             />
                           )}
 
-                          {/* Broken Link X Marker */}
+                          {/* Broken Link Dashed Lead */}
                           {linkIsBroken && (
-                            <g>
-                              <line
-                                x1="2"
-                                y1="10"
-                                x2="54"
-                                y2="10"
-                                stroke="#ef4444"
-                                strokeWidth="2.5"
-                                strokeDasharray="4 4"
-                              />
-                              <circle cx="60" cy="10" r="7" fill="#ef4444" />
-                              <path
-                                d="M57 7 L63 13 M63 7 L57 13"
-                                stroke="#ffffff"
-                                strokeWidth="1.8"
-                                strokeLinecap="round"
-                              />
-                            </g>
+                            <line
+                              x1="0"
+                              y1="10"
+                              x2="50"
+                              y2="10"
+                              stroke="#ef4444"
+                              strokeWidth="2.5"
+                              strokeDasharray="4 4"
+                            />
                           )}
+                        </svg>
 
-                          {/* Arrowhead */}
+                        {/* Crisp Non-Stretched Arrowhead */}
+                        <svg
+                          viewBox="0 0 10 20"
+                          className="w-2.5 h-5 shrink-0 -ml-0.5"
+                        >
                           <polygon
-                            points="110,5.5 119,10 110,14.5"
+                            points="0,5.5 9,10 0,14.5"
                             fill={strokeColor}
                             opacity={linkIsDead ? 0.45 : 0.95}
                           />
                         </svg>
+
+                        {/* Perfect Circle Broken Link X Marker (Never Stretched) */}
+                        {linkIsBroken && (
+                          <span
+                            aria-hidden="true"
+                            className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 h-4.5 w-4.5 rounded-full bg-red-500 text-white flex items-center justify-center shadow-xs pointer-events-none"
+                          >
+                            <X className="h-2.5 w-2.5 stroke-[3]" />
+                          </span>
+                        )}
 
                         {/* Smooth Glowing Packet Orb Traveling Along the Link */}
                         {isPlaying && !linkIsDead && !linkIsBroken && (
